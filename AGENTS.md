@@ -17,18 +17,14 @@ For the file inventory and the list of obsolete files, read `项目整理报告.
 
 ```bash
 npm install          # Install dependencies
-npm run build:js     # PREFERRED: rollup bundle, pure JS, works everywhere
-npm run build        # tsc type-check + esbuild production build (needs esbuild native binary)
+npm run check        # One-shot gate: typecheck + lint + build:js + tests
+npm run build:js     # rollup bundle (pure JS, canonical bundle step)
+npm run build        # tsc type-check + esbuild production build
 npm run dev          # esbuild watch mode
 npm run lint         # Run ESLint (with eslint-plugin-obsidianmd rules)
-
-node node_modules/typescript/bin/tsc -noEmit -skipLibCheck   # type-check only
+npm run typecheck    # TypeScript type-check only
+npm run test         # Unit tests (node --test, data layer)
 ```
-
-**Platform note**: on HarmonyOS / restricted filesystems, `npm run build` and `npm run dev`
-fail (esbuild needs an executable native binary, but the working directory is mounted
-`noexec`). Use `npm run build:js` to bundle and the standalone `tsc -noEmit` command above
-to type-check.
 
 ## Obsidian Plugin Directory
 
@@ -130,6 +126,6 @@ Before making large-scale changes:
 3. Present the minimal implementation plan
 
 After modifying code:
-1. Run `npm run build:js` (and `tsc -noEmit -skipLibCheck`)
-2. If a lint script exists, run `npm run lint`
+1. Run `npm run check` (typecheck + lint + build:js + tests)
+2. Fix any failure before finishing
 3. Summarize the changes and verification method

@@ -95,15 +95,14 @@ tags: [配置]
 ```bash
 npm install                 # 安装依赖
 
-npm run build:js            # 【推荐】rollup 打包，纯 JS 实现，任何平台可用
-npm run build               # tsc 类型检查 + esbuild 生产构建（需要 esbuild 原生二进制）
+npm run check               # 一键门禁：类型检查 + lint + 打包 + 单测
+npm run build:js            # 【推荐】rollup 打包（纯 JS，标准打包链路）
+npm run build               # tsc 类型检查 + esbuild 生产构建
 npm run dev                 # esbuild watch 模式
 npm run lint                # ESLint（含 eslint-plugin-obsidianmd 规则）
-
-node node_modules/typescript/bin/tsc -noEmit -skipLibCheck   # 只做类型检查
+npm run typecheck           # 只做 TypeScript 类型检查
+npm run test                # 数据层单元测试（node --test）
 ```
-
-> **平台提示**：在鸿蒙 / 受限文件系统环境下 `npm run build`、`npm run dev` 跑不通（esbuild 需要可执行的原生二进制，而工作目录 noexec）。此时用 `npm run build:js`（rollup 3 + 内联 TS 转译，纯 JS）打包，用上面的 `tsc -noEmit` 单独做类型检查。
 
 ### 安装到 Obsidian
 

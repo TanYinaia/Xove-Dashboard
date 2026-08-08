@@ -24,14 +24,14 @@
 - 数据存储：Vault 中的 Markdown 文件 + YAML frontmatter（中文键名）
 - 开发依赖：typescript、esbuild、rollup、eslint、obsidian 类型定义
 
-### 运行环境（当前，鸿蒙）
+### 运行环境（当前，Windows）
 
-- 开发目录：`/storage/Users/currentUser/My Dashboard`
-- Obsidian 库：`/storage/Users/currentUser/我的知识库/`，插件目录
-  `…/.obsidian/plugins/agent-dashboard/`（与开发目录分离，需手动 `cp` 同步三件套）
-- `npm run build` / `npm run dev` 在此环境**跑不通**（文件系统 noexec、esbuild/rollup4 需原生二进制），
-  统一用 `npm run build:js`
-- git 二进制在 `/data/service/hnp/bin/git`，PATH 有时未加载，需用绝对路径
+- 开发目录：`C:\Users\OseasyVM\Desktop\My Dashboard`
+- Obsidian 库与插件目录 `<Vault>/.obsidian/plugins/agent-dashboard/` 与开发目录分离，
+  构建后手动复制 `main.js` / `manifest.json` / `styles.css` 三件套并执行 Reload
+- 构建与验证：`npm run check`（typecheck + lint + build:js + test）一键门禁；
+  `npm run build` / `npm run dev` 使用 esbuild，本机可直接运行
+- 版本控制：本地 git（`personal` 分支），只在本机使用、不配置远程
 
 ## 目录结构
 

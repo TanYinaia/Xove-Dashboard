@@ -4,6 +4,7 @@ import { BannerSettings, DEFAULT_SETTINGS } from '../settings';
 import { BannerModal } from './BannerModal';
 import { TaskEditModal } from './TaskEditModal';
 import { parseTaskFile, parseProjectMeta, parseFrontmatter, TaskItem, ProjectInfo, TaskStatus, STATUS_LIST, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
+import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
 import { OpportunityModal } from './OpportunityModal';
 import {
 	OpportunityItem, OpportunityFormData, OpportunityStatus,
@@ -17,14 +18,12 @@ import type AgentDashboard from '../main';
 import {
 	ICON_home, ICON_newDiary, ICON_newTask, ICON_newProject,
 	ICON_allProjects, ICON_opportunity, ICON_gantt, ICON_list,
-	ICON_calendar, ICON_kanban,
+	ICON_calendar, ICON_kanban, injectSvg,
 } from '../icons';
 
 export const VIEW_TYPE = 'agent-dashboard-view';
 
-function fmtDate(d: Date): string {
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+
 
 /* ---- Repeat rule helpers (modal English freq → Chinese frontmatter) ---- */
 
@@ -148,6 +147,7 @@ export class DashboardView extends ItemView {
 	private dashboardEl: HTMLElement | null = null;
 	/** Header theme-toggle button. Prefixed to avoid clashing with ItemView fields. */
 	private adThemeBtn: HTMLElement | null = null;
+	private adWarnedProjectsFallback = false;
 
 	// Project overview state
 	private currentProjects: ProjectInfo[] = [];
@@ -195,7 +195,7 @@ export class DashboardView extends ItemView {
 	}
 
 	private applyTheme(): void {
-		const root = this.dashboardEl ?? (this.containerEl.querySelector('.agent-dashboard') as HTMLElement | null);
+		const root = this.dashboardEl ?? (this.containerEl.querySelector('.agent-dashboard'));
 		if (root) root.setAttribute('data-theme', this.effectiveTheme());
 		this.refreshThemeButton();
 	}
@@ -237,6 +237,7 @@ export class DashboardView extends ItemView {
 
 		// Auto-refresh on vault changes (home cards incl. progress + weekly, or project overview)
 		const refreshAll = () => {
+			this.invalidateTaskCache();
 			void this.updatePulse();
 			if (this.currentPage === 'project') {
 				void this.refreshProjectOverview();
@@ -251,17 +252,24 @@ export class DashboardView extends ItemView {
 		this.registerEvent(this.app.vault.on('delete', refreshAll));
 		this.registerEvent(this.app.vault.on('rename', refreshAll));
 		this.registerEvent(this.app.vault.on('modify', (file) => {
-			void this.updatePulse();
+			this.invalidateTaskCache();
 			if (this.currentPage === 'project') {
 				// Project config files are re-rendered by setProjectStage / updateProjectFile themselves.
 				// Skipping here avoids a stale re-scan clobbering the just-set stage (flash → reset to first stage).
 				if (file instanceof TFile && file.name.startsWith('project-')) return;
+				void this.updatePulse();
 				void this.refreshProjectOverview();
 			} else if (this.currentPage === 'opportunity') {
 				if (file instanceof TFile && file.path === this.plugin.settings.opportunityFile) {
+					void this.updatePulse();
 					this.scheduleOpportunityRefresh();
 				}
 			} else {
+				// Home: ignore edits to unrelated files. Only task files (markdown under
+				// the projects folder) affect the home cards, so this saves a full rescan
+				// on every unrelated note edit while still staying fresh for real changes.
+				if (!(file instanceof TFile) || !this.isTaskRelevantPath(file.path)) return;
+				void this.updatePulse();
 				this.scheduleHomeRefresh();
 			}
 		}));
@@ -394,14 +402,16 @@ export class DashboardView extends ItemView {
 		const canvas = root.createEl('canvas', { cls: 'ad-noise' });
 		// Inline fallback so the grain overlay never occupies normal-flow space
 		// (covers flex %-height quirks + CSS load-order issues).
-		canvas.style.position = 'absolute';
-		canvas.style.inset = '0';
-		canvas.style.width = '100%';
-		canvas.style.height = '100%';
-		canvas.style.zIndex = '0';
-		canvas.style.pointerEvents = 'none';
-		canvas.style.imageRendering = 'pixelated';
-		canvas.style.display = 'block';
+		canvas.setCssProps({
+			position: 'absolute',
+			inset: '0',
+			width: '100%',
+			height: '100%',
+			zIndex: '0',
+			pointerEvents: 'none',
+			imageRendering: 'pixelated',
+			display: 'block',
+		});
 		const ctx = canvas.getContext('2d', { alpha: true });
 		if (!ctx) return;
 		const size = 1024;
@@ -434,10 +444,10 @@ export class DashboardView extends ItemView {
 		bar.createSpan({ cls: 'ad-pulse__tag', text: '[ VAULT PULSE ]' });
 
 		const today = new Date();
-		const todayStr = this.todayStr();
+		const todayKey = todayStr();
 		const noteCounts = this.getVaultNoteCounts();
 		const hs = calcHeatmapStats(noteCounts, today.getFullYear(), today);
-		const todayCount = noteCounts.get(todayStr) ?? 0;
+		const todayCount = noteCounts.get(todayKey) ?? 0;
 
 		// Compute real pending task count (not done / not cancelled)
 		let pendingCount = 0;
@@ -469,10 +479,10 @@ export class DashboardView extends ItemView {
 	private async updatePulse(): Promise<void> {
 		if (!this.pulseEls) return;
 		const today = new Date();
-		const todayStr = this.todayStr();
+		const todayKey = todayStr();
 		const noteCounts = this.getVaultNoteCounts();
 		const hs = calcHeatmapStats(noteCounts, today.getFullYear(), today);
-		const todayCount = noteCounts.get(todayStr) ?? 0;
+		const todayCount = noteCounts.get(todayKey) ?? 0;
 		this.pulseEls.total.textContent = `${hs.total} NOTES`;
 		this.pulseEls.today.textContent = `\u0394 TODAY +${todayCount}`;
 		this.pulseEls.streak.textContent = `${hs.streak}D STREAK`;
@@ -578,7 +588,7 @@ export class DashboardView extends ItemView {
 		items.forEach((it) => {
 			const btn = nav.createEl('button', { cls: 'ad-toolbar__btn' });
 			const glyphEl = btn.createSpan({ cls: 'ad-glyph' });
-			if (it.svg) glyphEl.innerHTML = it.svg;
+			if (it.svg) injectSvg(glyphEl, it.svg);
 			else glyphEl.textContent = it.glyph;
 			btn.createSpan({ text: it.label });
 			btn.addEventListener('click', () => {
@@ -772,6 +782,17 @@ export class DashboardView extends ItemView {
 		return name.replace(/[*"/<>:|?\\]/g, '-');
 	}
 
+	/** Whether a file change can affect the home cards. Task files are markdown under
+	 *  the configured projects folder; if that folder is missing the scanner falls back
+	 *  to the whole vault root, so any markdown change is then treated as relevant. */
+	private isTaskRelevantPath(path: string): boolean {
+		const pf = this.plugin.settings.projectsFolder;
+		if (!path.endsWith('.md')) return false;
+		const root = this.app.vault.getAbstractFileByPath(pf);
+		if (!(root instanceof TFolder)) return true;
+		return path === pf || path.startsWith(pf + '/');
+	}
+
 	/* ============================================================
 	   Project & Task scanning (vault-based)
 	   ============================================================ */
@@ -783,7 +804,13 @@ export class DashboardView extends ItemView {
 
 		const root = this.app.vault.getAbstractFileByPath(rootPath);
 		if (!root || !(root instanceof TFolder)) {
-			// If root folder doesn't exist, try to find projects at vault root
+			// Config folder missing → keep the vault-root fallback for compatibility,
+			// but warn once so the user knows to configure it (avoids silent full-vault scans).
+			if (!this.adWarnedProjectsFallback) {
+				this.adWarnedProjectsFallback = true;
+				this.showToast('未找到项目文件夹「' + rootPath + '」，请在设置中配置以缩小扫描范围');
+				console.warn('[AgentDashboard] projectsFolder "' + rootPath + '" not found; fell back to scanning the whole vault root.');
+			}
 			const vaultRoot = this.app.vault.getRoot();
 			if (vaultRoot) {
 				await this.scanProjectsInFolder(vaultRoot, projects);
@@ -803,7 +830,7 @@ export class DashboardView extends ItemView {
 				const projectFilePath = `${child.path}/project-${child.name}.md`;
 				const projectFile = this.app.vault.getAbstractFileByPath(projectFilePath);
 				if (projectFile instanceof TFile) {
-					const content = await this.app.vault.read(projectFile);
+					const content = await this.app.vault.cachedRead(projectFile);
 					const meta = parseProjectMeta(content);
 					const projColor = meta.color || '#3b82f6';
 					const taskFiles = await this.scanTasksInFolder(child, meta.name || child.name, projColor);
@@ -840,7 +867,7 @@ export class DashboardView extends ItemView {
 				const subTasks = await this.scanTasksInFolder(child, projectId, projectColor);
 				tasks.push(...subTasks);
 			} else if (child instanceof TFile && child.name.endsWith('.md') && !child.name.startsWith('project-')) {
-				const content = await this.app.vault.read(child);
+				const content = await this.app.vault.cachedRead(child);
 				const task = parseTaskFile(child.path, content, projectId || folder.name, projectColor);
 				tasks.push(task);
 			}
@@ -854,6 +881,12 @@ export class DashboardView extends ItemView {
 	 *  whole vault twice. TTL is intentionally tiny (300ms). */
 	private taskScanCache: TaskItem[] | null = null;
 	private taskScanCacheAt = 0;
+
+	/** Clear the task scan cache on relevant vault events, so a burst of back-to-back
+	 *  edits is never served stale data (time-window cache stays as a coalescer). */
+	private invalidateTaskCache(): void {
+		this.taskScanCache = null;
+	}
 
 	private async scanAllTasks(): Promise<TaskItem[]> {
 		const now = Date.now();
@@ -872,90 +905,6 @@ export class DashboardView extends ItemView {
 		return allTasks;
 	}
 
-	/** Filter tasks for today using remindDate logic (spec section VIII).
-	 *  Show tasks whose remindDate == today,
-	 *  OR (no remindDate) startDate <= today,
-	 *  OR overdue (dueDate < today and not done). */
-	// Universe of tasks relevant to "today" — INCLUDES tasks completed earlier
-	// today (completeTime starts with today) so the progress ring keeps a stable
-	// denominator instead of dropping a task the moment it's finished.
-	// Cancelled tasks and prior-day completions are excluded.
-	private getTodayUniverse(tasks: TaskItem[]): TaskItem[] {
-		const today = this.todayStr();
-		return tasks.filter((t) => {
-			if (t.status === '\u5DF2\u53D6\u6D88') return false;
-			// Finished earlier today still counts toward today's total.
-			if (t.completeTime && t.completeTime.startsWith(today)) return true;
-			// A whole task completed on a prior day is no longer "today's task".
-			if (t.status === '\u5DF2\u5B8C\u6210') return false;
-			// Recurring: show if next 提醒日期 is today or already past (a missed
-			// occurrence stays pending and reachable, instead of vanishing).
-			if (t.type === '\u91CD\u590D') {
-				if (t.remindDate) return t.remindDate <= today;
-				return !t.startDate || t.startDate <= today;
-			}
-			if (t.remindDate === today) return true;
-			if (t.dueDate === today) return true;
-			if (t.startDate === today) return true;
-			if (t.startDate && t.dueDate && t.startDate <= today && t.dueDate >= today) return true;
-			if (t.dueDate && t.dueDate < today) return true; // overdue counts as today's
-			// No remindDate but explicitly started → active today
-			if (!t.remindDate && t.startDate && t.startDate <= today) return true;
-			return false;
-		});
-	}
-
-	// Today's *pending* tasks — what the TODO list actually shows.
-	// Hides already-completed tasks and today's checked-in daily nodes.
-	private getTodayTasks(tasks: TaskItem[]): TaskItem[] {
-		const today = this.todayStr();
-		return this.getTodayUniverse(tasks).filter((t) => {
-			if (t.status === '\u5DF2\u5B8C\u6210') return false;
-			if (t.completeTime && t.completeTime.startsWith(today)) return false; // recurring occurrence done today
-			// Multi-day task: hide today if today's node already done/skipped
-			if (t.dailyNodes && t.dailyNodes[today] && (t.dailyNodes[today].s === 'done' || t.dailyNodes[today].s === 'skip')) return false;
-			return true;
-		});
-	}
-
-	// "Done today" = whole task 已完成, OR today's daily node is done,
-	// OR a recurring task already advanced today (完成时间 == today).
-	private isDoneToday(t: TaskItem): boolean {
-		if (t.status === '\u5DF2\u5B8C\u6210') return true;
-		const today = this.todayStr();
-		if (t.completeTime && t.completeTime.startsWith(today)) return true;
-		const node = t.dailyNodes && t.dailyNodes[today];
-		return !!node && node.s === 'done';
-	}
-
-	// "Skip today" = today's daily node marked skip — resolved for today,
-	// so it leaves the denominator (not an open task, not a completion).
-	private isSkipToday(t: TaskItem): boolean {
-		const today = this.todayStr();
-		const node = t.dailyNodes && t.dailyNodes[today];
-		return !!node && node.s === 'skip';
-	}
-
-	/** Get today as YYYY-MM-DD string */
-	private todayStr(): string {
-		const d = new Date();
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-	}
-
-	/** Current datetime as YYYY-MM-DD HH:mm (precise to minute) */
-	private nowFmt(): string {
-		const d = new Date();
-		const p = (n: number) => String(n).padStart(2, '0');
-		return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-	}
-
-	/** Format YYYY-MM-DD → M/D for compact display */
-	private fmtMD(s: string | null): string {
-		if (!s) return '';
-		const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-		return m ? `${parseInt(m[2] ?? '0', 10)}/${parseInt(m[3] ?? '0', 10)}` : s;
-	}
-
 	/* ============================================================
 	   Task actions
 	   ============================================================ */
@@ -967,11 +916,11 @@ export class DashboardView extends ItemView {
 
 		// Repeat task: instead of toggling status, advance remindDate
 		if (task.type === '\u91CD\u590D' && task.status !== '\u5DF2\u5B8C\u6210') {
-			const nextDate = this.calcNextRemindDate(task);
+			const nextDate = calcNextRemindDate(task);
 			if (nextDate) {
 				await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
 				task.remindDate = nextDate;
-				const now = this.nowFmt();
+				const now = nowFmt();
 				await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
 				task.completeTime = now;
 				this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
@@ -999,7 +948,7 @@ export class DashboardView extends ItemView {
 		}
 
 		// Record / clear 完成时间 (precise to minute) when whole task toggled
-		const now = this.nowFmt();
+		const now = nowFmt();
 		if (newStatus === '\u5DF2\u5B8C\u6210') {
 			let found = false;
 		for (let i = 0; i < lines.length; i++) {
@@ -1020,56 +969,6 @@ export class DashboardView extends ItemView {
 		task.status = newStatus;
 		task.completeTime = newStatus === '\u5DF2\u5B8C\u6210' ? now : null;
 		row.toggleClass('is-done', newStatus === '\u5DF2\u5B8C\u6210');
-	}
-
-	/** Calculate next remindDate for a repeat task */
-	private calcNextRemindDate(task: TaskItem): string | null {
-		const today = new Date();
-		const rule = task.repeatRule;
-		if (!rule) return null;
-
-		const freq = rule['\u9891\u7387'] || '';
-		const next = new Date(today);
-
-		if (freq === '\u6BCF\u5929') {
-			const interval = rule['\u95F4\u9694\u5929\u6570'];
-			next.setDate(next.getDate() + (interval && interval >= 1 ? interval : 1));
-		} else if (freq === '\u5DE5\u4F5C\u65E5') {
-			do { next.setDate(next.getDate() + 1); } while (next.getDay() === 0 || next.getDay() === 6);
-		} else if (freq === '\u6BCF\u5468') {
-			const days = rule['\u6BCF\u5468\u51E0'];
-			if (days && days.length) {
-				const todayDow = today.getDay() === 0 ? 7 : today.getDay();
-				const sorted = [...days].sort((a, b) => a - b);
-				const nextDay = sorted.find((d) => d > todayDow);
-				if (nextDay) {
-					next.setDate(next.getDate() + (nextDay - todayDow));
-				} else {
-					next.setDate(next.getDate() + (7 - todayDow + (sorted[0] ?? 1)));
-				}
-			} else {
-				next.setDate(next.getDate() + 7);
-			}
-		} else if (freq === '\u6BCF\u6708') {
-			const dayOfMonth = rule['\u6BCF\u6708\u51E0\u53F7'];
-			if (dayOfMonth) {
-				next.setMonth(next.getMonth() + 1);
-				next.setDate(Math.min(dayOfMonth, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-			} else {
-				next.setMonth(next.getMonth() + 1);
-			}
-		} else if (freq === '\u81EA\u5B9A\u4E49') {
-			const interval = rule['\u95F4\u9694\u5929\u6570'];
-			next.setDate(next.getDate() + (interval || 1));
-		} else {
-			return null;
-		}
-
-		// Bounds: if the next occurrence falls after the end date (截止日期), the
-		// recurrence has expired — stop advancing so the task can be closed.
-		const nextStr = fmtDate(next);
-		if (task.dueDate && nextStr > task.dueDate) return null;
-		return nextStr;
 	}
 
 	/** Write a single frontmatter field to task file */
@@ -1133,7 +1032,7 @@ export class DashboardView extends ItemView {
 		if (isRecurring) {
 			// Recurring: advance the next 提醒日期 only (截止日期 is the recurrence bound,
 			// shifting it would change when the whole recurring series ends).
-			const newDate = task.remindDate ? shift(task.remindDate) : shift(this.todayStr());
+			const newDate = task.remindDate ? shift(task.remindDate) : shift(todayStr());
 			await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', newDate);
 			task.remindDate = newDate;
 		} else if (task.dueDate) {
@@ -1215,7 +1114,7 @@ export class DashboardView extends ItemView {
 		for (const td of tabDefs) {
 			const btn = tabs.createEl('button', { cls: 'po-tab' + (td.key === this.currentView ? ' is-active' : '') });
 			const tabGlyph = btn.createSpan({ cls: 'ad-glyph' });
-			tabGlyph.innerHTML = td.icon;
+			injectSvg(tabGlyph, td.icon);
 			btn.createSpan({ text: td.label });
 			btn.dataset.view = td.key;
 			panels[td.key] = content.createDiv({ cls: 'po-panel' + (td.key === this.currentView ? ' is-active' : ''), attr: { 'data-view': td.key } });
@@ -2838,7 +2737,7 @@ export class DashboardView extends ItemView {
 			if (repeatRule['\u6BCF\u5468\u51E0'] && repeatRule['\u6BCF\u5468\u51E0'].length) lines.push(`  \u6BCF\u5468\u51E0: [${repeatRule['\u6BCF\u5468\u51E0'].join(', ')}]`);
 			if (repeatRule['\u6BCF\u6708\u51E0\u53F7'] != null) lines.push(`  \u6BCF\u6708\u51E0\u53F7: ${repeatRule['\u6BCF\u6708\u51E0\u53F7']}`);
 			// Initialize 提醒日期 to the start date so the first occurrence is due today/on start.
-			lines.push(`\u63D0\u9192\u65E5\u671F: ${startDate || this.todayStr()}`);
+			lines.push(`\u63D0\u9192\u65E5\u671F: ${startDate || todayStr()}`);
 		}
 
 		lines.push('---');
@@ -3020,6 +2919,7 @@ export class DashboardView extends ItemView {
 
 	/** Refresh whichever board is active (home cards, project overview, or opportunity board) */
 	private refreshRelevant(): void {
+		this.invalidateTaskCache();
 		// Auto-close recurring tasks that have passed their end-date bound before re-rendering.
 		void this.closeRecurringIfExpired();
 		if (this.currentPage === 'project') {
@@ -3048,7 +2948,7 @@ export class DashboardView extends ItemView {
 	 */
 	private async closeRecurringIfExpired(): Promise<void> {
 		const tasks = await this.scanAllTasks();
-		const today = this.todayStr();
+		const today = todayStr();
 		for (const t of tasks) {
 			if (t.type !== '\u91CD\u590D' || t.status === '\u5DF2\u5B8C\u6210') continue;
 			if (!t.dueDate) continue; // 无结束日期 → never auto-close
@@ -3074,7 +2974,7 @@ export class DashboardView extends ItemView {
 		const list = card.createDiv({ cls: 'ad-todo' });
 
 		try {
-			const todayTasks = this.getTodayTasks(tasks);
+			const todayTasks = getTodayTasks(tasks);
 
 			// Sort: overdue first, then by priority
 			const sorted = todayTasks.sort((a, b) => {
@@ -3132,9 +3032,9 @@ export class DashboardView extends ItemView {
 				});
 			});
 
-			const universe = this.getTodayUniverse(tasks);
-			const doneCount = universe.filter((t) => this.isDoneToday(t)).length;
-			const skipCount = universe.filter((t) => this.isSkipToday(t)).length;
+			const universe = getTodayUniverse(tasks);
+			const doneCount = universe.filter((t) => isDoneToday(t)).length;
+			const skipCount = universe.filter((t) => isSkipToday(t)).length;
 			const totalForSummary = universe.length - skipCount;
 			summary.textContent = `${doneCount} / ${totalForSummary} done \u00B7 \u6309\u4F18\u5148\u7EA7`;
 		} catch {
@@ -3155,10 +3055,10 @@ export class DashboardView extends ItemView {
 			// Today's universe (incl. tasks finished earlier today) as the stable
 			// denominator; "done" = status 已完成 OR today's node done OR recurring
 			// advanced today; "今日不做" (node skip) is excluded from the denominator.
-			const todayTasks = this.getTodayUniverse(tasks);
-			const skipCount = todayTasks.filter((t) => this.isSkipToday(t)).length;
+			const todayTasks = getTodayUniverse(tasks);
+			const skipCount = todayTasks.filter((t) => isSkipToday(t)).length;
 			todayTotal = todayTasks.length - skipCount;
-			todayDone = todayTasks.filter((t) => this.isDoneToday(t)).length;
+			todayDone = todayTasks.filter((t) => isDoneToday(t)).length;
 			const nonCancelled = tasks.filter((t) => t.status !== '\u5DF2\u53D6\u6D88');
 			allTotal = nonCancelled.length;
 			allDone = nonCancelled.filter((t) => t.status === '\u5DF2\u5B8C\u6210').length;
@@ -3213,7 +3113,7 @@ export class DashboardView extends ItemView {
 		const list = card.createDiv({ cls: 'ad-wo' });
 
 		try {
-			const today = this.todayStr();
+			const today = todayStr();
 
 			// Week range: Monday 00:00 .. next Monday (exclusive)
 			const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -3292,12 +3192,12 @@ export class DashboardView extends ItemView {
 		li.createSpan({ cls: 'ad-wo__date', text: due ? due.slice(5) : '\u2014' });
 		li.createSpan({ cls: 'ad-wo__text', text: task.content });
 		if (isOverdue) {
-			const days = this.overdueDays(task.dueDate);
+			const days = overdueDays(task.dueDate);
 			li.createSpan({ cls: 'ad-wo__over', text: `\u903E\u671F ${days}\u5929` });
 			li.classList.add('is-overdue-row');
 		} else {
 			// This-week rows: show urgency tag (color-coded by priority)
-			const urg = this.urgencyMeta(task.priority);
+			const urg = urgencyMeta(task.priority);
 			if (urg) {
 				li.createSpan({ cls: 'ad-wo__urg', text: urg.label, attr: { 'data-urg': urg.key } });
 			}
@@ -3333,25 +3233,6 @@ export class DashboardView extends ItemView {
 		});
 	}
 
-	/** Days between dueDate and today (>= 0) */
-	private overdueDays(dueDate: string | null): number {
-		if (!dueDate) return 0;
-		const d = new Date(dueDate + 'T00:00:00');
-		const t = new Date(); t.setHours(0, 0, 0, 0);
-		return Math.max(0, Math.round((t.getTime() - d.getTime()) / 86400000));
-	}
-
-	/** Urgency label + color key derived from task priority (紧急程度) */
-	private urgencyMeta(priority: TaskItem['priority']): { label: string; key: string } | null {
-		switch (priority) {
-			case '\u91CD\u8981\u4E14\u7D27\u6025': return { label: '\u7D27\u6025', key: 'high' };   // 重要且紧急 → 紧急
-			case '\u7D27\u6025\u4E0D\u91CD\u8981': return { label: '\u8F83\u6025', key: 'mid' };    // 紧急不重要 → 较急
-			case '\u91CD\u8981\u4E0D\u7D27\u6025': return { label: '\u4E00\u822C', key: 'low' };    // 重要不紧急 → 一般
-			case '\u4E0D\u91CD\u8981\u4E0D\u7D27\u6025': return { label: '\u4E0D\u6025', key: 'none' }; // 不重要不紧急 → 不急
-			default: return null;
-		}
-	}
-
 		/** Mark a task as completed (状态: 已完成) */
 	private async markTaskComplete(task: TaskItem): Promise<void> {
 		if (task.status === '\u5DF2\u5B8C\u6210') {
@@ -3360,11 +3241,11 @@ export class DashboardView extends ItemView {
 		}
 		// Repeat task: instead of completing, advance 提醒日期 so it keeps recurring.
 		if (task.type === '\u91CD\u590D') {
-			const nextDate = this.calcNextRemindDate(task);
+			const nextDate = calcNextRemindDate(task);
 			if (nextDate) {
 				await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
 				task.remindDate = nextDate;
-				const now = this.nowFmt();
+				const now = nowFmt();
 				await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
 				task.completeTime = now;
 				this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
@@ -3381,7 +3262,7 @@ export class DashboardView extends ItemView {
 	/** Move an overdue task's due date to today */
 	private async postponeTaskToToday(task: TaskItem): Promise<void> {
 		if (!task.dueDate) return;
-		const today = this.todayStr();
+		const today = todayStr();
 		await this.writeTaskField(task, '\u622A\u6B62\u65E5\u671F', today);
 		task.dueDate = today;
 		this.showToast('\u2728 \u5DF2\u5EF6\u540E\u5230\u4ECA\u5929');
@@ -3837,8 +3718,8 @@ export class DashboardView extends ItemView {
 						this.selectedOppDetailId = it.id;
 						board.querySelectorAll('.op-card').forEach((c) => c.removeClass('is-selected'));
 						card.addClass('is-selected');
-						const detail = board.querySelector('.op-detail') as HTMLElement | null;
-						if (detail) this.renderOppDetail(detail, it);
+						const detail = board.querySelector('.op-detail');
+						if (detail instanceof HTMLElement) this.renderOppDetail(detail, it);
 					} else {
 						this.openOpportunityModal(it);
 					}
@@ -3851,8 +3732,8 @@ export class DashboardView extends ItemView {
 						this.selectedOppDetailId = it.id;
 						board.querySelectorAll('.op-card').forEach((c) => c.removeClass('is-selected'));
 						card.addClass('is-selected');
-						const detail = board.querySelector('.op-detail') as HTMLElement | null;
-						if (detail) this.renderOppDetail(detail, it);
+						const detail = board.querySelector('.op-detail');
+						if (detail instanceof HTMLElement) this.renderOppDetail(detail, it);
 					}));
 					menu.addItem((m) => m.setTitle('打开详情双链').setIcon('file-text').onClick(() => void this.openOpportunityDetail(it)));
 					menu.addSeparator();
@@ -3924,14 +3805,14 @@ export class DashboardView extends ItemView {
 		const reordered: OpportunityItem[] = [];
 		let n = 0;
 		for (let k = 0; k < colItems.length + 1; k++) {
-			if (k === insertIdx) { reordered.push({ ...dragged, status: targetStatus, order: n } as OpportunityItem); n++; }
+			if (k === insertIdx) { reordered.push({ ...dragged, status: targetStatus, order: n }); n++; }
 			if (k < colItems.length) { reordered.push({ ...colItems[k], order: n } as OpportunityItem); n++; }
 		}
 		const map = new Map(reordered.map((i) => [i.id, i]));
 		const next = items.map((i) => map.get(i.id) ?? i);
 		this.currentOpportunities = sortOpportunities(next);
 		await this.saveOpportunities(this.currentOpportunities);
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	/** 单状态模式下，右侧内联详情编辑器 */
@@ -4008,12 +3889,12 @@ export class DashboardView extends ItemView {
 		const idx = this.currentOpportunities.findIndex((i) => i.id === item.id);
 		if (idx >= 0) {
 			const cur = this.currentOpportunities[idx];
-			if (cur) this.currentOpportunities[idx] = { ...cur, ...f } as OpportunityItem;
+			if (cur) this.currentOpportunities[idx] = { ...cur, ...f };
 		}
 		this.currentOpportunities = sortOpportunities(this.currentOpportunities);
 		this.oppCache = { at: Date.now(), items: this.currentOpportunities };
 		this.showToast('已保存');
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	private renderOpportunityList(panel: HTMLElement, items: OpportunityItem[]): void {
@@ -4049,7 +3930,7 @@ export class DashboardView extends ItemView {
 			const tr = tbody.createEl('tr');
 			tr.createEl('td', { text: it.title });
 			const stTd = tr.createEl('td');
-			stTd.createEl('span', { cls: 'op-st ' + OPPORTUNITY_STATUS_CLASS[it.status], text: it.status });
+			stTd.createSpan({ cls: 'op-st ' + OPPORTUNITY_STATUS_CLASS[it.status], text: it.status });
 			tr.createEl('td', { text: it.createDate || '-' });
 			tr.createEl('td', { text: it.toRoadmap ? '★' : '-' });
 			tr.addEventListener('click', () => this.openOpportunityModal(it));
@@ -4072,10 +3953,15 @@ export class DashboardView extends ItemView {
 	private sortedOppList(items: OpportunityItem[]): OpportunityItem[] {
 		const col = this.oppSortCol;
 		const dir = this.oppSortDir === 'asc' ? 1 : -1;
+		const cellStr = (v: unknown): string => {
+			if (typeof v === 'string') return v;
+			if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+			return '';
+		};
 		return [...items].sort((a, b) => {
 			let av: string; let bv: string;
 			if (col === 'toRoadmap') { av = a.toRoadmap ? '1' : '0'; bv = b.toRoadmap ? '1' : '0'; }
-			else { av = String((a as unknown as Record<string, unknown>)[col] ?? ''); bv = String((b as unknown as Record<string, unknown>)[col] ?? ''); }
+			else { av = cellStr((a as unknown as Record<string, unknown>)[col] ?? ''); bv = cellStr((b as unknown as Record<string, unknown>)[col] ?? ''); }
 			return av.localeCompare(bv, 'zh-CN') * dir;
 		});
 	}
@@ -4108,7 +3994,7 @@ export class DashboardView extends ItemView {
 			const idx = this.currentOpportunities.findIndex((i) => i.id === item.id);
 			if (idx >= 0) {
 			const cur = this.currentOpportunities[idx];
-			if (cur) this.currentOpportunities[idx] = { ...cur, ...patch } as OpportunityItem;
+			if (cur) this.currentOpportunities[idx] = { ...cur, ...patch };
 		}
 		} else {
 			const created = await createOpportunity(this.app, path, data);
@@ -4117,7 +4003,7 @@ export class DashboardView extends ItemView {
 		this.currentOpportunities = sortOpportunities(this.currentOpportunities);
 		this.oppCache = { at: Date.now(), items: this.currentOpportunities };
 		this.showToast(item ? '机会点已更新' : '机会点已创建');
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	private async createOpportunityFile(): Promise<void> {
@@ -4135,12 +4021,12 @@ export class DashboardView extends ItemView {
 					...cur,
 					status,
 					toRoadmap: status === '已完成' ? cur.toRoadmap : false,
-				} as OpportunityItem;
+				};
 			}
 		}
 		this.oppCache = { at: Date.now(), items: this.currentOpportunities };
 		this.showToast('状态已更新为「' + status + '」');
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	private async setOpportunityRoadmap(item: OpportunityItem, val: boolean): Promise<void> {
@@ -4149,10 +4035,10 @@ export class DashboardView extends ItemView {
 		const idx = this.currentOpportunities.findIndex((i) => i.id === item.id);
 		if (idx >= 0) {
 			const cur = this.currentOpportunities[idx];
-			if (cur) this.currentOpportunities[idx] = { ...cur, toRoadmap: val } as OpportunityItem;
+			if (cur) this.currentOpportunities[idx] = { ...cur, toRoadmap: val };
 		}
 		this.oppCache = { at: Date.now(), items: this.currentOpportunities };
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	private async deleteOpportunityItem(item: OpportunityItem): Promise<void> {
@@ -4161,7 +4047,7 @@ export class DashboardView extends ItemView {
 		this.currentOpportunities = this.currentOpportunities.filter((i) => i.id !== item.id);
 		this.oppCache = { at: Date.now(), items: this.currentOpportunities };
 		this.showToast('机会点已删除');
-		this.refreshOpportunityBoard();
+		void this.refreshOpportunityBoard();
 	}
 
 	private async refreshOpportunityBoard(): Promise<void> {

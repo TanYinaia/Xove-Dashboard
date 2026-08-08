@@ -131,25 +131,25 @@ function coerceBool(v: unknown): boolean {
 }
 
 function fromFmObject(raw: Record<string, unknown>, fallbackId: string): OpportunityItem {
-	const rawStatus = typeof raw['状态'] === 'string' ? (raw['状态'] as string) : '';
+	const rawStatus = typeof raw['状态'] === 'string' ? (raw['状态']) : '';
 	const status: OpportunityStatus = (OPPORTUNITY_STATUS_LIST as string[]).includes(rawStatus)
 		? (rawStatus as OpportunityStatus)
 		: '未沟通';
 	const tags = Array.isArray(raw['tags']) ? (raw['tags'] as unknown[]).map(String) : [];
 	return {
-		id: typeof raw['id'] === 'string' ? (raw['id'] as string) : fallbackId,
-		title: typeof raw['机会点名称'] === 'string' ? (raw['机会点名称'] as string) : '',
+		id: typeof raw['id'] === 'string' ? (raw['id']) : fallbackId,
+		title: typeof raw['机会点名称'] === 'string' ? (raw['机会点名称']) : '',
 		status,
 		tags,
-		background: typeof raw['背景'] === 'string' ? (raw['背景'] as string) : '',
-		commConclusion: typeof raw['沟通结论'] === 'string' ? (raw['沟通结论'] as string) : '',
-		researchConclusion: typeof raw['调研结论'] === 'string' ? (raw['调研结论'] as string) : '',
-		meetingConclusion: typeof raw['上会结论'] === 'string' ? (raw['上会结论'] as string) : '',
+		background: typeof raw['背景'] === 'string' ? (raw['背景']) : '',
+		commConclusion: typeof raw['沟通结论'] === 'string' ? (raw['沟通结论']) : '',
+		researchConclusion: typeof raw['调研结论'] === 'string' ? (raw['调研结论']) : '',
+		meetingConclusion: typeof raw['上会结论'] === 'string' ? (raw['上会结论']) : '',
 		toRoadmap: coerceBool(raw['转路标']),
-		detail: typeof raw['详情'] === 'string' ? (raw['详情'] as string) : '',
-		order: typeof raw['排序'] === 'number' ? (raw['排序'] as number) : -1,
-		createDate: typeof raw['创建时间'] === 'string' ? (raw['创建时间'] as string) : '',
-		updateDate: typeof raw['更新时间'] === 'string' ? (raw['更新时间'] as string) : '',
+		detail: typeof raw['详情'] === 'string' ? (raw['详情']) : '',
+		order: typeof raw['排序'] === 'number' ? (raw['排序']) : -1,
+		createDate: typeof raw['创建时间'] === 'string' ? (raw['创建时间']) : '',
+		updateDate: typeof raw['更新时间'] === 'string' ? (raw['更新时间']) : '',
 	};
 }
 
@@ -184,7 +184,7 @@ function buildDetails(items: OpportunityItem[]): string {
 	const lines: string[] = ['## 明细'];
 	items.forEach((it, i) => {
 		lines.push(`### ${i + 1}. ${it.title}`);
-		lines.push(`- **状态**：${it.status}　**转路标**：${it.toRoadmap ? '★' : '-'}`);
+		lines.push(`- **状态**：${it.status} **转路标**：${it.toRoadmap ? '★' : '-'}`);
 		lines.push(`- **标签**：${it.tags && it.tags.length ? it.tags.join('、') : '-'}`);
 		lines.push(`- **背景**：${it.background || '-'}`);
 		lines.push(`- **沟通结论**：${it.commConclusion || '-'}`);
@@ -236,7 +236,7 @@ export async function parseOpportunitiesFile(app: App, path: string): Promise<Op
 		.filter((r) => r && typeof r === 'object')
 		.map((r, i) => fromFmObject(r as Record<string, unknown>, `opp-${i}-${Date.now()}`))
 		// 旧数据无 order 字段时，按数组顺序赋默认权重，保证稳定排序且不互相冲突
-		.map((it, i) => (it.order >= 0 ? it : ({ ...it, order: i } as OpportunityItem)));
+		.map((it, i) => (it.order >= 0 ? it : ({ ...it, order: i })));
 }
 
 /** Write the full opportunities array back to the master file (regenerates table). */

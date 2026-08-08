@@ -49,11 +49,11 @@ export class OpportunityModal extends Modal {
 		statusSelect.value = this.selectedStatus;
 		statusSelect.addEventListener('change', () => {
 			this.selectedStatus = statusSelect.value as OpportunityStatus;
-			const cb = contentEl.querySelector('.ad-modal-checkbox') as HTMLInputElement | null;
+			const cb = contentEl.querySelector('.ad-modal-checkbox');
 			if (this.selectedStatus !== '已完成') {
 				this.toRoadmap = false;
-				if (cb) { cb.checked = false; cb.disabled = true; }
-			} else if (cb) {
+				if (cb instanceof HTMLInputElement) { cb.checked = false; cb.disabled = true; }
+			} else if (cb instanceof HTMLInputElement) {
 				cb.disabled = false;
 			}
 		});
@@ -110,15 +110,17 @@ export class OpportunityModal extends Modal {
 		const detailBtn = contentEl.createEl('button', {
 			cls: 'ad-modal-btn ad-modal-btn--ghost', text: '生成并打开详情笔记',
 		});
-		detailBtn.addEventListener('click', async () => {
-			const title = String(nameInput.value || '').trim();
-			if (!title) { nameInput.focus(); return; }
-			const rawLink = (detailInput.value ?? '').toString().trim();
-			const finalLink = rawLink.length ? rawLink : `[[机会点-${title}-详情]]`;
-			detailInput.value = finalLink;
-			const cleaned = finalLink.replace(/^\[\[/, '').replace(/\]\]$/, '');
-			const noteName = (cleaned.split('|')[0] ?? '').trim();
-			await this.ensureAndOpenNote(noteName);
+		detailBtn.addEventListener('click', () => {
+			void (async () => {
+				const title = String(nameInput.value || '').trim();
+				if (!title) { nameInput.focus(); return; }
+				const rawLink = (detailInput.value ?? '').toString().trim();
+				const finalLink = rawLink.length ? rawLink : `[[机会点-${title}-详情]]`;
+				detailInput.value = finalLink;
+				const cleaned = finalLink.replace(/^\[\[/, '').replace(/\]\]$/, '');
+				const noteName = (cleaned.split('|')[0] ?? '').trim();
+				await this.ensureAndOpenNote(noteName);
+			})();
 		});
 
 		// 按钮

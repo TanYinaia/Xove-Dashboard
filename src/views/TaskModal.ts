@@ -329,10 +329,10 @@ export class TaskModal extends Modal {
 
 				const isRecurring = typeSel.value === 'recurring';
 				const noEnd = isRecurring && noEndCb.checked;
-				const intervalEl = repeatOptsWrap.querySelector('.ad-repeat-interval') as HTMLInputElement | null;
-				const workdayEl = repeatOptsWrap.querySelector('.ad-repeat-workdays') as HTMLInputElement | null;
-				const weekdayEls = repeatOptsWrap.querySelectorAll('.ad-repeat-weekday') as NodeListOf<HTMLInputElement>;
-				const monthDayEl = repeatOptsWrap.querySelector('.ad-repeat-monthday') as HTMLInputElement | null;
+				const intervalEl = repeatOptsWrap.querySelector('.ad-repeat-interval');
+				const workdayEl = repeatOptsWrap.querySelector('.ad-repeat-workdays');
+				const weekdayEls = repeatOptsWrap.querySelectorAll('.ad-repeat-weekday');
+				const monthDayEl = repeatOptsWrap.querySelector('.ad-repeat-monthday');
 
 				const data: TaskFormData = {
 					title,
@@ -344,10 +344,10 @@ export class TaskModal extends Modal {
 					status: (statusSel).value || 'todo',
 					type: (typeSel).value || 'task',
 					repeatFreq: isRecurring ? freqSel.value : '',
-					repeatInterval: intervalEl ? (parseInt(intervalEl.value, 10) || 1) : 1,
-					repeatWorkdaysOnly: !!workdayEl?.checked,
-					repeatWeekdays: Array.from(weekdayEls).filter((cb) => cb.checked).map((cb) => parseInt(cb.value, 10)),
-					repeatMonthDay: monthDayEl ? (parseInt(monthDayEl.value, 10) || 1) : 1,
+					repeatInterval: intervalEl instanceof HTMLInputElement ? (parseInt(intervalEl.value, 10) || 1) : 1,
+					repeatWorkdaysOnly: !!(workdayEl instanceof HTMLInputElement && workdayEl.checked),
+					repeatWeekdays: Array.from(weekdayEls).filter((cb): cb is HTMLInputElement => cb instanceof HTMLInputElement).map((cb) => parseInt(cb.value, 10)),
+					repeatMonthDay: monthDayEl instanceof HTMLInputElement ? (parseInt(monthDayEl.value, 10) || 1) : 1,
 					noEndDate: noEnd,
 					reminders: [...this.selectedReminders],
 					tags: [...this.tags],

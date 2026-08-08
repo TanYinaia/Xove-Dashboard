@@ -12,6 +12,7 @@ export default defineConfig(
 		'.workbuddy',
 		'*.js',
 		'esbuild.config.mjs',
+		'rollup.config.mjs',
 		'version-bump.mjs',
 		'versions.json',
 		'main.js',
@@ -34,4 +35,10 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ['**/*.test.ts'],
+		rules: {
+			'@typescript-eslint/no-floating-promises': 'off',
+		},
+	},
 );

@@ -9,7 +9,7 @@
 		"build": "npm run typecheck && node esbuild.config.mjs production",
 		"build:js": "node node_modules/rollup/dist/bin/rollup -c rollup.config.mjs",
 		"typecheck": "tsc -noEmit -skipLibCheck",
-		"test": "node --test src/data/",
+		"test": "node --test \"src/data/*.test.ts\"",
 		"check": "npm run typecheck && npm run lint && npm run build:js && npm run test",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."

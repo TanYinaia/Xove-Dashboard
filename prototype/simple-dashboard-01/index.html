@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Dashboard · 静态原型</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app" id="app">
+    <!-- =================================================================
+         BANNER + HEADER
+         ================================================================= -->
+    <section class="banner" aria-label="顶部自定义图片区">
+      <div class="banner__placeholder">[ banner · 16 : 3 ]  ·  drag a cover, pick an image, or leave it as default</div>
+      <button class="banner__replace" type="button" title="更换图片">
+        <span aria-hidden="true">↻</span><span>更换图片</span>
+      </button>
+    </section>
+
+    <!-- terminal status pulse -->
+    <div class="pulse" role="status" aria-live="polite">
+      <span class="pulse__tag">[ VAULT PULSE ]</span>
+      <span><strong id="pulse-notes">—</strong> notes</span>
+      <span class="pulse__sep">·</span>
+      <span><strong id="pulse-pending">—</strong> pending</span>
+      <span class="pulse__sep">·</span>
+      <span>Δ today <span class="pulse__delta" id="pulse-delta">+0</span></span>
+      <span class="pulse__sep">·</span>
+      <span>streak <strong id="pulse-streak">0d</strong></span>
+      <span class="pulse__caret" aria-hidden="true"></span>
+    </div>
+
+    <header class="header">
+      <div class="header__left">
+        <p class="eyebrow">AGENTIC VAULT</p>
+        <h1 class="title">XINGWANG 个人中心</h1>
+        <p class="subtitle">obsidian · agent dashboard · v0.1</p>
+      </div>
+      <div class="header__right">
+        <div class="header__date" id="header-date">2026-06-29</div>
+        <div class="header__meta">
+          <span id="header-weekday">星期一</span>
+          <span class="dot"></span>
+          <span id="header-lunar">农历 五月十五</span>
+          <span class="dot"></span>
+          <span id="header-zone">GMT+8</span>
+        </div>
+        <button class="header__settings" id="settings-btn" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span aria-hidden="true">⚙</span>
+          <span>设置</span>
+        </button>
+        <div class="dropdown" id="settings-menu" role="menu" aria-label="设置菜单"></div>
+      </div>
+    </header>
+
+    <!-- =================================================================
+         ACTION TOOLBAR
+         ================================================================= -->
+    <nav class="toolbar" aria-label="常用操作">
+      <button class="toolbar__btn" type="button" data-action="new-daily">
+        <span class="glyph">+</span><span>新日记</span>
+      </button>
+      <button class="toolbar__btn" type="button" data-action="new-task">
+        <span class="glyph">□</span><span>新建任务</span>
+      </button>
+      <button class="toolbar__btn" type="button" data-action="new-project">
+        <span class="glyph">▣</span><span>新建项目</span>
+      </button>
+      <button class="toolbar__btn" type="button" data-action="all-projects">
+        <span class="glyph">›</span><span>全部项目</span>
+      </button>
+      <span class="toolbar__hint">快捷键：N · T · P · G</span>
+    </nav>
+
+    <!-- =================================================================
+         BOARD  ·  one 4 col × 3 row grid
+         ----------------------- topology -----------------------
+         row 1 :  capture(1×1)  todo(1×1)  progress(1×1)  weekly(1×2)
+         row 2 :  project(1×3  cols 1-3) .............. weekly continues
+         row 3 :  heatmap(1×3  cols 1-3) .............. countdown(1×1)
+         ----------------------------------------------------- -->
+    <section class="board" aria-label="个人工作控制台">
+      <!-- 快速捕捉  ·  row1 col1  ·  1×1 -->
+      <article class="card b-capture" aria-labelledby="t-quick">
+        <header class="card__head">
+          <h3 class="card__title" id="t-quick"><span class="marker"></span>快速捕捉</h3>
+          <span class="card__hint">QC · 01</span>
+        </header>
+        <div class="qc">
+          <textarea class="qc__area" id="qc-text" rows="3" placeholder="把念头、闪念或链接丢进来…  ⌘ + ⏎ 直送进 inbox"></textarea>
+          <div class="qc__row">
+            <span class="qc__hint"><kbd>⌘</kbd> + <kbd>⏎</kbd> 提交 · <kbd>Esc</kbd> 清空</span>
+            <button class="qc__cta" type="button" id="qc-submit">创建</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- TODO  ·  row1 col2  ·  1×1 -->
+      <article class="card b-todo" aria-labelledby="t-todo">
+        <header class="card__head">
+          <h3 class="card__title" id="t-todo"><span class="marker"></span>TODO</h3>
+          <span class="card__hint" id="todo-summary">—</span>
+        </header>
+        <div class="todo" id="todo-list" role="list"></div>
+      </article>
+
+      <!-- 工作进度  ·  row1 col3  ·  1×1 -->
+      <article class="card b-progress" aria-labelledby="t-dp">
+        <header class="card__head">
+          <h3 class="card__title" id="t-dp"><span class="marker marker--success"></span>工作进度</h3>
+          <span class="card__hint">today · ring</span>
+        </header>
+        <div class="dp">
+          <div class="dp__ring" id="dp-ring" aria-hidden="true">
+            <svg viewBox="0 0 100 100">
+              <circle class="track" cx="50" cy="50" r="42" />
+              <circle class="fill"  cx="50" cy="50" r="42"
+                      stroke-dasharray="263.9"
+                      stroke-dashoffset="0" />
+            </svg>
+            <div class="dp__center">
+              <div class="dp__pct" id="dp-pct">0%</div>
+            </div>
+          </div>
+          <div class="dp__stat">
+            <strong id="dp-line">—</strong>
+            <span class="vs" id="dp-vs"></span>
+          </div>
+          <div class="dp__ring" id="dp-ring-proj" aria-hidden="true">
+            <svg viewBox="0 0 100 100">
+              <circle class="track" cx="50" cy="50" r="42" />
+              <circle class="fill"  cx="50" cy="50" r="42"
+                      stroke-dasharray="263.9"
+                      stroke-dashoffset="263.9" />
+            </svg>
+            <div class="dp__center">
+              <div class="dp__pct" id="dp-proj-pct">0%</div>
+            </div>
+          </div>
+          <div class="dp__stat">
+            <strong id="dp-proj-line">—</strong>
+          </div>
+        </div>
+      </article>
+
+      <!-- 本周待办 & 逾期提醒  ·  row1 col4  spans r1+r2  ·  1×2 -->
+      <article class="card b-weekly" aria-labelledby="t-wo">
+        <header class="card__head">
+          <h3 class="card__title" id="t-wo"><span class="marker marker--danger"></span>本周待办 &amp; 逾期提醒</h3>
+          <span class="card__hint" id="wo-summary">—</span>
+        </header>
+        <div class="wo">
+          <div class="wo__group wo--overdue">
+            <h4>逾期 · overdue</h4>
+            <ul class="wo__list" id="wo-overdue"></ul>
+          </div>
+          <div class="wo__sep"></div>
+          <div class="wo__group">
+            <h4>本周 · this week</h4>
+            <ul class="wo__list" id="wo-week"></ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- 项目进度  ·  row2 cols 1-3  ·  1×3  (bottom aligns with weekly) -->
+      <article class="card b-project" aria-labelledby="t-proj">
+        <header class="card__head">
+          <h3 class="card__title" id="t-proj"><span class="marker"></span>项目进度 · NPDP pipeline</h3>
+          <span class="card__hint" id="proj-summary-hint">—</span>
+        </header>
+        <div class="proj">
+          <div class="proj__list" id="proj-list"></div>
+          <div class="proj__sum">
+            <span class="row">
+              <span class="key">本月</span>
+              <span>开发项目 <span class="pill" id="proj-dev">0</span></span>
+              <span>GA 项目 <span class="pill" id="proj-ga">0</span></span>
+            </span>
+            <span class="row">
+              <span class="key">⊙</span>
+              <span class="v" id="proj-active">0 进行中</span>
+            </span>
+          </div>
+        </div>
+      </article>
+
+      <!-- 笔记统计  ·  row3 cols 1-3  ·  1×3 -->
+      <article class="card b-heatmap" aria-labelledby="t-notes">
+        <header class="card__head">
+          <h3 class="card__title" id="t-notes"><span class="marker marker--violet"></span>笔记统计</h3>
+          <span class="card__hint">github-style · contribution</span>
+        </header>
+        <div class="ns__head">
+          <div class="big" id="ns-total">—</div>
+          <div class="small">
+            <div id="ns-active">— 天活跃</div>
+            <div id="ns-streak">当前连续 <strong>—</strong> 天</div>
+          </div>
+        </div>
+        <div class="ns__heat" id="ns-heat">
+          <div class="ns__months" id="ns-months"></div>
+          <div class="ns__grid">
+            <div class="ns__dow" aria-hidden="true">
+              <span></span><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span>
+            </div>
+            <div class="ns__cells" id="ns-cells"></div>
+          </div>
+        </div>
+        <div class="ns__foot">
+          <span id="ns-window">滚动 365 天</span>
+          <span class="ns__legend">
+            <span class="lbl">少</span>
+            <span class="ns__sw"></span>
+            <span class="ns__sw l1"></span>
+            <span class="ns__sw l2"></span>
+            <span class="ns__sw l3"></span>
+            <span class="ns__sw l4"></span>
+            <span class="lbl">多</span>
+          </span>
+        </div>
+      </article>
+
+      <!-- 倒计时  ·  row3 col4  ·  1×1 -->
+      <article class="card b-countdown" aria-labelledby="t-cd">
+        <header class="card__head">
+          <h3 class="card__title" id="t-cd"><span class="marker marker--warn"></span>倒计时 · 2026</h3>
+          <span class="card__hint">days left</span>
+        </header>
+        <div class="cd">
+          <div class="cd__big">
+            <span id="cd-days">—</span><span class="unit">DAYS</span>
+          </div>
+          <div class="cd__row">
+            <span>剩余周数 <strong id="cd-weeks">—</strong></span>
+            <span class="dot" style="display:inline-block;width:3px;height:3px;background:var(--text-dim);border-radius:50%;"></span>
+            <span>已完成 <strong id="cd-pct">—</strong></span>
+          </div>
+          <div class="cd__bar" aria-hidden="true"><div class="fill" id="cd-fill"></div></div>
+          <div class="cd__foot">下一个里程碑 · <span class="accent" id="cd-milestone">—</span></div>
+        </div>
+      </article>
+    </section>
+
+    <footer style="margin-top: 22px; padding-top: 14px; border-top: 1px dashed var(--line); display:flex; justify-content:space-between; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">
+      <span>prototype · v0.1 · no external deps</span>
+      <span>loaded data from <code>mock-data.json</code></span>
+    </footer>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -39,6 +39,7 @@ export default defineConfig(
 		files: ['**/*.test.ts'],
 		rules: {
 			'@typescript-eslint/no-floating-promises': 'off',
+			'obsidianmd/no-nodejs-modules': 'off',
 		},
 	},
 );

@@ -5,6 +5,7 @@ import { BannerModal } from './BannerModal';
 import { TaskEditModal } from './TaskEditModal';
 import { parseFrontmatter, TaskItem, ProjectInfo, TaskStatus, STATUS_LIST, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
+import { DashboardStore } from '../data/dashboardStore';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
 import { OpportunityModal } from './OpportunityModal';
 import {
@@ -134,7 +135,6 @@ export class DashboardView extends ItemView {
 	private boardEl: HTMLElement | null = null;
 	private heatmapCard: HTMLElement | null = null;
 	private heatmapTimer: number | null = null;
-	private homeRefreshTimer: number | null = null;
 	private noiseId: number | null = null;
 	private pulseEls: { total: HTMLElement; pending: HTMLElement; today: HTMLElement; streak: HTMLElement } | null = null;
 	private dateEl: HTMLElement | null = null;
@@ -182,12 +182,15 @@ export class DashboardView extends ItemView {
 	private oppCache: { at: number; items: OpportunityItem[] } | null = null;
 
 	private taskStore: TaskStore;
+	private dashboardStore: DashboardStore;
+	private storeUnsub: (() => void) | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: AgentDashboard) {
 		super(leaf);
 		this.plugin = plugin;
 		this.bannerState = { ...DEFAULT_SETTINGS.banner, ...plugin.settings.banner };
 		this.taskStore = new TaskStore(this.app, () => this.plugin.settings, (msg) => this.showToast(msg));
+		this.dashboardStore = new DashboardStore(this.taskStore);
 	}
 
 	/** Theme actually in effect for the dashboard right now. */
@@ -248,7 +251,7 @@ export class DashboardView extends ItemView {
 				this.scheduleOpportunityRefresh();
 			} else {
 				this.scheduleHeatmapRefresh();
-				this.scheduleHomeRefresh();
+				this.dashboardStore.requestRefresh();
 			}
 		};
 		this.registerEvent(this.app.vault.on('create', refreshAll));
@@ -273,9 +276,13 @@ export class DashboardView extends ItemView {
 				// on every unrelated note edit while still staying fresh for real changes.
 				if (!(file instanceof TFile) || !this.taskStore.isTaskRelevantPath(file.path)) return;
 				void this.updatePulse();
-				this.scheduleHomeRefresh();
+				this.dashboardStore.requestRefresh();
 			}
 		}));
+		this.storeUnsub = this.dashboardStore.subscribe(() => {
+			if (this.currentPage !== 'home' || !this.boardEl) return;
+			void this.refreshHomeCards();
+		});
 		} catch (err) {
 			try {
 				const e = err instanceof Error ? err : new Error(String(err));
@@ -289,6 +296,8 @@ export class DashboardView extends ItemView {
 	async onClose(): Promise<void> {
 		if (this.noiseId) { window.cancelAnimationFrame(this.noiseId); this.noiseId = null; }
 		if (this.oppRefreshTimer) { window.clearTimeout(this.oppRefreshTimer); this.oppRefreshTimer = null; }
+		if (this.storeUnsub) { this.storeUnsub(); this.storeUnsub = null; }
+		this.dashboardStore.dispose();
 		this.dashboardEl?.empty();
 	}
 
@@ -2761,16 +2770,6 @@ export class DashboardView extends ItemView {
 		await this.renderTodo(this.boardEl, allTasks);
 	}
 
-	/** Debounced refresh of the home cards. Vault events (especially file autosave)
-	 *  can fire in bursts; coalescing them into one update ~200ms after the last
-	 *  event avoids the cards stuttering/flashing on every keystroke-save. */
-	private scheduleHomeRefresh(): void {
-		if (this.homeRefreshTimer !== null) window.clearTimeout(this.homeRefreshTimer);
-		this.homeRefreshTimer = window.setTimeout(() => {
-			this.homeRefreshTimer = null;
-			void this.refreshHomeCards();
-		}, 200);
-	}
 
 	/** Reuse an existing card element (keeps its grid placement → no disappearance flash)
 	 *  by emptying its contents, or create it if missing. */
@@ -2788,7 +2787,7 @@ export class DashboardView extends ItemView {
 	 *  (no remove/re-create), so the layout never flashes. */
 	private async refreshHomeCards(): Promise<void> {
 		if (this.currentPage !== 'home' || !this.boardEl) return;
-		const allTasks = await this.taskStore.scanAllTasks();
+		const allTasks = this.dashboardStore.getTasks() ?? await this.taskStore.scanAllTasks();
 		// scanAllTasks 是异步耗时操作；期间用户可能已切到其它页面。
 		// 必须在渲染前重校验，否则会把主页卡片渲染进机会点/项目页面。
 		if (this.currentPage !== 'home' || !this.boardEl) return;
@@ -2807,7 +2806,7 @@ export class DashboardView extends ItemView {
 		} else if (this.currentPage === 'opportunity') {
 			this.scheduleOpportunityRefresh();
 		} else {
-			void this.refreshHomeCards();
+			void this.dashboardStore.refresh();
 		}
 	}
 

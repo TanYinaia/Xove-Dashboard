@@ -3,7 +3,8 @@ import { MOCK_DATA, DashboardData } from '../data/mockData';
 import { BannerSettings, DEFAULT_SETTINGS } from '../settings';
 import { BannerModal } from './BannerModal';
 import { TaskEditModal } from './TaskEditModal';
-import { parseTaskFile, parseProjectMeta, parseFrontmatter, TaskItem, ProjectInfo, TaskStatus, STATUS_LIST, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
+import { parseFrontmatter, TaskItem, ProjectInfo, TaskStatus, STATUS_LIST, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
+import { TaskStore } from '../data/taskStore';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
 import { OpportunityModal } from './OpportunityModal';
 import {
@@ -147,7 +148,6 @@ export class DashboardView extends ItemView {
 	private dashboardEl: HTMLElement | null = null;
 	/** Header theme-toggle button. Prefixed to avoid clashing with ItemView fields. */
 	private adThemeBtn: HTMLElement | null = null;
-	private adWarnedProjectsFallback = false;
 
 	// Project overview state
 	private currentProjects: ProjectInfo[] = [];
@@ -181,10 +181,13 @@ export class DashboardView extends ItemView {
 	private oppRefreshTimer: number | null = null;
 	private oppCache: { at: number; items: OpportunityItem[] } | null = null;
 
+	private taskStore: TaskStore;
+
 	constructor(leaf: WorkspaceLeaf, plugin: AgentDashboard) {
 		super(leaf);
 		this.plugin = plugin;
 		this.bannerState = { ...DEFAULT_SETTINGS.banner, ...plugin.settings.banner };
+		this.taskStore = new TaskStore(this.app, () => this.plugin.settings, (msg) => this.showToast(msg));
 	}
 
 	/** Theme actually in effect for the dashboard right now. */
@@ -237,7 +240,7 @@ export class DashboardView extends ItemView {
 
 		// Auto-refresh on vault changes (home cards incl. progress + weekly, or project overview)
 		const refreshAll = () => {
-			this.invalidateTaskCache();
+			this.taskStore.invalidate();
 			void this.updatePulse();
 			if (this.currentPage === 'project') {
 				void this.refreshProjectOverview();
@@ -252,7 +255,7 @@ export class DashboardView extends ItemView {
 		this.registerEvent(this.app.vault.on('delete', refreshAll));
 		this.registerEvent(this.app.vault.on('rename', refreshAll));
 		this.registerEvent(this.app.vault.on('modify', (file) => {
-			this.invalidateTaskCache();
+			this.taskStore.invalidate();
 			if (this.currentPage === 'project') {
 				// Project config files are re-rendered by setProjectStage / updateProjectFile themselves.
 				// Skipping here avoids a stale re-scan clobbering the just-set stage (flash → reset to first stage).
@@ -268,7 +271,7 @@ export class DashboardView extends ItemView {
 				// Home: ignore edits to unrelated files. Only task files (markdown under
 				// the projects folder) affect the home cards, so this saves a full rescan
 				// on every unrelated note edit while still staying fresh for real changes.
-				if (!(file instanceof TFile) || !this.isTaskRelevantPath(file.path)) return;
+				if (!(file instanceof TFile) || !this.taskStore.isTaskRelevantPath(file.path)) return;
 				void this.updatePulse();
 				this.scheduleHomeRefresh();
 			}
@@ -452,7 +455,7 @@ export class DashboardView extends ItemView {
 		// Compute real pending task count (not done / not cancelled)
 		let pendingCount = 0;
 		try {
-			const all = await this.scanAllTasks();
+			const all = await this.taskStore.scanAllTasks();
 			pendingCount = all.filter((t) => t.status !== '\u5DF2\u5B8C\u6210' && t.status !== '\u5DF2\u53D6\u6D88').length;
 		} catch { /* keep 0 */ }
 
@@ -488,7 +491,7 @@ export class DashboardView extends ItemView {
 		this.pulseEls.streak.textContent = `${hs.streak}D STREAK`;
 		// Update pending with real task count
 		try {
-			const all = await this.scanAllTasks();
+			const all = await this.taskStore.scanAllTasks();
 			const pending = all.filter((t) => t.status !== '\u5DF2\u5B8C\u6210' && t.status !== '\u5DF2\u53D6\u6D88').length;
 			this.pulseEls.pending.textContent = `${pending} PENDING`;
 		} catch { /* keep current */ }
@@ -782,129 +785,6 @@ export class DashboardView extends ItemView {
 		return name.replace(/[*"/<>:|?\\]/g, '-');
 	}
 
-	/** Whether a file change can affect the home cards. Task files are markdown under
-	 *  the configured projects folder; if that folder is missing the scanner falls back
-	 *  to the whole vault root, so any markdown change is then treated as relevant. */
-	private isTaskRelevantPath(path: string): boolean {
-		const pf = this.plugin.settings.projectsFolder;
-		if (!path.endsWith('.md')) return false;
-		const root = this.app.vault.getAbstractFileByPath(pf);
-		if (!(root instanceof TFolder)) return true;
-		return path === pf || path.startsWith(pf + '/');
-	}
-
-	/* ============================================================
-	   Project & Task scanning (vault-based)
-	   ============================================================ */
-
-	/** Scan vault for all project folders with project.md */
-	private async scanAllProjects(): Promise<ProjectInfo[]> {
-		const rootPath = this.plugin.settings.projectsFolder;
-		const projects: ProjectInfo[] = [];
-
-		const root = this.app.vault.getAbstractFileByPath(rootPath);
-		if (!root || !(root instanceof TFolder)) {
-			// Config folder missing → keep the vault-root fallback for compatibility,
-			// but warn once so the user knows to configure it (avoids silent full-vault scans).
-			if (!this.adWarnedProjectsFallback) {
-				this.adWarnedProjectsFallback = true;
-				this.showToast('未找到项目文件夹「' + rootPath + '」，请在设置中配置以缩小扫描范围');
-				console.warn('[AgentDashboard] projectsFolder "' + rootPath + '" not found; fell back to scanning the whole vault root.');
-			}
-			const vaultRoot = this.app.vault.getRoot();
-			if (vaultRoot) {
-				await this.scanProjectsInFolder(vaultRoot, projects);
-			}
-			return projects;
-		}
-
-		await this.scanProjectsInFolder(root, projects);
-		return projects;
-	}
-
-	/** Scan a folder and its children for project-{name}.md */
-	private async scanProjectsInFolder(folder: TFolder, projects: ProjectInfo[]): Promise<void> {
-		for (const child of folder.children) {
-			if (child instanceof TFolder) {
-				// Config file: project-{folderName}.md
-				const projectFilePath = `${child.path}/project-${child.name}.md`;
-				const projectFile = this.app.vault.getAbstractFileByPath(projectFilePath);
-				if (projectFile instanceof TFile) {
-					const content = await this.app.vault.cachedRead(projectFile);
-					const meta = parseProjectMeta(content);
-					const projColor = meta.color || '#3b82f6';
-					const taskFiles = await this.scanTasksInFolder(child, meta.name || child.name, projColor);
-					const activeCount = taskFiles.filter((t) => t.status !== '\u5DF2\u5B8C\u6210' && t.status !== '\u5DF2\u53D6\u6D88').length;
-					const projStage = meta.stage ?? 0;
-					const stages = this.plugin.settings.npdpStages;
-					projects.push({
-						name: meta.name || child.name,
-						color: projColor,
-						description: meta.description || '',
-						startDate: meta.startDate || null,
-						endDate: meta.endDate || null,
-						createDate: meta.createDate || null,
-						taskCount: taskFiles.length,
-						activeCount,
-						path: child.path,
-						stage: Math.min(projStage, stages.length - 1),
-						stages,
-						type: meta.type ?? 'stage',
-					});
-				}
-				// Recurse into sub-folders
-				await this.scanProjectsInFolder(child, projects);
-			}
-		}
-	}
-
-	/** Scan .md files in a folder (skip project-{name}.md) and parse with parseTaskFile */
-	private async scanTasksInFolder(folder: TFolder, projectId?: string, projectColor?: string): Promise<TaskItem[]> {
-		const tasks: TaskItem[] = [];
-		for (const child of folder.children) {
-			if (child instanceof TFolder) {
-				// Recurse into sub-folders
-				const subTasks = await this.scanTasksInFolder(child, projectId, projectColor);
-				tasks.push(...subTasks);
-			} else if (child instanceof TFile && child.name.endsWith('.md') && !child.name.startsWith('project-')) {
-				const content = await this.app.vault.cachedRead(child);
-				const task = parseTaskFile(child.path, content, projectId || folder.name, projectColor);
-				tasks.push(task);
-			}
-		}
-		return tasks;
-	}
-
-	/** Scan all tasks across all projects */
-	/** Short-lived cache so back-to-back vault scans (e.g. pulse + home cards)
-	 *  during one refresh burst share a single result instead of re-reading the
-	 *  whole vault twice. TTL is intentionally tiny (300ms). */
-	private taskScanCache: TaskItem[] | null = null;
-	private taskScanCacheAt = 0;
-
-	/** Clear the task scan cache on relevant vault events, so a burst of back-to-back
-	 *  edits is never served stale data (time-window cache stays as a coalescer). */
-	private invalidateTaskCache(): void {
-		this.taskScanCache = null;
-	}
-
-	private async scanAllTasks(): Promise<TaskItem[]> {
-		const now = Date.now();
-		if (this.taskScanCache && now - this.taskScanCacheAt < 300) return this.taskScanCache;
-		const projects = await this.scanAllProjects();
-		const allTasks: TaskItem[] = [];
-		for (const proj of projects) {
-			const folder = this.app.vault.getAbstractFileByPath(proj.path);
-			if (folder instanceof TFolder) {
-				const tasks = await this.scanTasksInFolder(folder, proj.name, proj.color);
-				allTasks.push(...tasks);
-			}
-		}
-		this.taskScanCache = allTasks;
-		this.taskScanCacheAt = now;
-		return allTasks;
-	}
-
 	/* ============================================================
 	   Task actions
 	   ============================================================ */
@@ -1064,8 +944,8 @@ export class DashboardView extends ItemView {
 		// Scan FIRST (async) so the board is never left half-built if a vault event
 		// fires mid-render. We only mutate the DOM after data is ready, which keeps
 		// the project-overview build atomic and avoids stale/doubled home cards.
-		const projects = await this.scanAllProjects();
-		const allTasks = await this.scanAllTasks();
+		const projects = await this.taskStore.scanAllProjects();
+		const allTasks = await this.taskStore.scanAllTasks();
 
 		this.boardEl.empty();
 		this.boardEl.addClass('po-board');
@@ -1321,8 +1201,8 @@ export class DashboardView extends ItemView {
 		}
 		this.showToast(`已移动到「${targetProject}」`);
 		// 重新扫描项目与任务，刷新计数与视图
-		this.currentProjects = await this.scanAllProjects();
-		this.currentTasks = await this.scanAllTasks();
+		this.currentProjects = await this.taskStore.scanAllProjects();
+		this.currentTasks = await this.taskStore.scanAllTasks();
 		this.applyProjectOrder();
 		this.renderProjectSidebar(sidebar);
 		this.renderProjectOverviewPanels();
@@ -1402,8 +1282,8 @@ export class DashboardView extends ItemView {
 	private async refreshProjectOverview(): Promise<void> {
 		// Only meaningful while the project overview is the active board.
 		if (this.currentPage !== 'project') return;
-		const projects = await this.scanAllProjects();
-		const allTasks = await this.scanAllTasks();
+		const projects = await this.taskStore.scanAllProjects();
+		const allTasks = await this.taskStore.scanAllTasks();
 		// 异步扫描期间用户可能已切页；渲染前重校验，避免把项目页内容渲染进其它页面。
 		if (this.currentPage !== 'project' || !this.boardEl) return;
 		this.currentProjects = projects;
@@ -2800,14 +2680,14 @@ export class DashboardView extends ItemView {
 
 	/** Get list of all projects (async version using scanAllProjects) */
 	private async getProjectsList(): Promise<ProjectInfo[]> {
-		return await this.scanAllProjects();
+		return await this.taskStore.scanAllProjects();
 	}
 
 	/** Open TaskModal for creating a new task */
 	private async openTaskModal(defaultProject?: string): Promise<void> {
 		const { TaskModal } = await import('./TaskModal');
-		const projects = await this.scanAllProjects();
-		const allTasks = await this.scanAllTasks();
+		const projects = await this.taskStore.scanAllProjects();
+		const allTasks = await this.taskStore.scanAllTasks();
 
 		new TaskModal({
 			app: this.app,
@@ -2841,8 +2721,8 @@ export class DashboardView extends ItemView {
 /** Open TaskModal with a pre-filled parent task */
 	private async openTaskModalWithParent(parentName: string, projectName: string): Promise<void> {
 		const { TaskModal } = await import('./TaskModal');
-		const projects = await this.scanAllProjects();
-		const allTasks = await this.scanAllTasks();
+		const projects = await this.taskStore.scanAllProjects();
+		const allTasks = await this.taskStore.scanAllTasks();
 
 		new TaskModal({
 			app: this.app,
@@ -2877,7 +2757,7 @@ export class DashboardView extends ItemView {
 	/** Refresh the todo list card in-place */
 	private async refreshTodoList(): Promise<void> {
 		if (!this.boardEl) return;
-		const allTasks = await this.scanAllTasks();
+		const allTasks = await this.taskStore.scanAllTasks();
 		await this.renderTodo(this.boardEl, allTasks);
 	}
 
@@ -2908,7 +2788,7 @@ export class DashboardView extends ItemView {
 	 *  (no remove/re-create), so the layout never flashes. */
 	private async refreshHomeCards(): Promise<void> {
 		if (this.currentPage !== 'home' || !this.boardEl) return;
-		const allTasks = await this.scanAllTasks();
+		const allTasks = await this.taskStore.scanAllTasks();
 		// scanAllTasks 是异步耗时操作；期间用户可能已切到其它页面。
 		// 必须在渲染前重校验，否则会把主页卡片渲染进机会点/项目页面。
 		if (this.currentPage !== 'home' || !this.boardEl) return;
@@ -2919,7 +2799,7 @@ export class DashboardView extends ItemView {
 
 	/** Refresh whichever board is active (home cards, project overview, or opportunity board) */
 	private refreshRelevant(): void {
-		this.invalidateTaskCache();
+		this.taskStore.invalidate();
 		// Auto-close recurring tasks that have passed their end-date bound before re-rendering.
 		void this.closeRecurringIfExpired();
 		if (this.currentPage === 'project') {
@@ -2947,7 +2827,7 @@ export class DashboardView extends ItemView {
 	 * still works independently.
 	 */
 	private async closeRecurringIfExpired(): Promise<void> {
-		const tasks = await this.scanAllTasks();
+		const tasks = await this.taskStore.scanAllTasks();
 		const today = todayStr();
 		for (const t of tasks) {
 			if (t.type !== '\u91CD\u590D' || t.status === '\u5DF2\u5B8C\u6210') continue;
@@ -2967,7 +2847,7 @@ export class DashboardView extends ItemView {
 	   TODO — async, reads real tasks from vault
 	   ============================================================ */
 	private async renderTodo(board: HTMLElement, allTasks?: TaskItem[]): Promise<void> {
-		const tasks = allTasks ?? await this.scanAllTasks();
+		const tasks = allTasks ?? await this.taskStore.scanAllTasks();
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-todo');
 		const summary = card.createSpan({ cls: 'ad-card__hint' });
 		this.cardHead(card, '\u25CE', 'TODO', undefined, summary);
@@ -3045,7 +2925,7 @@ export class DashboardView extends ItemView {
 
 	/* ---- Progress (dual ring, real task data) ---- */
 	private async renderProgress(board: HTMLElement, allTasks?: TaskItem[]): Promise<void> {
-		const tasks = allTasks ?? await this.scanAllTasks();
+		const tasks = allTasks ?? await this.taskStore.scanAllTasks();
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-progress');
 		this.cardHead(card, '\u25D0', '\u5DE5\u4F5C\u8FDB\u5EA6', 'today \u00B7 ring');
 		const dp = card.createDiv({ cls: 'ad-dp' });
@@ -3101,7 +2981,7 @@ export class DashboardView extends ItemView {
 	/* ---- Weekly & Overdue ---- */
 	/* ---- Weekly & Overdue (real task data) ---- */
 	private async renderWeekly(board: HTMLElement, allTasks?: TaskItem[]): Promise<void> {
-		const tasks = allTasks ?? await this.scanAllTasks();
+		const tasks = allTasks ?? await this.taskStore.scanAllTasks();
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-weekly');
 
 		// Header: calendar icon + title + overdue badge (right)
@@ -3283,7 +3163,7 @@ export class DashboardView extends ItemView {
 
 		let projects: ProjectInfo[] = [];
 		try {
-			projects = await this.scanAllProjects();
+			projects = await this.taskStore.scanAllProjects();
 		} catch { /* keep empty */ }
 
 		// Only 阶段项目 participate in the stage-progress card (非阶段项目 excluded from display & count)

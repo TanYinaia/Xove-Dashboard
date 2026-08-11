@@ -1,14 +1,14 @@
 # Dashboard — 项目上下文文档
 
 > 本文档供 AI Agent 在新对话中阅读，快速了解项目全貌和开发历史。
-> 最近更新：2026-08-08（对齐 v0.2.6 + personal 分支未发布功能）
+> 最近更新：2026-08-11（v0.2.7：项目总览拆分 + 长列表虚拟化 + 文案收口 + 一键校验）
 
 ## 项目概述
 
 - **类型**: Obsidian 社区插件 (TypeScript)
 - **插件 ID**: `agent-dashboard`（内部 id / CSS class / 视图 id 均保留此名，勿改）
 - **显示名称**: Dashboard（v0.2.6 起由 Agent Dashboard 改名，仅改 `manifest.name`）
-- **版本**: 0.2.6（以 `manifest.json` 为准）
+- **版本**: 0.2.7（以 `manifest.json` 为准）
 - **最低 Obsidian 版本**: 1.8.0
 - **目标**: 在 Obsidian 中提供个人工作控制台，包含任务管理、项目跟踪、机会点管理、笔记统计等功能
 
@@ -468,7 +468,14 @@ interface AgentDashboardSettings {
     深色模式还原为 v0.2.5 hex 原值
   - 版本号 0.2.5 → 0.2.6，三处同步（manifest / versions / package.json）
 
-- **未发布（`personal` 分支，v0.2.6 之后）**: 个人专属功能，不合并回 `master`
+- **v0.2.7**（2026-08-11，commit `570846a`）: 项目总览拆分 + 长列表虚拟化 + 文案收口 + 一键校验
+  - **项目总览页拆分**：`DashboardView`（原 3042 行）拆出 `ProjectBoard.ts` 渲染器（1679 行），
+    宿主仅暴露 `ProjectHost` 接口依赖；首页/甘特/列表/日历/看板接线不变、行为等价
+  - **长列表虚拟化**：任务表格窗口化渲染（只建可视区行 + 上下占位行撑滚动，滚动/排序/筛选重算窗口，
+    rAF 节流；保留与甘特条按索引联动，改事件委托）；新增 `src/data/virtualList.ts` 纯函数 + 7 单测；
+    首页周任务列表加 `content-visibility` 原生渲染优化
+  - **中文文案收口**：新增 `src/constants.ts`（`UI_TEXT`），8 个视图/弹窗跨文件 UI 文案统一引用
+  - **一键校验脚本**：`npm run verify`（类型检查→规范检查→打包→单测→产物校验，任一步失败即中止）
   - **机会点管理（第三页）**：新增 `opportunityParser.ts` + `OpportunityModal.ts`；
     `DashboardView` 引入 `currentPage` 三态；6 状态看板（拖拽改状态 + 手动排序）、列表、
     单状态分栏 + 内联详情编辑；正文自动投影表格 + 明细；设置项 `opportunityFile` / `currentOppView`
@@ -479,6 +486,7 @@ interface AgentDashboardSettings {
     （id / CSS class / 视图 id 均**不变**，避免样式失效与设置丢失）
   - 若干 bug 修复：看板手动排序不生效、主页内容泄漏到机会点页、浅色下弹窗按钮变纯白、
     单日任务「延后一天」无效
+  - 版本号 0.2.6 → 0.2.7，三处同步（manifest / versions / package.json）
 
 ## 开发注意事项
 

@@ -1,6 +1,6 @@
 {
 	"name": "agent-dashboard",
-	"version": "0.2.6",
+	"version": "0.2.7",
 	"description": "A dashboard for tracking AI agent workflows, sessions, and outputs inside Obsidian.",
 	"main": "main.js",
 	"type": "module",
@@ -12,7 +12,8 @@
 		"test": "node --test \"src/data/*.test.ts\"",
 		"check": "npm run typecheck && npm run lint && npm run build:js && npm run test",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"verify": "node scripts/verify.mjs"
 	},
 	"keywords": [],
 	"license": "0-BSD",

@@ -1739,3 +1739,12 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 /* 拖拽插入指示 */
 .op-card--drag-over { box-shadow: inset 0 3px 0 0 var(--ad-accent); }
 .po-kanban__col--drag-over { background: var(--ad-accent-dim); }
+
+/* ---- 长列表渲染虚拟化：可视区外行跳过布局/绘制（Chromium 原生），滚动更流畅 ---- */
+.ad-wo__list li {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 24px;
+}
+
+/* 表格窗口化渲染的占位行 */
+.po-table td.po-spacer-cell { padding: 0; border: 0; }

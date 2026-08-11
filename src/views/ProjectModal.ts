@@ -1,5 +1,6 @@
 import { App, Modal } from 'obsidian';
 import { ProjectType, PROJECT_TYPE_LIST } from '../data/taskParser';
+import { UI_TEXT } from '../constants';
 
 export interface ProjectFormData {
 	name: string;
@@ -132,9 +133,9 @@ export class ProjectModal extends Modal {
 		stageField.style.display = this.selectedType === 'stage' ? '' : 'none';
 
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
-		btns.createEl('button', { cls: 'ad-modal-btn', text: '取消' })
+		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
-		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? '保存' : '创建项目' })
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : '创建项目' })
 			.addEventListener('click', () => {
 				const name = String((nameInput).value || '').trim();
 				if (!name) { (nameInput).focus(); return; }

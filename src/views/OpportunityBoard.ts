@@ -9,6 +9,7 @@ import {
 	createOpportunity, updateOpportunity, updateOpportunityStatus, toggleOpportunityRoadmap, deleteOpportunity,
 	DEFAULT_OPPORTUNITY_FILE,
 } from '../data/opportunityParser';
+import { UI_TEXT } from '../constants';
 
 /** Host surface the OpportunityBoard needs from its owner view. */
 export interface OpportunityHost {
@@ -105,7 +106,7 @@ export class OpportunityBoard {
 
 		const allItem = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedOppStatus === 'all' && !this.oppShowRoadmapOnly ? ' is-active' : '') });
 		allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:var(--ad-accent);color:var(--ad-accent)' } });
-		allItem.createSpan({ text: '全部机会点' });
+		allItem.createSpan({ text: UI_TEXT.opAll });
 		allItem.createSpan({ cls: 'po-count', text: String(total) });
 		allItem.addEventListener('click', () => {
 			this.selectedOppStatus = 'all';
@@ -132,7 +133,7 @@ export class OpportunityBoard {
 
 		const rmItem = list.createDiv({ cls: 'po-sidebar__item' + (this.oppShowRoadmapOnly ? ' is-active' : '') });
 		rmItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#eab308;color:#eab308' } });
-		rmItem.createSpan({ text: '★ 转路标' });
+		rmItem.createSpan({ text: UI_TEXT.opRoadmap });
 		rmItem.createSpan({ cls: 'po-count', text: String(items.filter((i) => i.toRoadmap).length) });
 		rmItem.addEventListener('click', () => {
 			this.oppShowRoadmapOnly = !this.oppShowRoadmapOnly;
@@ -223,7 +224,7 @@ export class OpportunityBoard {
 				title.textContent = it.title;
 				const desc = card.createDiv({ cls: 'op-card__desc' });
 				desc.textContent = it.background || it.commConclusion || '';
-				if (it.toRoadmap) card.createDiv({ cls: 'op-badge--roadmap', text: '★ 转路标' });
+				if (it.toRoadmap) card.createDiv({ cls: 'op-badge--roadmap', text: UI_TEXT.opRoadmap });
 				card.addEventListener('click', () => {
 					if (singleMode) {
 						this.selectedOppDetailId = it.id;
@@ -238,7 +239,7 @@ export class OpportunityBoard {
 				card.addEventListener('contextmenu', (e) => {
 					e.preventDefault();
 					const menu = new Menu();
-					menu.addItem((m) => m.setTitle('编辑').setIcon('pencil').onClick(() => this.openOpportunityModal(it)));
+					menu.addItem((m) => m.setTitle(UI_TEXT.edit).setIcon('pencil').onClick(() => this.openOpportunityModal(it)));
 					if (singleMode) menu.addItem((m) => m.setTitle('在右侧查看').setIcon('eye').onClick(() => {
 						this.selectedOppDetailId = it.id;
 						board.querySelectorAll('.op-card').forEach((c) => c.removeClass('is-selected'));
@@ -253,7 +254,7 @@ export class OpportunityBoard {
 					}
 					menu.addSeparator();
 					menu.addItem((m) => m.setTitle(it.toRoadmap ? '取消转路标' : '标记为转路标').setIcon('flag').onClick(() => void this.setOpportunityRoadmap(it, !it.toRoadmap)));
-					menu.addItem((m) => m.setTitle('删除').setIcon('trash').onClick(() => void this.deleteOpportunityItem(it)));
+					menu.addItem((m) => m.setTitle(UI_TEXT.delete).setIcon('trash').onClick(() => void this.deleteOpportunityItem(it)));
 					menu.showAtMouseEvent(e);
 				});
 			card.addEventListener('dragstart', (e) => {
@@ -368,8 +369,8 @@ export class OpportunityBoard {
 		openBtn.addEventListener('click', () => void this.openOpportunityDetail({ ...item, detail: detailInput.value }));
 
 		const btnRow = wrap.createDiv({ cls: 'op-detail__actions' });
-		const saveBtn = btnRow.createEl('button', { cls: 'op-detail__btn op-detail__btn--primary', text: '保存' });
-		const delBtn = btnRow.createEl('button', { cls: 'op-detail__btn op-detail__btn--danger', text: '删除' });
+		const saveBtn = btnRow.createEl('button', { cls: 'op-detail__btn op-detail__btn--primary', text: UI_TEXT.save });
+		const delBtn = btnRow.createEl('button', { cls: 'op-detail__btn op-detail__btn--danger', text: UI_TEXT.delete });
 
 		saveBtn.addEventListener('click', () => {
 			void this.saveOpportunityDetail(item, {

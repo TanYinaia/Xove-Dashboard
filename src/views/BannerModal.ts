@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { UI_TEXT } from '../constants';
 
 /**
  * BannerModal — 弹窗预览封面图片，拖拽调整垂直位置。
@@ -38,7 +39,7 @@ export class BannerModal extends Modal {
 
 		// ---- buttons ----
 		const btns = contentEl.createDiv({ cls: 'ad-modal__btns' });
-		const cancelBtn = btns.createEl('button', { cls: 'ad-modal__btn', text: '取消' });
+		const cancelBtn = btns.createEl('button', { cls: 'ad-modal__btn', text: UI_TEXT.cancel });
 		const confirmBtn = btns.createEl('button', { cls: 'ad-modal__btn ad-modal__btn--primary', text: '确认' });
 
 		cancelBtn.addEventListener('click', () => this.close());

@@ -5,6 +5,7 @@ import {
 	OpportunityStatus,
 	OpportunityFormData,
 } from '../data/opportunityParser';
+import { UI_TEXT } from '../constants';
 
 interface OpportunityModalOptions {
 	app: App;
@@ -125,9 +126,9 @@ export class OpportunityModal extends Modal {
 
 		// 按钮
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
-		btns.createEl('button', { cls: 'ad-modal-btn', text: '取消' })
+		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
-		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? '保存' : '创建机会点' })
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : '创建机会点' })
 			.addEventListener('click', () => {
 				const title = String(nameInput.value || '').trim();
 				if (!title) { nameInput.focus(); return; }

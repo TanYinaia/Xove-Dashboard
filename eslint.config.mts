@@ -14,6 +14,7 @@ export default defineConfig(
 		'esbuild.config.mjs',
 		'rollup.config.mjs',
 		'version-bump.mjs',
+		'scripts/verify.mjs',
 		'versions.json',
 		'main.js',
 		'package.json',

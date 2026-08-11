@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { UI_TEXT } from '../constants';
 
 /* ============================================================
    Task Creation Modal — Full form with all fields
@@ -42,7 +43,7 @@ const PRIORITIES = [
 	{ value: '重要不紧急', label: '🟡 重要不紧急' },
 	{ value: '紧急不重要', label: '🔵 紧急不重要' },
 	{ value: '不重要不紧急', label: '⚪ 不重要不紧急' },
-	{ value: '', label: '未设置' },
+	{ value: '', label: UI_TEXT.notSet },
 ];
 
 const STATUSES = [
@@ -300,7 +301,7 @@ export class TaskModal extends Modal {
 
 		// ---- Buttons ----
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
-		btns.createEl('button', { cls: 'ad-modal-btn', text: '取消' })
+		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
 		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: '创建任务' })
 			.addEventListener('click', () => {

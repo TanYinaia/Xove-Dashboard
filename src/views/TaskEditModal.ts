@@ -1,5 +1,6 @@
 import { App, Modal, TFile } from 'obsidian';
 import { TaskItem, TaskStatus, TaskPriority, STATUS_LIST, PRIORITY_LIST, NodeState, DailyNode, serializeDailyNodesBlock } from '../data/taskParser';
+import { UI_TEXT } from '../constants';
 
 interface TaskEditModalOptions {
 	app: App;
@@ -23,7 +24,7 @@ export class TaskEditModal extends Modal {
 		const { contentEl } = this;
 		const task = this.opts.task;
 		contentEl.addClass('ad-task-modal');
-		contentEl.createEl('h3', { cls: 'ad-modal-title', text: '任务详情' });
+		contentEl.createEl('h3', { cls: 'ad-modal-title', text: UI_TEXT.taskDetail });
 
 		// ---- Title (editable name) ----
 		this.field('任务名称 *', (wrap) => {
@@ -41,7 +42,7 @@ export class TaskEditModal extends Modal {
 		// ---- Priority ----
 		contentEl.createEl('label', { cls: 'ad-modal-label', text: '优先级' });
 		const prioSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
-		prioSel.createEl('option', { text: '未设置', attr: { value: '' } });
+		prioSel.createEl('option', { text: UI_TEXT.notSet, attr: { value: '' } });
 		for (const p of PRIORITY_LIST) {
 			if (!p) continue;
 			const opt = prioSel.createEl('option', { text: p, attr: { value: p } });
@@ -71,9 +72,9 @@ export class TaskEditModal extends Modal {
 
 		// ---- Buttons ----
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
-		btns.createEl('button', { cls: 'ad-modal-btn', text: '取消' })
+		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
-		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: '保存' })
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: UI_TEXT.save })
 			.addEventListener('click', () => {
 				const titleEl = contentEl.querySelector('.ad-edit-title') as HTMLInputElement;
 				const nodeNoteEl = contentEl.querySelector('.ad-node-note') as HTMLTextAreaElement;

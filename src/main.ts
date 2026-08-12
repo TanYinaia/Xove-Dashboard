@@ -28,11 +28,18 @@ export default class AgentDashboard extends Plugin {
 	onunload(): void {}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<AgentDashboardSettings>,
-		);
+		const loaded = ((await this.loadData()) ?? {}) as Partial<AgentDashboardSettings> & {
+			quickCapture?: { templateFolder?: string; templateFile?: string };
+			diary?: { templateFolder?: string; templateFile?: string };
+		};
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// 迁移：旧版「模板文件夹 + 模板文件名」合并为「模板文件（完整路径）」
+		for (const key of ['quickCapture', 'diary'] as const) {
+			const grp = loaded[key];
+			if (grp && grp.templateFolder && grp.templateFile && !grp.templateFile.includes('/') && !grp.templateFile.endsWith('.md')) {
+				(this.settings[key] as { templateFile: string }).templateFile = `${grp.templateFolder}/${grp.templateFile}`;
+			}
+		}
 	}
 
 	async saveSettings(): Promise<void> {

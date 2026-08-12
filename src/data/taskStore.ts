@@ -2,6 +2,8 @@ import { TFile, TFolder } from 'obsidian';
 import type { App } from 'obsidian';
 import { parseTaskFile, parseProjectMeta } from './taskParser';
 import type { ProjectInfo, TaskItem } from './taskParser';
+import { reportParseIssue, clearParseIssues, getParseIssues } from './parserDiagnostics';
+import type { ParseIssue } from './parserDiagnostics';
 
 /** Settings the store needs to scan projects/tasks. */
 export interface TaskStoreSettings {
@@ -28,6 +30,11 @@ export class TaskStore {
 		this.taskScanCache = null;
 	}
 
+	/** Snapshot of parse/read failures collected during the last vault scan. */
+	getParseIssues(): ParseIssue[] {
+		return getParseIssues();
+	}
+
 	/** Whether a file change can affect the home cards. Task files are markdown
 	 *  under the configured projects folder; if that folder is missing the scanner
 	 *  falls back to the whole vault root, so any markdown change is then relevant. */
@@ -43,6 +50,7 @@ export class TaskStore {
 	async scanAllProjects(): Promise<ProjectInfo[]> {
 		const rootPath = this.getSettings().projectsFolder;
 		const projects: ProjectInfo[] = [];
+		clearParseIssues();
 
 		const root = this.app.vault.getAbstractFileByPath(rootPath);
 		if (!root || !(root instanceof TFolder)) {
@@ -71,10 +79,15 @@ export class TaskStore {
 				// Config file: project-{folderName}.md
 				const projectFilePath = `${child.path}/project-${child.name}.md`;
 				const projectFile = this.app.vault.getAbstractFileByPath(projectFilePath);
-				if (projectFile instanceof TFile) {
+			if (projectFile instanceof TFile) {
+				let meta: Partial<ProjectInfo> = {};
+				try {
 					const content = await this.app.vault.cachedRead(projectFile);
-					const meta = parseProjectMeta(content);
-					const projColor = meta.color || '#3b82f6';
+					meta = parseProjectMeta(content, projectFile.path);
+				} catch (e) {
+					reportParseIssue({ path: projectFile.path, kind: 'read', message: e instanceof Error ? e.message : String(e) });
+				}
+				const projColor = meta.color || '#3b82f6';
 					const taskFiles = await this.scanTasksInFolder(child, meta.name || child.name, projColor);
 					const activeCount = taskFiles.filter((t) => t.status !== '已完成' && t.status !== '已取消').length;
 					const projStage = meta.stage ?? 0;
@@ -109,9 +122,13 @@ export class TaskStore {
 				const subTasks = await this.scanTasksInFolder(child, projectId, projectColor);
 				tasks.push(...subTasks);
 			} else if (child instanceof TFile && child.name.endsWith('.md') && !child.name.startsWith('project-')) {
-				const content = await this.app.vault.cachedRead(child);
-				const task = parseTaskFile(child.path, content, projectId || folder.name, projectColor);
-				tasks.push(task);
+				try {
+					const content = await this.app.vault.cachedRead(child);
+					const task = parseTaskFile(child.path, content, projectId || folder.name, projectColor);
+					tasks.push(task);
+				} catch (e) {
+					reportParseIssue({ path: child.path, kind: 'read', message: e instanceof Error ? e.message : String(e) });
+				}
 			}
 		}
 		return tasks;

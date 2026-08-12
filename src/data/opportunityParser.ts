@@ -8,6 +8,7 @@
 import { App, TFile } from 'obsidian';
 import { stringifyYaml } from 'obsidian';
 import { parseFrontmatter } from './taskParser';
+import { reportParseIssue } from './parserDiagnostics';
 
 /* ---- Types ---- */
 
@@ -213,12 +214,18 @@ function regenerateBody(existingBody: string, items: OpportunityItem[]): string 
 
 /* ---- File-level read / write ---- */
 
-/** Ensure the master file exists (with empty opportunities + table). */
+/** Ensure the master file exists (with empty opportunities + table). Idempotent. */
 export async function ensureOpportunityFile(app: App, path: string): Promise<void> {
-	const f = app.vault.getAbstractFileByPath(path);
-	if (f instanceof TFile) return;
+	const f = app.vault.getFileByPath(path);
+	if (f) return;
 	const initial = `---\nopportunities: []\n---\n\n${buildBody([])}`;
-	await app.vault.create(path, initial);
+	try {
+		await app.vault.create(path, initial);
+	} catch (err) {
+		// If another process created it in the meantime, treat as success.
+		if (err instanceof Error && /already exists/i.test(err.message)) return;
+		throw err;
+	}
 }
 
 /** Read all opportunities from the master file (empty array if missing). */
@@ -229,7 +236,7 @@ export async function parseOpportunitiesFile(app: App, path: string): Promise<Op
 		return [];
 	}
 	const content = await app.vault.read(file);
-	const fm = parseFrontmatter(content);
+	const fm = parseFrontmatter(content, path);
 	const arr = fm['opportunities'];
 	if (!Array.isArray(arr)) return [];
 	return (arr as unknown[])
@@ -248,7 +255,7 @@ export async function writeOpportunitiesFile(app: App, path: string, items: Oppo
 	}
 	if (!(file instanceof TFile)) return;
 	const content = await app.vault.read(file);
-	const fm = parseFrontmatter(content);
+	const fm = parseFrontmatter(content, path);
 	fm['opportunities'] = items.map(toFmObject);
 	const yaml = stringifyYaml(fm);
 	const front = `---\n${yaml.trim()}\n---\n`;

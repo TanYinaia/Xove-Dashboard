@@ -1,6 +1,7 @@
 import { parseYaml } from 'obsidian';
 import { taskFromFm, projectFromFm } from './taskParseCore';
 import type { TaskItem, ProjectInfo } from './taskParseCore';
+import { reportParseIssue } from './parserDiagnostics';
 
 /* ---- Re-export pure core (types / constants / parsers) ----
    Existing callers keep importing from './taskParser'; the actual
@@ -19,7 +20,7 @@ export {
    Uses Obsidian's official parseYaml for robust, standards-compliant YAML
    handling (quoted values, flow arrays, nested objects, block scalars). */
 
-export function parseFrontmatter(content: string): Record<string, unknown> {
+export function parseFrontmatter(content: string, filePath?: string): Record<string, unknown> {
 	const lines = content.split(/\r?\n/);
 	if (lines[0]?.trim() !== '---') return {};
 	let end = -1;
@@ -34,7 +35,10 @@ export function parseFrontmatter(content: string): Record<string, unknown> {
 		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
 			return parsed as Record<string, unknown>;
 		}
-	} catch { /* malformed YAML → empty */ }
+	} catch (e) {
+		// malformed YAML → record it so the UI can surface the broken file
+		reportParseIssue({ path: filePath ?? '(unknown)', kind: 'yaml', message: e instanceof Error ? e.message : String(e) });
+	}
 	return {};
 }
 
@@ -42,10 +46,10 @@ export function parseFrontmatter(content: string): Record<string, unknown> {
 
 /** Parse a .md file into a TaskItem using Chinese frontmatter keys */
 export function parseTaskFile(filePath: string, content: string, projectId: string, projectColor?: string): TaskItem {
-	return taskFromFm(parseFrontmatter(content), content, filePath, projectId, projectColor);
+	return taskFromFm(parseFrontmatter(content, filePath), content, filePath, projectId, projectColor);
 }
 
 /** Parse project.md frontmatter */
-export function parseProjectMeta(content: string): Partial<ProjectInfo> {
-	return projectFromFm(parseFrontmatter(content));
+export function parseProjectMeta(content: string, filePath?: string): Partial<ProjectInfo> {
+	return projectFromFm(parseFrontmatter(content, filePath));
 }

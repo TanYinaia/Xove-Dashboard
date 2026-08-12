@@ -9,14 +9,12 @@ export interface BannerSettings {
 export interface QuickCaptureSettings {
 	storagePath: string;
 	namingPattern: string;
-	templateFolder: string;
 	templateFile: string;
 }
 
 export interface DiarySettings {
 	storagePath: string;
 	namingPattern: string;
-	templateFolder: string;
 	templateFile: string;
 }
 
@@ -30,13 +28,12 @@ export interface AgentDashboardSettings {
 	poProjectOrder: string[];
 	poTaskOrder: string[];
 	theme: 'auto' | 'dark' | 'light';
-	/** When true, the dashboard theme button also switches Obsidian's global appearance. */
-	themeSyncObsidian: boolean;
 	dashboardTitle: string;
 	npdpStages: string[];
 	npdpMaxStage: number;
 	npdpProgressFilter?: number;
 	poGanttStatusFilter?: string[];
+	poGanttScale?: 'day' | 'week' | 'month' | 'quarter';
 	opportunityFile: string;
 	currentOppView: string;
 }
@@ -46,13 +43,11 @@ export const DEFAULT_SETTINGS: AgentDashboardSettings = {
 	quickCapture: {
 		storagePath: '00 inbox/速记',
 		namingPattern: 'YYYY-MM-DD HH-mm 捕捉',
-		templateFolder: '',
 		templateFile: '',
 	},
 	diary: {
 		storagePath: 'Daily',
 		namingPattern: 'YYYY-MM-DD',
-		templateFolder: '',
 		templateFile: '',
 	},
 	todoSourceFolder: '',
@@ -61,12 +56,12 @@ export const DEFAULT_SETTINGS: AgentDashboardSettings = {
 	poProjectOrder: [],
 	poTaskOrder: [],
 	theme: 'auto',
-	themeSyncObsidian: true,
 	dashboardTitle: '',
 	npdpStages: ['立项', '规划', '开发', '测试', '上线'],
 	npdpMaxStage: 5,
 	npdpProgressFilter: 5,
 	poGanttStatusFilter: [],
+	poGanttScale: 'week',
 	opportunityFile: 'Projects/机会点管理.md',
 	currentOppView: 'kanban',
 };
@@ -95,31 +90,11 @@ function collectFolders(folder: TFolder, out: Set<string>): void {
 	}
 }
 
-function getTemplateFiles(app: App, folder: string): string[] {
-	if (!folder) return [];
-	return app.vault
-		.getMarkdownFiles()
-		.filter((f) => f.path.startsWith(folder + '/'))
-		.map((f) => f.basename)
-		.sort();
-}
-
 function addFolderDropdown(setting: Setting, app: App, current: string, onChange: (v: string) => Promise<void>): void {
 	setting.addDropdown((dropdown) => {
 		const folders = getVaultFolders(app);
 		for (const f of folders) dropdown.addOption(f, f);
 		if (current && !folders.includes(current)) dropdown.addOption(current, current);
-		dropdown.setValue(current);
-		dropdown.onChange(async (v) => onChange(v));
-	});
-}
-
-function addTemplateDropdown(setting: Setting, app: App, folder: string, current: string, onChange: (v: string) => Promise<void>): void {
-	setting.addDropdown((dropdown) => {
-		dropdown.addOption('', '不使用模板');
-		const files = getTemplateFiles(app, folder);
-		for (const f of files) dropdown.addOption(f, f);
-		if (current && !files.includes(current)) dropdown.addOption(current, current);
 		dropdown.setValue(current);
 		dropdown.onChange(async (v) => onChange(v));
 	});
@@ -157,25 +132,16 @@ export class AgentDashboardSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('模板文件夹')
-			.setDesc('输入模板所在文件夹路径，如 templates')
+			.setName('模板文件')
+			.setDesc('输入模板路径，不使用模板则为空')
 			.addText((t) => t
-				.setPlaceholder('templates')
-				.setValue(this.plugin.settings.quickCapture.templateFolder)
+				.setPlaceholder('Templates/速记.md')
+				.setValue(this.plugin.settings.quickCapture.templateFile)
 				.onChange(async (v) => {
-					this.plugin.settings.quickCapture.templateFolder = v;
-					this.plugin.settings.quickCapture.templateFile = '';
+					this.plugin.settings.quickCapture.templateFile = v.trim();
 					await this.plugin.saveSettings();
-					this.display();
 				}),
 			);
-
-		const qcFolder = this.plugin.settings.quickCapture.templateFolder;
-		addTemplateDropdown(
-			new Setting(containerEl).setName('模板文件').setDesc('选择模板。支持 {{date}} {{time}} {{title}} {{content}}'),
-			this.app, qcFolder, this.plugin.settings.quickCapture.templateFile,
-			async (v) => { this.plugin.settings.quickCapture.templateFile = v; await this.plugin.saveSettings(); },
-		);
 
 		/* ---- TODO ---- */
 		new Setting(containerEl).setName('TODO 待办').setHeading();
@@ -196,6 +162,21 @@ export class AgentDashboardSettingTab extends PluginSettingTab {
 			this.plugin.settings.projectsFolder,
 			async (v) => { this.plugin.settings.projectsFolder = v; await this.plugin.saveSettings(); },
 		);
+
+		new Setting(containerEl)
+			.setName('甘特图默认时间粒度')
+			.setDesc('项目总览的甘特图默认以该粒度展示。重新打开项目总览或重载插件后生效；也可在甘特图界面直接点击缩放按钮临时切换（会自动记住）')
+			.addDropdown((dropdown) => {
+				dropdown.addOption('week', '周（默认）');
+				dropdown.addOption('day', '日');
+				dropdown.addOption('month', '月');
+				dropdown.addOption('quarter', '季度');
+				dropdown.setValue(this.plugin.settings.poGanttScale || 'week');
+				dropdown.onChange(async (v) => {
+					this.plugin.settings.poGanttScale = v as 'day' | 'week' | 'month' | 'quarter';
+					await this.plugin.saveSettings();
+				});
+			});
 
 		/* ---- 机会点 ---- */
 		new Setting(containerEl).setName('机会点').setHeading();
@@ -232,47 +213,38 @@ export class AgentDashboardSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('日记模板文件夹')
-			.setDesc('输入模板所在文件夹路径')
+			.setName('模板文件')
+			.setDesc('输入模板路径，不使用模板则为空')
 			.addText((t) => t
-				.setPlaceholder('templates')
-				.setValue(this.plugin.settings.diary.templateFolder)
+				.setPlaceholder('Templates/日记.md')
+				.setValue(this.plugin.settings.diary.templateFile)
 				.onChange(async (v) => {
-					this.plugin.settings.diary.templateFolder = v;
-					this.plugin.settings.diary.templateFile = '';
+					this.plugin.settings.diary.templateFile = v.trim();
 					await this.plugin.saveSettings();
-					this.display();
 				}),
 			);
-
-		const diaryFolder = this.plugin.settings.diary.templateFolder;
-		addTemplateDropdown(
-			new Setting(containerEl).setName('日记模板文件').setDesc('选择日记模板'),
-			this.app, diaryFolder, this.plugin.settings.diary.templateFile,
-			async (v) => { this.plugin.settings.diary.templateFile = v; await this.plugin.saveSettings(); },
-		);
 
 		/* ---- 外观 ---- */
 		new Setting(containerEl).setName('外观').setHeading();
 
 		new Setting(containerEl)
 			.setName('主题')
-			.setDesc('默认跟随 Obsidian 外观（深色/浅色随系统切换）')
+			.setDesc('跟随 Obsidian 外观，或手动指定深色/浅色。手动选择会同时切换 Obsidian 整体外观，仪表盘自动跟随')
 			.addDropdown((dropdown) => {
-				dropdown.addOption('auto', '跟随 Obsidian (Auto)');
+				dropdown.addOption('auto', '跟随 Obsidian');
 
-				dropdown.addOption('dark', '深色 (Dark)');
-				dropdown.addOption('light', '浅色 (Light)');
+				dropdown.addOption('dark', '深色');
+				dropdown.addOption('light', '浅色');
 				dropdown.setValue(this.plugin.settings.theme);
 				dropdown.onChange(async (v) => {
 					const mode = v as 'auto' | 'dark' | 'light';
-					if (this.plugin.settings.themeSyncObsidian && mode !== 'auto') {
-						// Drive Obsidian's global appearance; the dashboard follows it via 'auto'.
+					if (mode !== 'auto') {
+						// 手动选择深色/浅色时，直接切换 Obsidian 整体外观，仪表盘通过 'auto' 跟随。
 						this.plugin.setObsidianTheme(mode);
 						this.plugin.settings.theme = 'auto';
 						dropdown.setValue('auto');
 					} else {
-						this.plugin.settings.theme = mode;
+						this.plugin.settings.theme = 'auto';
 					}
 					await this.plugin.saveSettings();
 					this.applyTheme();
@@ -280,28 +252,16 @@ export class AgentDashboardSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('主题联动 Obsidian')
-			.setDesc('开启后，主页右上角的主题按钮会直接切换 Obsidian 整体外观（深色/浅色），仪表盘自动跟随；关闭则只切换仪表盘自身配色')
-			.addToggle((t) => t
-				.setValue(this.plugin.settings.themeSyncObsidian)
-				.onChange(async (v) => {
-					this.plugin.settings.themeSyncObsidian = v;
-					await this.plugin.saveSettings();
-					this.plugin.refreshThemeButtons();
-				}),
-			);
-
-		new Setting(containerEl)
 			.setName('插件标题')
-			.setDesc('自定义仪表盘主标题（即“个人中心”那一行）。留空则使用默认标题 “MY DASHBOARD”，修改后立即生效，无需重载')
+			.setDesc('自定义仪表盘主标题（即“MY DASHBOARD”那一行）。留空则使用默认标题 “MY DASHBOARD”，修改后立即生效，无需重载')
 			.addText((t) => t
 				.setPlaceholder('MY DASHBOARD')
 				.setValue(this.plugin.settings.dashboardTitle)
 				.onChange(async (v) => { this.plugin.settings.dashboardTitle = v; await this.plugin.saveSettings(); this.plugin.refreshDashboardTitle(); }),
 			);
 
-		/* ---- NPDP 阶段管道 ---- */
-		new Setting(containerEl).setName('NPDP 阶段管道').setHeading();
+		/* ---- 阶段管道 ---- */
+		new Setting(containerEl).setName('阶段管道').setHeading();
 
 		new Setting(containerEl)
 			.setName('阶段数量')

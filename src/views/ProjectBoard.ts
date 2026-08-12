@@ -21,6 +21,7 @@ export interface ProjectHost {
 			poTaskOrder: string[];
 			npdpStages: string[];
 			poGanttStatusFilter?: string[];
+			poGanttScale?: 'day' | 'week' | 'month' | 'quarter';
 		};
 		saveSettings(): Promise<void>;
 	};
@@ -84,11 +85,17 @@ export class ProjectBoard {
 	async openProjectGantt(proj: ProjectInfo): Promise<void> {
 		this.host.selectedProject = proj.name;
 		this.currentView = 'gantt';
-		await this.show();
+		await this.show(true);
 	}
 
 
-	async show(): Promise<void> {
+	/**
+	 * 渲染项目总览。
+	 * @param preserveSelection 为 true 时（如从首页项目卡片跳入）保留调用方已设置的
+	 *        selectedProject / currentView，不重置为「全部项目」；为 false 时（点击工具栏
+	 *        「全部项目」）重置为显示所有项目并恢复上次记忆的视图标签。
+	 */
+	async show(preserveSelection = false): Promise<void> {
 		if (!this.boardEl) return;
 
 		// Scan FIRST (async) so the board is never left half-built if a vault event
@@ -106,9 +113,13 @@ export class ProjectBoard {
 		this.currentProjects = projects;
 		this.currentTasks = allTasks;
 		this.applyProjectOrder();
-		this.selectedProject = null;
-		this.currentView = this.plugin.settings.currentPoView || 'gantt';
 		this.ganttStatusFilter = (this.plugin.settings.poGanttStatusFilter || []) as TaskStatus[];
+		// 恢复上次记忆的甘特图时间粒度（日/周/月/季度），默认周
+		this.ganttZoom = this.plugin.settings.poGanttScale || 'week';
+		if (!preserveSelection) {
+			this.selectedProject = null;
+			this.currentView = this.plugin.settings.currentPoView || 'gantt';
+		}
 
 		// Container with sidebar + main
 		const container = this.boardEl.createDiv({ cls: 'po-container' });
@@ -620,6 +631,9 @@ export class ProjectBoard {
 			const btn = zoomBar.createEl('button', { cls: 'po-gantt__zoom-btn' + (z.key === granularity ? ' is-active' : ''), text: z.label });
 			btn.addEventListener('click', () => {
 				this.ganttZoom = z.key as typeof this.ganttZoom;
+				// 持久化用户选择的时间粒度，重启插件后保持
+				this.plugin.settings.poGanttScale = this.ganttZoom;
+				void this.plugin.saveSettings();
 				panel.empty();
 				this.renderGanttPanel(panel, tasks, projects);
 			});

@@ -4,7 +4,7 @@
 
 - **插件 ID**：`agent-dashboard`
 - **显示名称**：Dashboard
-- **当前版本**：0.2.6
+- **当前版本**：0.2.7
 - **最低 Obsidian 版本**：1.8.0
 - **依赖**：无运行时依赖（纯 TypeScript + Obsidian API + 原生 CSS）
 
@@ -40,7 +40,7 @@
 - **日历**：月视图，格子内直接显示任务条（延误红 / 正常项目色 / 已完成划线），拖拽改截止日期
 - **看板**：待办 / 进行中 / 已阻塞 / 已完成 / 已取消五列，跨列拖拽即改状态
 
-### 机会点（Opportunity，personal 分支）
+### 机会点（Opportunity，personal 分支专属，通用版不含）
 
 产品机会点从「未沟通 → 沟通通过 → 调研中 → 待上会 → 已完成 / 已否决」的全流程看板与列表。所有机会点统一存在一个 Markdown 文件的 frontmatter `opportunities` 数组里，正文自动投影成可读表格 + 明细；支持手动拖拽排序、单状态分栏 + 右侧内联详情编辑、★ 转路标标记。
 
@@ -114,7 +114,33 @@ manifest.json
 styles.css
 ```
 
-构建后把这三个文件复制过去，然后在 Obsidian 里执行 **Reload app without saving**（Obsidian 不会热重载插件的 JS/CSS）。
+- **个人版**：根目录三件套（`My Dashboard/main.js` 等）。
+- **通用版**：`generic/` 下的三件套（`generic/main.js` 等），由 `scripts/build-generic.py` 派生。
+
+> ⚠️ 两份产物的 `id` / `name` 完全相同（`agent-dashboard` / `Dashboard`），靠文件夹区分。
+> **不要将两者装进同一个 vault**——会互相覆盖。通用版装到独立 vault 或打成 zip 分发。
+
+构建后把对应三件套复制过去，然后在 Obsidian 里执行 **Reload app without saving**（Obsidian 不会热重载插件的 JS/CSS）。
+
+### 构建环境说明
+
+- **开发在鸿蒙（HarmonyOS）**：源码编辑、跑 python 脚本（`build-generic.py`）在此进行。
+  但本机 **node 完全跑不起来**，因此生成 `main.js` 的打包（rollup / esbuild / tsc）必须到 **Windows** 执行。
+- **打包在 Windows**：`npm install` 之后用 `npm run build:js`（个人版）或 `python scripts/build-generic.py`（通用版）。
+
+### 通用版（Generic）派生
+
+通用版不含「机会点」等个人专属功能，由脚本从个人版源码自动生成，**不是手写的独立分支**：
+
+```bash
+# 鸿蒙：派生源码（python 可跑）
+/data/service/hnp/bin/python3 scripts/build-generic.py
+# Windows：派生源码 + 打包出 generic/main.js
+python scripts/build-generic.py
+```
+
+- 改功能只改 `src/`；通用版永远跟着 `src/` 走。
+- **绝不要手动改 `generic/` 里的文件**——每次跑脚本都会被整体覆盖。
 
 ---
 
@@ -122,33 +148,28 @@ styles.css
 
 ```
 My Dashboard/
-├── src/
-│   ├── main.ts                  # 插件入口：注册视图 / 命令 / ribbon / 设置页
-│   ├── settings.ts              # 设置接口、默认值、设置面板 UI
-│   ├── icons.ts                 # 内联 SVG 图标常量（currentColor 自适应主题）
-│   ├── data/
-│   │   ├── taskParser.ts        # 任务 / 项目 frontmatter 解析、每日节点读写
-│   │   ├── opportunityParser.ts # 机会点数据层（frontmatter 数组读写 + 正文投影）
-│   │   └── mockData.ts          # UI 骨架用的类型与占位数据
-│   └── views/
-│       ├── DashboardView.ts     # 主视图：主页 + 全部项目 + 机会点三页
-│       ├── TaskModal.ts         # 新建任务弹窗
-│       ├── TaskEditModal.ts     # 任务详情/编辑弹窗（含每日节点轴）
-│       ├── ProjectModal.ts      # 新建/编辑项目弹窗
-│       ├── OpportunityModal.ts  # 新建/编辑机会点弹窗
-│       └── BannerModal.ts       # 封面位置调整弹窗
+├── src/                          ← 唯一真身（个人版，personal 分支）
+│   ├── main.ts / settings.ts / constants.ts / icons.ts
+│   ├── data/                     # taskParser / taskParseCore / taskLogic / taskStore /
+│   │                             #   dashboardStore / opportunityParser / virtualList / mockData（均含单测）
+│   └── views/                    # DashboardView(宿主) / ProjectBoard / OpportunityBoard /
+│                                 #   TaskModal / TaskEditModal / ProjectModal / OpportunityModal / BannerModal
 ├── styles.css                   # 插件全局样式（设计令牌 --ad-* 驱动）
 ├── manifest.json / versions.json / package.json
 ├── rollup.config.mjs            # 纯 JS 打包配置（build:js）
 ├── esbuild.config.mjs           # 官方模板构建配置（dev / build）
 ├── eslint.config.mts / tsconfig.json / version-bump.mjs
-├── AGENTS.md / CLAUDE.md        # AI 协作开发规范
+├── scripts/
+│   ├── build-generic.py         # ★ 通用版唯一派生入口
+│   └── verify.mjs               # 一键校验脚本（npm run verify）
+├── generic/                     # 通用版（派生生成，勿手改）
+├── AGENTS.md / CLAUDE.md        # AI 协作开发规范（两份内容一致）
 ├── PROJECT_CONTEXT.md           # 完整项目上下文与版本历史
-├── 项目整理报告.md               # 文件清点与无用文件清单
-├── dashboard-editor.html        # 可视化布局编辑器（由 build-editor.py 生成）
-├── token-playground.html        # 设计令牌调试页
-├── light-mode-preview.html      # 深/浅主题对照预览
-└── prototype/                   # 早期 HTML 原型（历史参考）
+├── 项目整理报告.md / 代码审查报告.md / 代码改进建议.md / 架构对比与统一建议.md / 设计规范说明.md
+├── 插件图标/                     # 图标 SVG 素材
+├── tools/                       # 历史 HTML 预览 / 编辑器（已弃用）
+├── prototype/                   # 早期 HTML 原型（历史参考）
+└── 参考项目/                     # 第三方参考插件源码（非本项目代码）
 ```
 
 ---
@@ -161,10 +182,14 @@ My Dashboard/
   `:is(body.theme-light …:not([data-theme="dark"]), body.theme-dark …[data-theme="light"])` 选择器里
 - 不引入 React / Tailwind 等前端框架，不加运行时依赖
 
-## 分支
+## 分支与版本模型
 
-- `master`：发布线，只放通用功能，当前停在 v0.2.6
-- `personal`：个人使用线 = master + 个人专属功能（机会点等）+ 开发工具，不合并回 master
+- 当前 git **只有一个 `personal` 分支**（源码真身），不维护独立的 `master` / `generic` 分支。
+- **个人版** = `src/`（含机会点等个人专属功能）。
+- **通用版** = `generic/`，由 `scripts/build-generic.py` 从 `src/` 派生（去掉机会点），
+  不进 git、不是手写的独立分支。详见下方「通用版（Generic）派生」。
+- 两份产物的 `id` / `name` 完全一致（`agent-dashboard` / `Dashboard`），
+  仅靠 `根目录` 与 `generic/` 两个文件夹区分；不要装进同一 vault。
 
 ## License
 

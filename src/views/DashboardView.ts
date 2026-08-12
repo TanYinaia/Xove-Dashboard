@@ -5,6 +5,7 @@ import { BannerModal } from './BannerModal';
 import { TaskEditModal } from './TaskEditModal';
 import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
+import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
@@ -135,6 +136,7 @@ export class DashboardView extends ItemView {
 	// ("Cannot read properties of null (reading 'setText')" → blank view).
 	private adTitleEl: HTMLElement | null = null;
 	private weekdayEl: HTMLElement | null = null;
+	private parseIssuesEl: HTMLElement | null = null;
 	private lunarEl: HTMLElement | null = null;
 	private dashboardEl: HTMLElement | null = null;
 	/** Header theme-toggle button. Prefixed to avoid clashing with ItemView fields. */
@@ -180,10 +182,9 @@ export class DashboardView extends ItemView {
 		const btn = this.adThemeBtn;
 		if (!btn) return;
 		const eff = this.effectiveTheme();
-		const syncing = this.plugin.settings.themeSyncObsidian;
 		btn.textContent = eff === 'dark' ? '\u2600' : '\uD83C\uDF19';
 		btn.title = (eff === 'dark' ? '\u5207\u6362\u5230\u6D45\u8272' : '\u5207\u6362\u5230\u6DF1\u8272')
-			+ (syncing ? '\uFF08\u540C\u65F6\u5207\u6362 Obsidian \u5916\u89C2\uFF09' : '\uFF08\u4EC5\u4EEA\u8868\u76D8\uFF09');
+			+ '\uFF08\u540C\u65F6\u5207\u6362 Obsidian \u5916\u89C2\uFF09';
 	}
 
 	getViewType(): string { return VIEW_TYPE; }
@@ -204,6 +205,7 @@ export class DashboardView extends ItemView {
 		try {
 		const d = MOCK_DATA;
 		this.renderBanner(this.dashboardEl);
+		this.renderParseIssues(this.dashboardEl);
 		this.renderNoise(this.dashboardEl);
 		void this.renderPulse(this.dashboardEl, d);
 		this.renderHeader(this.dashboardEl, d);
@@ -252,6 +254,10 @@ export class DashboardView extends ItemView {
 			if (this.currentPage !== 'home' || !this.boardEl) return;
 			void this.refreshHomeCards();
 		});
+
+		// Initial scan populates parse diagnostics asynchronously; refresh the
+		// banner warning once the first scans have completed.
+		window.setTimeout(() => this.refreshParseIssues(), 400);
 		} catch (err) {
 			try {
 				const e = err instanceof Error ? err : new Error(String(err));
@@ -514,13 +520,9 @@ export class DashboardView extends ItemView {
 		this.refreshThemeButton();
 		themeBtn.addEventListener('click', () => { void (async () => {
 			const next: 'light' | 'dark' = this.effectiveTheme() === 'light' ? 'dark' : 'light';
-			if (this.plugin.settings.themeSyncObsidian) {
-				// Switch Obsidian's global appearance and let the dashboard follow it.
-				this.plugin.setObsidianTheme(next);
-				this.plugin.settings.theme = 'auto';
-			} else {
-				this.plugin.settings.theme = next;
-			}
+			// 手动切换主题时直接驱动 Obsidian 整体外观，仪表盘通过 'auto' 跟随。
+			this.plugin.setObsidianTheme(next);
+			this.plugin.settings.theme = 'auto';
 			await this.plugin.saveSettings();
 			this.plugin.refreshThemeButtons();
 			this.applyTheme();
@@ -558,31 +560,144 @@ export class DashboardView extends ItemView {
 	   ============================================================ */
 	private renderActions(root: HTMLElement): void {
 		const nav = root.createEl('nav', { cls: 'ad-toolbar' });
-		const items: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
+
+		// 导航组：去哪看（主页 / 全部项目 / 机会点）
+		const navItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
 			{ glyph: '\u2302', label: '\u4E3B\u9875', action: 'home', svg: ICON_home },
-			{ glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
-			{ glyph: '\u25A1', label: '\u65B0\u5EFA\u4EFB\u52A1', action: 'task', svg: ICON_newTask },
-			{ glyph: '\u25A3', label: '\u65B0\u5EFA\u9879\u76EE', action: 'project', svg: ICON_newProject },
 			{ glyph: '\u203A', label: '\u5168\u90E8\u9879\u76EE', action: 'all', svg: ICON_allProjects },
 			{ glyph: '\u25C8', label: '\u673A\u4F1A\u70B9', action: 'opportunity', svg: ICON_opportunity },
 		];
-		items.forEach((it) => {
-			const btn = nav.createEl('button', { cls: 'ad-toolbar__btn' });
+		// 动作组：建什么（新建日记 / 新建任务 / 新建项目）
+		const actionItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
+			{ glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
+			{ glyph: '\u25A1', label: '\u65B0\u5EFA\u4EFB\u52A1', action: 'task', svg: ICON_newTask },
+			{ glyph: '\u25A3', label: '\u65B0\u5EFA\u9879\u76EE', action: 'project', svg: ICON_newProject },
+		];
+
+		const makeBtn = (it: { glyph: string; label: string; action: string; svg?: string }, extraCls = ''): HTMLElement => {
+			const btn = nav.createEl('button', { cls: 'ad-toolbar__btn' + (extraCls ? ' ' + extraCls : '') });
 			const glyphEl = btn.createSpan({ cls: 'ad-glyph' });
 			if (it.svg) injectSvg(glyphEl, it.svg);
 			else glyphEl.textContent = it.glyph;
 			btn.createSpan({ text: it.label });
 			btn.addEventListener('click', () => {
 				btn.addClass('is-active');
-				if (it.action === 'home') this.showDashboard();
-				if (it.action === 'diary') void this.createDiary();
-				if (it.action === 'task') void this.openTaskModal(this.selectedProject ?? undefined);
-				if (it.action === 'project') void this.createProjectFile();
-			if (it.action === 'all') void this.projectBoard.show();
-			if (it.action === 'opportunity') void this.oppBoard.show();
-			window.setTimeout(() => btn.removeClass('is-active'), 350);
+				try {
+					if (it.action === 'home') this.showDashboard();
+					if (it.action === 'diary') void this.createDiary();
+					if (it.action === 'task') void this.openTaskModal(this.selectedProject ?? undefined);
+					if (it.action === 'project') void this.createProjectFile();
+					if (it.action === 'all') void this.projectBoard.show();
+					if (it.action === 'opportunity') void this.oppBoard.show();
+				} catch (e) {
+					const msg = e instanceof Error ? e.message : String(e);
+					this.showToast('打开失败：' + msg, 'error');
+					console.error('[AgentDashboard] toolbar action "' + it.action + '" failed', e);
+				}
+				window.setTimeout(() => btn.removeClass('is-active'), 350);
 			});
+			return btn;
+		};
+
+		const navGroup = nav.createDiv({ cls: 'ad-toolbar__group' });
+		navItems.forEach((it) => navGroup.appendChild(makeBtn(it)));
+		nav.createDiv({ cls: 'ad-toolbar__sep' });
+		const actGroup = nav.createDiv({ cls: 'ad-toolbar__group ad-toolbar__group--action' });
+		actionItems.forEach((it) => actGroup.appendChild(makeBtn(it, 'ad-toolbar__btn--action')));
+	}
+
+	/* ============================================================
+	   Parse-issue banner (shown directly under the banner image)
+	   ============================================================ */
+	private renderParseIssues(root: HTMLElement): void {
+		const el = root.createDiv({ cls: 'ad-parse-issues ad-parse-issues--hidden' });
+		this.parseIssuesEl = el;
+		this.refreshParseIssues();
+	}
+
+	private refreshParseIssues(): void {
+		const el = this.parseIssuesEl;
+		if (!el) return;
+		const issues = this.taskStore.getParseIssues();
+		el.empty();
+		if (issues.length === 0) {
+			el.addClass('ad-parse-issues--hidden');
+			return;
+		}
+		el.removeClass('ad-parse-issues--hidden');
+
+		const bar = el.createDiv({ cls: 'ad-parse-issues__bar' });
+		bar.createSpan({ cls: 'ad-parse-issues__icon', text: '⚠' });
+		bar.createSpan({ cls: 'ad-parse-issues__text', text: `${issues.length} 个文件解析异常（数据可能不完整），点击查看` });
+		const toggle = bar.createSpan({ cls: 'ad-parse-issues__toggle', text: '收起' });
+		const list = el.createDiv({ cls: 'ad-parse-issues__list ad-parse-issues__list--hidden' });
+
+		bar.addEventListener('click', () => {
+			const hidden = list.classList.toggle('ad-parse-issues__list--hidden');
+			toggle.textContent = hidden ? '展开' : '收起';
 		});
+
+		for (const it of issues) {
+			const row = list.createDiv({ cls: 'ad-parse-issues__item' });
+			row.createSpan({ cls: 'ad-parse-issues__path', text: it.path });
+			row.createSpan({ cls: 'ad-parse-issues__msg', text: `[${it.kind}] ${it.message}` });
+			const openBtn = row.createEl('button', { cls: 'ad-parse-issues__open', text: '在 Obsidian 打开' });
+			openBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				void this.openFileByPath(it.path);
+			});
+		}
+	}
+
+	private async openFileByPath(path: string): Promise<void> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (f instanceof TFile) {
+			const leaf = this.app.workspace.getLeaf(true);
+			await leaf.openFile(f);
+		} else {
+			this.showToast('文件不存在：' + path, 'error');
+		}
+	}
+
+	/* ============================================================
+	   Empty-state helper + first-run guide (no sample-data auto-create)
+	   ============================================================ */
+	private renderEmpty(container: HTMLElement, opts: {
+		icon?: string;
+		title: string;
+		hint?: string;
+		actionLabel?: string;
+		onAction?: () => void;
+	}): void {
+		const e = container.createDiv({ cls: 'ad-empty' });
+		if (opts.icon) e.createDiv({ cls: 'ad-empty__icon', text: opts.icon });
+		e.createDiv({ cls: 'ad-empty__title', text: opts.title });
+		if (opts.hint) e.createDiv({ cls: 'ad-empty__hint', text: opts.hint });
+		if (opts.actionLabel && opts.onAction) {
+			const btn = e.createEl('button', { cls: 'ad-empty__btn', text: opts.actionLabel });
+			btn.addEventListener('click', () => opts.onAction!());
+		}
+	}
+
+	private async renderFirstRunIfEmpty(board: HTMLElement): Promise<void> {
+		try {
+			const projects = await this.taskStore.scanAllProjects();
+			const tasks = await this.taskStore.scanAllTasks();
+			if (projects.length > 0 || tasks.length > 0) return;
+		} catch {
+			return;
+		}
+		const card = board.createDiv({ cls: 'ad-card ad-card--guide' });
+		this.cardHead(card, '\u{1F680}', '欢迎使用 Dashboard');
+		card.createDiv({ cls: 'ad-guide__body', text: '检测到你的知识库还没有任何项目或任务。从下面任意一个开始，几秒即可上手：' });
+		const actions = card.createDiv({ cls: 'ad-guide__actions' });
+		const mk = (label: string, fn: () => void) => {
+			const b = actions.createEl('button', { cls: 'ad-guide__btn', text: label });
+			b.addEventListener('click', fn);
+		};
+		mk('＋ 新建项目', () => void this.createProjectFile());
+		mk('＋ 新建任务', () => void this.openTaskModal(this.selectedProject ?? undefined));
+		mk('＋ 新建日记', () => void this.createDiary());
 	}
 
 	/* ============================================================
@@ -598,6 +713,7 @@ export class DashboardView extends ItemView {
 		void this.renderProjects(board);
 		this.renderHeatmap(board);
 		this.renderCountdown(board);
+		void this.renderFirstRunIfEmpty(board);
 	}
 
 	/* ---- Quick Capture ---- */
@@ -675,14 +791,11 @@ export class DashboardView extends ItemView {
 		// Build content: template or plain
 		let fileContent = content;
 		if (qc.templateFile) {
-			const tplFolder = this.getTemplateFolder();
-			if (tplFolder) {
-				const tplPath = `${tplFolder}/${qc.templateFile}.md`;
-				const tplFile = this.app.vault.getAbstractFileByPath(tplPath);
-				if (tplFile instanceof TFile) {
-					const tpl = await this.app.vault.read(tplFile);
-					fileContent = this.applyTemplate(tpl, content, filename, now);
-				}
+			const tplPath = this.resolveTemplatePath(qc.templateFile);
+			const tplFile = this.app.vault.getAbstractFileByPath(tplPath);
+			if (tplFile instanceof TFile) {
+				const tpl = await this.app.vault.read(tplFile);
+				fileContent = this.applyTemplate(tpl, content, filename, now);
 			}
 		}
 
@@ -708,8 +821,8 @@ export class DashboardView extends ItemView {
 
 		// Build content from template
 		let content = `# ${filename}\n`;
-		if (dc.templateFile && dc.templateFolder) {
-			const tplPath = `${dc.templateFolder}/${dc.templateFile}.md`;
+		if (dc.templateFile) {
+			const tplPath = this.resolveTemplatePath(dc.templateFile);
 			const tplFile = this.app.vault.getAbstractFileByPath(tplPath);
 			if (tplFile instanceof TFile) {
 				const tpl = await this.app.vault.read(tplFile);
@@ -746,8 +859,10 @@ export class DashboardView extends ItemView {
 		return result;
 	}
 
-	private getTemplateFolder(): string {
-		return this.plugin.settings.quickCapture.templateFolder || '';
+	private resolveTemplatePath(file: string): string {
+		const f = file.trim();
+		if (!f) return '';
+		return f.endsWith('.md') ? f : `${f}.md`;
 	}
 
 	private applyNamingPattern(pattern: string, d: Date): string {
@@ -1270,6 +1385,9 @@ export class DashboardView extends ItemView {
 	 *  (no remove/re-create), so the layout never flashes. */
 	private async refreshHomeCards(): Promise<void> {
 		if (this.currentPage !== 'home' || !this.boardEl) return;
+		// A first-run guide (if shown at load) should yield as soon as the user
+		// starts populating the vault, so drop any stale guide on refresh.
+		this.boardEl.querySelector('.ad-card--guide')?.remove();
 		const allTasks = this.dashboardStore.getTasks() ?? await this.taskStore.scanAllTasks();
 		// scanAllTasks 是异步耗时操作；期间用户可能已切到其它页面。
 		// 必须在渲染前重校验，否则会把主页卡片渲染进机会点/项目页面。
@@ -1277,6 +1395,8 @@ export class DashboardView extends ItemView {
 		await this.renderTodo(this.boardEl, allTasks);
 		await this.renderProgress(this.boardEl, allTasks);
 		await this.renderWeekly(this.boardEl, allTasks);
+		await this.renderProjects(this.boardEl);
+		this.refreshParseIssues();
 	}
 
 	/** Refresh whichever board is active (home cards, project overview, or opportunity board) */
@@ -1419,6 +1539,17 @@ export class DashboardView extends ItemView {
 			/* keep zeros */
 		}
 
+		if (tasks.length === 0) {
+			this.renderEmpty(card, {
+				icon: '\u{1F3AF}',
+				title: '还没有任何任务',
+				hint: '在下方「快速捕捉」里随手记一条，或点工具栏「＋ 新建任务」开始。',
+				actionLabel: '＋ 新建任务',
+				onAction: () => void this.openTaskModal(this.selectedProject ?? undefined),
+			});
+			return;
+		}
+
 		// Top ring — today's tasks
 		const todayPct = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
 		this.buildRing(dp, todayPct, 'ad-dp__pct-daily');
@@ -1525,7 +1656,7 @@ export class DashboardView extends ItemView {
 			wh4.appendText('本周待办');
 			const ul = wg.createEl('ul', { cls: 'ad-wo__list' });
 			if (thisWeek.length === 0 && overdue.length === 0) {
-				list.createDiv({ cls: 'ad-wo__empty', text: '\u{1F389} \u672C\u5468\u6682\u65E0\u4FEE\u529E\u4EFB\u52A1' });
+				list.createDiv({ cls: 'ad-wo__empty', text: '\u{1F389} \u672C\u5468\u6682\u65E0\u5F85\u529E\u4EFB\u52A1' });
 			} else {
 				thisWeek.forEach((t) => this.renderWeeklyRow(ul, t, false));
 			}
@@ -1624,7 +1755,7 @@ export class DashboardView extends ItemView {
 
 	/* ---- Projects (real data) ---- */
 	private async renderProjects(board: HTMLElement): Promise<void> {
-		const card = board.createDiv({ cls: 'ad-card ad-b-project' });
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-project');
 		const head = card.createDiv({ cls: 'ad-card__head ad-card__head--proj' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u25A6' });
@@ -1650,6 +1781,17 @@ export class DashboardView extends ItemView {
 		hint.textContent = `${filtered.length} / ${stageProjects.length} \u4E2A\u9879\u76EE`;
 		if (maxStageFilter < stages.length) {
 			hint.textContent += ` (\u2264${stages[maxStageFilter - 1]})`;
+		}
+
+		if (projects.length === 0) {
+			this.renderEmpty(card, {
+				icon: '\u{1F4D1}',
+				title: '\u8FD8\u6CA1\u6709\u4EFB\u4F55\u9879\u76EE',
+				hint: '\u70B9\u5DE5\u5177\u680F\u300C\uFF0B \u65B0\u5EFA\u9879\u76EE\u300D\u521B\u5EFA\u7B2C\u4E00\u4E2A\u9879\u76EE\uFF0C\u8FDB\u5EA6\u7BA1\u9053\u5C31\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\u3002',
+				actionLabel: '\uFF0B \u65B0\u5EFA\u9879\u76EE',
+				onAction: () => void this.createProjectFile(),
+			});
+			return;
 		}
 
 		const proj = card.createDiv({ cls: 'ad-proj' });
@@ -1857,8 +1999,6 @@ export class DashboardView extends ItemView {
 		const totalDays = isLeap ? 366 : 365;
 		const weeksLeft = Math.ceil(daysLeft / 7);
 		const percentDone = Math.min(100, Math.round((dayOfYear / totalDays) * 1000) / 10);
-		const quarter = Math.floor(now.getMonth() / 3) + 1;
-		const milestone = `Q${quarter} 进度`;
 		const card = board.createDiv({ cls: 'ad-card ad-b-countdown' });
 		this.cardHead(card, '\u25C8', `\u5012\u8BA1\u65F6 \u00B7 ${year}`, 'days left');
 		const cd = card.createDiv({ cls: 'ad-cd' });
@@ -1875,10 +2015,6 @@ export class DashboardView extends ItemView {
 		const barWrap = cd.createDiv({ cls: 'ad-cd__bar' });
 		const fill = barWrap.createDiv({ cls: 'ad-fill' });
 		fill.style.width = percentDone + '%';
-
-		const foot = cd.createDiv({ cls: 'ad-cd__foot' });
-		foot.appendText('\u4E0B\u4E00\u4E2A\u91CC\u7A0B\u7891 \u00B7 ');
-		foot.createSpan({ cls: 'ad-accent', text: milestone });
 	}
 
 	/* ---- Shared card header ---- */

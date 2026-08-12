@@ -1,7 +1,7 @@
 # Dashboard — 项目上下文文档
 
 > 本文档供 AI Agent 在新对话中阅读，快速了解项目全貌和开发历史。
-> 最近更新：2026-08-11（v0.2.7：项目总览拆分 + 长列表虚拟化 + 文案收口 + 一键校验）
+> 最近更新：2026-08-11（发布模型改为单 `personal` 分支 + 脚本派生通用版；v0.2.7 起 `manifest.name` 统一为 `Dashboard`，详见「个人版与通用版」）
 
 ## 项目概述
 
@@ -24,55 +24,100 @@
 - 数据存储：Vault 中的 Markdown 文件 + YAML frontmatter（中文键名）
 - 开发依赖：typescript、esbuild、rollup、eslint、obsidian 类型定义
 
-### 运行环境（当前，Windows）
+### 运行环境（当前）
 
-- 开发目录：`C:\Users\OseasyVM\Desktop\My Dashboard`
-- Obsidian 库与插件目录 `<Vault>/.obsidian/plugins/agent-dashboard/` 与开发目录分离，
-  构建后手动复制 `main.js` / `manifest.json` / `styles.css` 三件套并执行 Reload
-- 构建与验证：`npm run check`（typecheck + lint + build:js + test）一键门禁；
-  `npm run build` / `npm run dev` 使用 esbuild，本机可直接运行
-- 版本控制：本地 git（`personal` 分支），只在本机使用、不配置远程
+- **开发机（鸿蒙 HarmonyOS）**：源码编辑 + 跑 python 脚本（如 `build-generic.py`）在此完成。
+  注意：**本机 node 完全跑不起来**（`node -e "1"` 即 V8 致命崩溃），因此任何生成 `main.js`
+  的打包（rollup / esbuild / tsc）都必须到 **Windows** 上执行。
+- **构建机（Windows）**：`npm install` 后跑 `npm run build:js`（个人版）或
+  `python scripts/build-generic.py`（通用版，先派生源码再打包），产出 `main.js` 后拷回鸿蒙的
+  Obsidian 插件目录。
+- 开发目录（鸿蒙）：`/storage/Users/currentUser/My Dashboard`（与 Obsidian 插件目录
+  `<Vault>/.obsidian/plugins/agent-dashboard/` 通过同步盘分离；构建后手动复制三件套并执行 Reload）
+- 构建与验证（Windows）：`npm run check`（typecheck + lint + build:js + test）一键门禁；
+  `npm run verify` 为更完整的一键校验脚本
+- 版本控制：本地 git（仅 `personal` 分支），只在本机使用、不配置远程
+
+## 个人版与通用版（Generic）
+
+插件同时产出「个人版」与「通用版」两份插件包，但**只有一份源码真身**：
+
+- **个人版（真身）** = `src/`（当前 `personal` 分支），含全部功能（任务 / 项目 / 机会点 / 笔记统计）。
+  产物在仓库根目录：`main.js` / `manifest.json` / `styles.css`，`id=agent-dashboard`、`name=Dashboard`。
+- **通用版（派生）** = `generic/`，**由脚本从 `src/` 自动派生**（去掉「机会点」功能），
+  供分享 / 发布用，不含个人专属功能。两份 manifest 的 `id` 与 `name` 完全相同（均
+  `agent-dashboard` / `Dashboard`），仅靠 `根目录` 与 `generic/` 两个文件夹区分——
+  **两者装进同一 vault 会互相覆盖**，因此通用版应装到独立 vault 或打成 zip 分发。
+
+### 派生方式
+
+唯一入口：`scripts/build-generic.py`（其他 `_` 前缀脚本为早期试验，勿用）。
+
+```bash
+# 鸿蒙（HarmonyOS）上派生源码：python 可跑，node 不可跑
+/data/service/hnp/bin/python3 scripts/build-generic.py
+# Windows 上：同一脚本先派生源码，再 rollup 打包出 generic/main.js
+python scripts/build-generic.py
+```
+
+脚本做的事：复制 `src/` → 删除机会点相关文件（`OpportunityBoard.ts` / `OpportunityModal.ts` /
+`opportunityParser.ts` 及其调用）→ 把 `name=Dashboard` 写入 `generic/manifest.json` →
+（仅 Windows）rollup 打包出 `generic/main.js`。
+
+**铁律**：
+- 改功能只改 `src/`；通用版永远跟着 `src/` 走，不会漂移。
+- **绝不要手动改 `generic/` 里的文件**——每次跑脚本都会被整体覆盖。
+- 想调整「通用版留什么 / 砍什么」，改 `build-generic.py` 的 `strip_*` / `delete_opportunity_files`
+  规则后重跑。
+- 脚本已改为「覆盖不删除」（`copytree(..., dirs_exist_ok=True)`），鸿蒙上可反复运行；
+  但 `main.js` 仍需在 Windows 生成。
 
 ## 目录结构
 
 ```
 My Dashboard/
-├── src/
+├── src/                          ← 唯一真身（个人版，personal 分支）
 │   ├── main.ts                  # 插件入口：注册视图、ribbon、命令、设置页，主题联动
 │   ├── settings.ts              # 设置接口、默认值、设置面板 UI
+│   ├── constants.ts             # 跨文件统一 UI 文案（UI_TEXT）
 │   ├── icons.ts                 # 内联 SVG 图标常量（currentColor 自适应主题）
 │   ├── data/
-│   │   ├── taskParser.ts        # 任务/项目 frontmatter 解析器 + 每日节点读写
+│   │   ├── taskParser.ts        # 任务 frontmatter 解析入口（委托 taskParseCore / taskLogic）
+│   │   ├── taskParseCore.ts     # frontmatter 解析核心（纯函数 + 单测）
+│   │   ├── taskLogic.ts         # 任务状态 / 优先级 / 逾期等逻辑（纯函数 + 单测）
+│   │   ├── taskStore.ts         # 任务读写编排（scanAllTasks 等）
+│   │   ├── dashboardStore.ts    # 仪表盘数据聚合（纯函数 + 单测）
 │   │   ├── opportunityParser.ts # 机会点数据层（frontmatter 数组读写 + 正文投影）
+│   │   ├── virtualList.ts       # 长列表虚拟化纯函数（含 7 单测）
 │   │   └── mockData.ts          # UI 骨架用的类型定义与占位数据
 │   └── views/
-│       ├── DashboardView.ts     # 唯一 ItemView：主页 + 全部项目 + 机会点三页，核心文件 ~4200 行
-│       ├── TaskModal.ts         # 新建任务弹窗（完整表单，含 defaultProject/defaultParent 预填）
-│       ├── TaskEditModal.ts     # 任务详情/编辑弹窗（支持改名 + 每日节点轴）
-│       ├── ProjectModal.ts      # 新建/编辑项目弹窗
-│       ├── OpportunityModal.ts  # 新建/编辑机会点弹窗
+│       ├── DashboardView.ts     # 唯一 ItemView：主页 + 全部项目 + 机会点三页（currentPage 三态）
+│       ├── ProjectBoard.ts      # 项目总览渲染器（甘特/列表/日历/看板），v0.2.7 从 DashboardView 拆出
+│       ├── OpportunityBoard.ts  # 机会点看板 / 列表渲染器
+│       ├── TaskModal.ts         # 新建任务弹窗（含 defaultProject / defaultParent 预填）
+│       ├── TaskEditModal.ts     # 任务详情 / 编辑弹窗（支持改名 + 每日节点轴）
+│       ├── ProjectModal.ts      # 新建 / 编辑项目弹窗
+│       ├── OpportunityModal.ts  # 新建 / 编辑机会点弹窗
 │       └── BannerModal.ts       # 封面图片位置调整弹窗（拖拽）
-├── styles.css                   # 插件全局样式（~1740 行）
-├── manifest.json                # Obsidian 插件清单
-├── package.json                 # npm 配置
-├── versions.json                # 版本兼容映射
-├── tsconfig.json                # TypeScript 配置
+├── styles.css                   # 插件全局样式（设计令牌 --ad-* 驱动）
+├── manifest.json                # 个人版清单（id=agent-dashboard, name=Dashboard）
+├── package.json / versions.json / tsconfig.json
 ├── rollup.config.mjs            # 纯 JS 打包配置（build:js，首选）
 ├── esbuild.config.mjs           # 官方模板构建配置（dev / build）
 ├── eslint.config.mts            # ESLint 配置
 ├── version-bump.mjs             # 版本号同步脚本
-├── README.md                    # 面向使用者的项目说明
-├── AGENTS.md / CLAUDE.md        # Agent 开发指南（两份内容完全一致，改动需同步）
-├── 项目整理报告.md               # 文件清点 + 无用文件清单（2026-08-08）
-├── 代码审查报告.md               # v0.2.3 源码审查报告（问题已在 v0.2.4 修完，存档）
-├── dashboard-editor.html        # 可视化布局编辑器（由 build-editor.py 生成）
-├── build-editor.py              # 生成 dashboard-editor.html
-├── token-playground.html/.js    # 设计令牌调试页
-├── light-mode-preview.html      # 深/浅主题对照预览
-├── figma-obsidian-dashboard.html# 单文件 HTML，供导入 Figma/墨刀 还原界面
-├── 插件图标/                     # 图标 SVG 素材（16 个）
+├── scripts/
+│   ├── build-generic.py         # ★ 通用版唯一派生入口：从 src/ 去「机会点」生成 generic/
+│   ├── verify.mjs               # 一键校验脚本（npm run verify）
+│   ├── _derive_run.py / _gen_sync.py / _strip.py  # 早期试验脚本（勿用）
+├── generic/                     # 通用版（由 build-generic.py 派生，不进 git，勿手改）
+│   └── src/  main.js  manifest.json  styles.css  （结构与 src/ 一致，仅去掉机会点）
+├── README.md / AGENTS.md / CLAUDE.md   # 文档（AGENTS.md 与 CLAUDE.md 一致，改动需同步）
+├── 项目整理报告.md / 代码审查报告.md / 代码改进建议.md / 架构对比与统一建议.md / 设计规范说明.md
+├── 插件图标/                     # 图标 SVG 素材
+├── tools/                       # 历史 HTML 预览 / 编辑器（已弃用，UI 改动直接在 src/ 进行）
 ├── prototype/                   # 早期 HTML 原型（历史参考）
-└── 参考项目/                     # 第三方参考插件源码（obsidian-pm 等，非本项目代码）
+└── 参考项目/                     # 第三方参考插件源码（非本项目代码）
 ```
 
 ## 核心架构
@@ -160,22 +205,30 @@ tags: [配置]
 
 ### 关键文件说明
 
-> 行数为 2026-08-08 实测值。
+> 行数为 2026-08-11 实测值（v0.2.7 重构后）。
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
 | `main.ts` | 96 | 插件生命周期：注册视图、ribbon 图标、命令面板、设置面板；`setObsidianTheme` 联动 Obsidian 全局外观，`refreshThemeButtons` / `refreshDashboardTitle` 向所有已开视图广播刷新 |
 | `settings.ts` | 375 | 设置接口定义、默认值、设置面板 UI（快速捕捉、TODO、项目、机会点、新日记、外观、NPDP 阶段） |
-| `icons.ts` | 35 | 16 个内联 SVG 图标常量，主体填色 `currentColor`（随主题自适应），点缀色走 `.ad-ico-accent` |
-| `taskParser.ts` | 270 | frontmatter 解析（Obsidian `parseYaml`）、TaskItem/ProjectInfo/ProjectType 类型、优先级权重、每日节点解析与序列化 |
-| `opportunityParser.ts` | 307 | 机会点类型与数据层：单文件 frontmatter `opportunities` 数组读写、增删改、排序（状态→order→创建时间）、正文表格 + 明细投影 |
+| `constants.ts` | 31 | 跨文件统一 UI 文案常量 `UI_TEXT`（v0.2.7 新增，消除散落硬编码中文） |
+| `icons.ts` | 42 | 16 个内联 SVG 图标常量，主体填色 `currentColor`（随主题自适应），点缀色走 `.ad-ico-accent` |
+| `taskParser.ts` | 50 | 任务 frontmatter 解析入口，委托 `taskParseCore` / `taskLogic`（v0.2.7 拆薄） |
+| `taskParseCore.ts` | 247 | frontmatter 解析核心（纯函数 + 单测）：`parseYaml`、TaskItem/ProjectInfo 类型、优先级权重、每日节点 |
+| `taskLogic.ts` | 148 | 任务状态 / 优先级 / 逾期 / 提醒日期等逻辑（纯函数 + 单测） |
+| `taskStore.ts` | 137 | 任务读取编排（`scanAllTasks` 等） |
+| `dashboardStore.ts` | 78 | 仪表盘数据聚合（纯函数 + 单测） |
+| `opportunityParser.ts` | 307 | 机会点类型与数据层：单文件 frontmatter `opportunities` 数组读写、增删改、排序、正文表格 + 明细投影 |
+| `virtualList.ts` | 60 | 长列表虚拟化纯函数（窗口化渲染，含 7 单测） |
 | `mockData.ts` | 160 | DashboardData 接口和占位数据（仅用于 UI 骨架，业务数据均来自 vault） |
-| `DashboardView.ts` | 4178 | 唯一 ItemView，`currentPage` 三态（home / project / opportunity）：所有卡片渲染、项目总览四视图、机会点看板与列表、vault 数据读写、防抖刷新分发 |
-| `TaskModal.ts` | 386 | 新建任务弹窗：完整表单含项目选择、父任务（预填 defaultProject/defaultParent）、重复规则、标签、提醒 |
-| `TaskEditModal.ts` | 365 | 任务详情/编辑弹窗：修改状态、优先级、日期、备注，标题变更自动 renameFile，展示每日节点轴 |
-| `ProjectModal.ts` | 159 | 新建/编辑项目弹窗：名称、项目类型、颜色选择、日期、描述 |
-| `OpportunityModal.ts` | 163 | 新建/编辑机会点弹窗：标题、状态、标签、背景与三段结论、转路标、详情双链（可自动建笔记并打开） |
-| `BannerModal.ts` | 138 | 封面图片位置弹窗：预览 + 鼠标/触控拖拽 + 上下限位 |
+| `DashboardView.ts` | 1894 | 唯一 ItemView，`currentPage` 三态（home / project / opportunity）：首页卡片渲染、vault 数据读写、防抖刷新分发（项目总览已拆至 `ProjectBoard.ts`） |
+| `ProjectBoard.ts` | 1678 | 项目总览渲染器：甘特 / 列表 / 日历 / 看板四视图（v0.2.7 从 `DashboardView` 拆出） |
+| `OpportunityBoard.ts` | 575 | 机会点看板 / 列表渲染器（v0.2.7 新增） |
+| `TaskModal.ts` | 387 | 新建任务弹窗：完整表单含项目选择、父任务（预填 defaultProject/defaultParent）、重复规则、标签、提醒 |
+| `TaskEditModal.ts` | 366 | 任务详情/编辑弹窗：修改状态、优先级、日期、备注，标题变更自动 renameFile，展示每日节点轴 |
+| `ProjectModal.ts` | 160 | 新建/编辑项目弹窗：名称、项目类型、颜色选择、日期、描述 |
+| `OpportunityModal.ts` | 166 | 新建/编辑机会点弹窗：标题、状态、标签、背景与三段结论、转路标、详情双链（可自动建笔记并打开） |
+| `BannerModal.ts` | 139 | 封面图片位置弹窗：预览 + 鼠标/触控拖拽 + 上下限位 |
 
 ### 设置项（`AgentDashboardSettings`）
 
@@ -281,7 +334,7 @@ interface AgentDashboardSettings {
 - 点击卡片打开 TaskEditModal
 - 右键菜单：编辑、删除、打开源文件、修改优先级
 
-### 机会点视图（点击"机会点"进入，personal 分支功能）
+### 机会点视图（点击"机会点"进入，personal 分支专属功能，通用版不含）
 
 产品机会点的全流程管理，是主视图的第三页（`currentPage = 'opportunity'`）。
 
@@ -495,15 +548,16 @@ interface AgentDashboardSettings {
 3. 不引入外部依赖（React/Tailwind 等），保持纯 TypeScript + Obsidian API
 4. 使用 Obsidian 官方公开 API，不依赖未文档化的内部 API
    （唯一有意例外：`main.ts` 的 `vault.setConfig('theme', …)`，已 try/catch 包裹 + body class 兜底）
-5. 修改后必须运行 `npm run build:js` 与 `node node_modules/typescript/bin/tsc -noEmit -skipLibCheck`
-   验证；能跑 lint 时补跑 `npm run lint`
+5. 修改后必须在 **Windows** 上运行 `npm run build:js` 与 `node node_modules/typescript/bin/tsc -noEmit -skipLibCheck`
+   验证；能跑 lint 时补跑 `npm run lint`（鸿蒙 HarmonyOS 上 node 完全跑不起来，无法打包；
+   源码编辑与 python 脚本可在鸿蒙进行）
 6. **git 纪律**：只用本地 git，不连 GitHub、不 push、不配 remote；无明确指令不得 bump 版本或执行
    任何 git 操作。用户下达「发布版本 X.Y.Z」= 同时授权 bump + 本地 commit（精确暂存发布文件，
    排除 `.workbuddy/` 与 dev 工具；`main.js` 走 gitignore）。
    **切勿 `git checkout .` / `git stash` 全量回退**——working tree 常有大量未提交改动
-7. **分支模型**：`master` = 发布线（仅通用功能，停在 v0.2.6）；`personal` = 个人使用线
-   （master + 个人专属功能 + dev 工具）。个人功能永不合回 master；通用更新走
-   `git switch personal && git merge master`
+7. **分支 / 版本模型**：git 仅 `personal` 一个分支（源码真身，`src/`）。**不再维护独立的
+   `master` / `generic` 分支**——通用版由 `scripts/build-generic.py` 从 `src/` 派生到
+   `generic/`（见「个人版与通用版」）。个人功能永不合回任何分支；通用版永远跟随 `src/` 走。
 8. Frontmatter 使用中文键名（状态、优先级、开始日期、截止日期等）；标签字段用英文 `tags`
    （Obsidian 原生识别），解析层对旧「标签」键做兜底兼容
 9. 项目文件夹名 = 项目名（无前缀），配置文件命名为 `project-{项目名}.md`

@@ -25,7 +25,7 @@ export const UI_TEXT = {
 	poStatus: '状态',
 	poProject: '项目',
 
-	// 机会点（第三页）
-	opAll: '全部机会点',
-	opRoadmap: '★ 转路标',
+	// 看板（第三页）
+	opAll: '全部',
+	opRoadmap: '★ 星标',
 } as const;

@@ -1,5 +1,6 @@
 import { App, Modal, TFile } from 'obsidian';
 import { TaskItem, TaskStatus, TaskPriority, STATUS_LIST, PRIORITY_LIST, NodeState, DailyNode, serializeDailyNodesBlock } from '../data/taskParser';
+import { yamlScalar } from '../data/frontmatterWriter';
 import { UI_TEXT } from '../constants';
 
 interface TaskEditModalOptions {
@@ -120,21 +121,21 @@ export class TaskEditModal extends Modal {
 				lines[i] = `状态: ${status}`;
 				statusLineIdx = i;
 			} else if (line.startsWith('优先级:')) {
-				lines[i] = `优先级: ${priority}`;
+				lines[i] = `优先级: ${yamlScalar(priority)}`;
 				hasPriority = true;
 			} else if (line.startsWith('开始日期:')) {
 				lines[i] = `开始日期: ${startDate}`;
 			} else if (line.startsWith('截止日期:')) {
 				lines[i] = `截止日期: ${endDate}`;
 			} else if (line.startsWith('备注:')) {
-				lines[i] = `备注: ${notes}`;
+				lines[i] = `备注: ${yamlScalar(notes)}`;
 			}
 		}
 
 		// If priority was set but missing from frontmatter, insert after 状态 line.
 		// (statusLineIdx is frontmatter-scoped, so we never insert into the body.)
 		if (priority && !hasPriority && statusLineIdx >= 0) {
-			lines.splice(statusLineIdx + 1, 0, `优先级: ${priority}`);
+			lines.splice(statusLineIdx + 1, 0, `优先级: ${yamlScalar(priority)}`);
 		}
 
 		// ---- Daily nodes (multi-day check-in) ----

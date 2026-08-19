@@ -27,11 +27,12 @@ export interface ProjectHost {
 	};
 	boardEl: HTMLElement | null;
 	currentPage: 'home' | 'project' | 'opportunity';
+	exitEditMode(): void;
 	selectedProject: string | null;
 	showToast(message: string, kind?: 'success' | 'error'): void;
 	taskStore: TaskStore;
 	openTaskEditModal(task: TaskItem, presetTodayNode?: NodeState): void;
-	writeFrontmatter(file: TFile, updates: Record<string, string>): Promise<void>;
+	writeFrontmatter(file: TFile, updates: Record<string, string | null>): Promise<void>;
 	deleteTask(task: TaskItem): Promise<void>;
 	editProject(proj: ProjectInfo): Promise<void>;
 	createProjectFile(): Promise<void>;
@@ -97,6 +98,8 @@ export class ProjectBoard {
 	 */
 	async show(preserveSelection = false): Promise<void> {
 		if (!this.boardEl) return;
+		// 离开首页时自动退出编辑态（修复「切到项目总览后编辑态残留」）
+		this.host.exitEditMode();
 
 		// Scan FIRST (async) so the board is never left half-built if a vault event
 		// fires mid-render. We only mutate the DOM after data is ready, which keeps
@@ -902,100 +905,134 @@ export class ProjectBoard {
 
 			labelRows.push(lr);
 
-			// Bar
-			if (!t.startDate && !t.dueDate) return;
+		// Bar
+		if (!t.startDate && !t.dueDate) return;
 		const startDate = t.startDate ? new Date(t.startDate + 'T00:00:00') : new Date(t.dueDate! + 'T00:00:00');
 		const endDate = t.dueDate ? new Date(t.dueDate + 'T00:00:00') : new Date(startDate);
-			if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return;
-			const x = dateToX(startDate);
-			const xEnd = dateToX(new Date(endDate.getTime() + 86400000));
-			const width = Math.max(2, xEnd - x);
-			const barCls = 'po-gantt__bar' + (t.status === '已完成' ? ' is-completed' : '') +
-				(isParent ? ' po-gantt__bar--parent' : '') + (level > 0 ? ' po-gantt__bar--child' : '');
-			const bar = svgEl('rect', {
-				x, y: HEADER_HEIGHT + idx * ROW_HEIGHT + 8, width, height: ROW_HEIGHT - 16, rx: 4, class: barCls,
-			}) as SVGRectElement;
-			bar.setAttribute('fill', color);
-			bar.dataset.taskId = t.id;
-			(bar as SVGElement & { _dragged?: boolean })._dragged = false;
-			bars.push(bar);
+		if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return;
+		const x = dateToX(startDate);
+		const xEnd = dateToX(new Date(endDate.getTime() + 86400000));
+		const width = Math.max(2, xEnd - x);
+		const barY = HEADER_HEIGHT + idx * ROW_HEIGHT + 8;
+		const barH = ROW_HEIGHT - 16;
+		const barCls = 'po-gantt__bar' + (t.status === '已完成' ? ' is-completed' : '') +
+			(isParent ? ' po-gantt__bar--parent' : '') + (level > 0 ? ' po-gantt__bar--child' : '');
+		const bar = svgEl('rect', {
+			x, y: barY, width, height: barH, rx: 4, class: barCls,
+		}) as SVGRectElement;
+		bar.setAttribute('fill', color);
+		bar.dataset.taskId = t.id;
+		(bar as SVGElement & { _dragged?: boolean })._dragged = false;
+		if (t.startDate && t.dueDate) bar.classList.add('po-gantt__bar--movable');
+		bars.push(bar);
 
-			// Tooltip on hover
-			bar.addEventListener('mouseenter', (e: MouseEvent) => {
-				const prioLabel = t.priority || UI_TEXT.notSet;
-				tooltip.empty();
-				tooltip.createEl('strong', { text: t.content });
-				tooltip.createEl('br');
-				tooltip.appendText((t.startDate || '?') + ' → ' + (t.dueDate || '?'));
-				tooltip.createEl('br');
-				tooltip.appendText(prioLabel + ' · ' + t.status);
-				tooltip.addClass('is-visible');
-				this.positionTooltip(tooltip, e);
-			});
-			bar.addEventListener('mousemove', (e: MouseEvent) => this.positionTooltip(tooltip, e));
-			bar.addEventListener('mouseleave', () => tooltip.removeClass('is-visible'));
+		// Group wraps bar + edge handles so the hover hint reveals them together
+		const group = svgEl('g', { class: 'po-gantt__bar-group' }) as SVGGElement;
+		group.appendChild(bar);
 
-			// Click: edit + link highlight
-			bar.addEventListener('click', () => {
-				if ((bar as SVGElement & { _dragged?: boolean })._dragged) {
-					(bar as SVGElement & { _dragged?: boolean })._dragged = false;
-					return;
+		const HANDLE_W = 8;
+		let leftHandle: SVGRectElement | null = null;
+		let rightHandle: SVGRectElement | null = null;
+
+		// Shared drag starter: side = 'left'|'right' resize edges, 'move' whole bar.
+		// Bar + both edge handles are repositioned together during drag so the
+		// transparent handles always track the block (no snapping on release).
+		const beginDrag = (b: SVGRectElement, side: 'left' | 'right' | 'move', e: MouseEvent): void => {
+			e.preventDefault();
+			if (side !== 'move') e.stopPropagation();
+			const startX = e.clientX;
+			const origX = parseFloat(b.getAttribute('x') || '0');
+			const origW = parseFloat(b.getAttribute('width') || '0');
+			let moved = false;
+			b.classList.add('po-gantt__bar--grabbing');
+			const syncHandles = (): void => {
+				const cx = parseFloat(b.getAttribute('x') || '0');
+				const cw = parseFloat(b.getAttribute('width') || '0');
+				if (leftHandle) leftHandle.setAttribute('x', String(cx));
+				if (rightHandle) rightHandle.setAttribute('x', String(cx + cw - HANDLE_W));
+			};
+			const onMove = (e2: MouseEvent) => {
+				const dx = e2.clientX - startX;
+				if (Math.abs(dx) < 3) return;
+				moved = true;
+				if (side === 'left') {
+					const nx = Math.max(0, origX + dx);
+					const nw = origW - (nx - origX);
+					if (nw >= dayWidth) { b.setAttribute('x', String(nx)); b.setAttribute('width', String(nw)); }
+				} else if (side === 'right') {
+					b.setAttribute('width', String(Math.max(dayWidth, origW + dx)));
+				} else {
+					b.setAttribute('x', String(origX + dx));
 				}
-				this.openTaskEditModal(t);
-				this.clearHighlights(bars, tableResult.rows);
-				if (tableResult.rows[idx]) {
-					tableResult.rows[idx].addClass('po-row--highlight');
-					tableResult.rows[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-					this.highlightedRow = tableResult.rows[idx];
-				}
-				bar.classList.add('po-bar--highlight');
-				this.highlightedBar = bar;
-			});
+				syncHandles();
+			};
+			const onUp = () => {
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+				b.classList.remove('po-gantt__bar--grabbing');
+				if (!moved) return;
+				(b as SVGElement & { _dragged?: boolean })._dragged = true;
+				tooltip.removeClass('is-visible');
+				const nx = parseFloat(b.getAttribute('x') || '0');
+				const nw = parseFloat(b.getAttribute('width') || '0');
+				const startD = xToDate(nx);
+				const endD = xToDate(nx + nw);
+				endD.setDate(endD.getDate() - 1); // inclusive end day
+				void this.updateTaskDates(t, fmtDate(startD), fmtDate(endD));
+			};
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		};
 
-			// Drag to move / resize
-			bar.addEventListener('mousedown', (e: MouseEvent) => {
-				e.preventDefault();
-				const rect = bar.getBoundingClientRect();
-				const edge = 8;
-				const isLeft = (e.clientX - rect.left) < edge;
-				const isRight = (rect.right - e.clientX) < edge;
-				const startX = e.clientX;
-				const origX = parseFloat(bar.getAttribute('x') || '0');
-				const origW = parseFloat(bar.getAttribute('width') || '0');
-				let moved = false;
+		// Edge resize handles (hover hint + drag). Only rendered when wide enough to avoid overlap.
+		if (width > HANDLE_W * 2) {
+			for (const side of ['left', 'right'] as const) {
+				const hx = side === 'left' ? x : x + width - HANDLE_W;
+				const handle = svgEl('rect', {
+					x: hx, y: barY, width: HANDLE_W, height: barH, rx: 3, class: 'po-gantt__bar-handle',
+				}) as SVGRectElement;
+				handle.addEventListener('mousedown', (e) => beginDrag(bar, side, e));
+				group.appendChild(handle);
+				if (side === 'left') leftHandle = handle; else rightHandle = handle;
+			}
+		}
 
-				const onMove = (ev: MouseEvent) => {
-					const dx = ev.clientX - startX;
-					if (Math.abs(dx) < 3) return;
-					moved = true;
-					if (isLeft) {
-						const nx = Math.max(0, origX + dx);
-						const nw = origW - (nx - origX);
-						if (nw >= dayWidth) { bar.setAttribute('x', String(nx)); bar.setAttribute('width', String(nw)); }
-					} else if (isRight) {
-						bar.setAttribute('width', String(Math.max(dayWidth, origW + dx)));
-					} else {
-						bar.setAttribute('x', String(origX + dx));
-					}
-				};
-				const onUp = () => {
-					document.removeEventListener('mousemove', onMove);
-					document.removeEventListener('mouseup', onUp);
-					if (!moved) return;
-					(bar as SVGElement & { _dragged?: boolean })._dragged = true;
-					tooltip.removeClass('is-visible');
-					const nx = parseFloat(bar.getAttribute('x') || '0');
-					const nw = parseFloat(bar.getAttribute('width') || '0');
-					const startD = xToDate(nx);
-					const endD = xToDate(nx + nw);
-					endD.setDate(endD.getDate() - 1); // inclusive end day
-					void this.updateTaskDates(t, fmtDate(startD), fmtDate(endD));
-				};
-				document.addEventListener('mousemove', onMove);
-				document.addEventListener('mouseup', onUp);
-			});
+		// Tooltip on hover
+		bar.addEventListener('mouseenter', (e: MouseEvent) => {
+			const prioLabel = t.priority || UI_TEXT.notSet;
+			tooltip.empty();
+			tooltip.createEl('strong', { text: t.content });
+			tooltip.createEl('br');
+			tooltip.appendText((t.startDate || '?') + ' → ' + (t.dueDate || '?'));
+			tooltip.createEl('br');
+			tooltip.appendText(prioLabel + ' · ' + t.status);
+			tooltip.addClass('is-visible');
+			this.positionTooltip(tooltip, e);
+		});
+		bar.addEventListener('mousemove', (e: MouseEvent) => this.positionTooltip(tooltip, e));
+		bar.addEventListener('mouseleave', () => tooltip.removeClass('is-visible'));
 
-			svg.appendChild(bar);
+		// Click: edit + link highlight
+		bar.addEventListener('click', () => {
+			if ((bar as SVGElement & { _dragged?: boolean })._dragged) {
+				(bar as SVGElement & { _dragged?: boolean })._dragged = false;
+				return;
+			}
+			this.openTaskEditModal(t);
+			this.clearHighlights(bars, tableResult.rows);
+			if (tableResult.rows[idx]) {
+				tableResult.rows[idx].addClass('po-row--highlight');
+				tableResult.rows[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+				this.highlightedRow = tableResult.rows[idx];
+			}
+			bar.classList.add('po-bar--highlight');
+			this.highlightedBar = bar;
+		});
+
+		// Drag whole bar to move (edge resize is handled by the handles above)
+		bar.addEventListener('mousedown', (e: MouseEvent) => beginDrag(bar, 'move', e));
+
+		svg.appendChild(group);
 		});
 
 		// ---------- Scroll sync (right <-> left) ----------
@@ -1089,26 +1126,16 @@ export class ProjectBoard {
 
 
 
-	/** Update task start/due dates in source file */
+	/** Update task start/due dates in source file (unified writer: CRLF-safe + value escaping) */
 	private async updateTaskDates(task: TaskItem, newStart: string, newEnd: string): Promise<void> {
 		if (!task.sourceFile) return;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
 
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-		let inFM = false;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') { inFM = !inFM; continue; }
-			if (!inFM) continue;
-			if (line.startsWith('\u5F00\u59CB\u65E5\u671F:')) lines[i] = `\u5F00\u59CB\u65E5\u671F: ${newStart}`;
-			else if (line.startsWith('\u622A\u6B62\u65E5\u671F:')) lines[i] = `\u622A\u6B62\u65E5\u671F: ${newEnd}`;
-		}
-
-		await this.app.vault.modify(file, lines.join('\n'));
+		await this.writeFrontmatter(file, {
+			'\u5F00\u59CB\u65E5\u671F': newStart,
+			'\u622A\u6B62\u65E5\u671F': newEnd,
+		});
 		task.startDate = newStart;
 		task.dueDate = newEnd;
 	}	private renderTaskTable(panel: HTMLElement, tbodyId: string, tasks: TaskItem[], projects: ProjectInfo[]): { tbody: HTMLElement; rows: (HTMLElement | null)[] } {
@@ -1493,31 +1520,20 @@ export class ProjectBoard {
 
 
 
-	/** Update task dueDate (and remindDate if exists) in source file */
+	/** Update task dueDate (and remindDate if exists) in source file (unified writer) */
 	private async updateTaskDate(task: TaskItem, newDate: string): Promise<void> {
 		if (!task.sourceFile) return;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
 
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-		let inFM = false;
-		const oldDate = task.dueDate;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') { inFM = !inFM; continue; }
-			if (!inFM) continue;
-			if (line.startsWith('\u622A\u6B62\u65E5\u671F:') && oldDate) {
-				lines[i] = `\u622A\u6B62\u65E5\u671F: ${newDate}`;
-			}
-			if (line.startsWith('\u63D0\u9192\u65E5\u671F:') && task.remindDate) {
-				lines[i] = `\u63D0\u9192\u65E5\u671F: ${newDate}`;
-			}
+		// 与旧实现语义一致：仅在对应字段已存在时才改写，不凭空插入
+		const updates: Record<string, string> = {};
+		if (task.dueDate) updates['\u622A\u6B62\u65E5\u671F'] = newDate;
+		if (task.remindDate) updates['\u63D0\u9192\u65E5\u671F'] = newDate;
+		if (Object.keys(updates).length > 0) {
+			await this.writeFrontmatter(file, updates);
 		}
 
-		await this.app.vault.modify(file, lines.join('\n'));
 		task.dueDate = newDate;
 		if (task.remindDate) task.remindDate = newDate;
 		this.showToast('\u2728 \u4EFB\u52A1\u65E5\u671F\u5DF2\u66F4\u65B0');
@@ -1625,28 +1641,13 @@ export class ProjectBoard {
 
 
 
-	/** Update task status in source file */
+	/** Update task status in source file (unified writer) */
 	private async updateTaskStatus(task: TaskItem, newStatus: TaskStatus): Promise<void> {
 		if (!task.sourceFile) return;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
 
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-		let inFM = false;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') { inFM = !inFM; continue; }
-			if (!inFM) continue;
-			if (line.startsWith('\u72B6\u6001:')) {
-				lines[i] = `\u72B6\u6001: ${newStatus}`;
-				break;
-			}
-		}
-
-		await this.app.vault.modify(file, lines.join('\n'));
+		await this.writeFrontmatter(file, { '\u72B6\u6001': newStatus });
 		task.status = newStatus;
 		this.showToast('\u2728 \u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0: ' + newStatus);
 		await this.refresh();
@@ -1654,36 +1655,13 @@ export class ProjectBoard {
 
 
 
-	/** Update task priority in source file */
+	/** Update task priority in source file (unified writer: inserts the field when missing) */
 	private async updateTaskPriority(task: TaskItem, newPriority: string): Promise<void> {
 		if (!task.sourceFile) return;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
 
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-		let inFM = false;
-		let found = false;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') { inFM = !inFM; continue; }
-			if (!inFM) continue;
-			if (line.startsWith('\u4F18\u5148\u7EA7:')) {
-				lines[i] = `\u4F18\u5148\u7EA7: ${newPriority}`;
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
-			// Insert after 状态 line
-			const statusIdx = lines.findIndex((l) => l?.startsWith('\u72B6\u6001:'));
-			if (statusIdx >= 0) lines.splice(statusIdx + 1, 0, `\u4F18\u5148\u7EA7: ${newPriority}`);
-		}
-
-		await this.app.vault.modify(file, lines.join('\n'));
+		await this.writeFrontmatter(file, { '\u4F18\u5148\u7EA7': newPriority });
 		task.priority = newPriority as TaskItem['priority'];
 		this.showToast('\u2728 \u4F18\u5148\u7EA7\u5DF2\u66F4\u65B0: ' + newPriority);
 		await this.refresh();

@@ -1,8 +1,8 @@
-# Dashboard（agent-dashboard）
+# Dashboard（Dashboard）
 
 一个自用的 Obsidian 个人工作台插件：把「任务 / 项目 / 机会点 / 笔记统计」收进一个页面，数据全部落在 Vault 的 Markdown 文件里，不依赖任何外部服务。
 
-- **插件 ID**：`agent-dashboard`
+- **插件 ID**：`dashboard`
 - **显示名称**：Dashboard
 - **当前版本**：0.2.7
 - **最低 Obsidian 版本**：1.8.0
@@ -40,7 +40,7 @@
 - **日历**：月视图，格子内直接显示任务条（延误红 / 正常项目色 / 已完成划线），拖拽改截止日期
 - **看板**：待办 / 进行中 / 已阻塞 / 已完成 / 已取消五列，跨列拖拽即改状态
 
-### 机会点（Opportunity，personal 分支专属，通用版不含）
+### 机会点（Opportunity）
 
 产品机会点从「未沟通 → 沟通通过 → 调研中 → 待上会 → 已完成 / 已否决」的全流程看板与列表。所有机会点统一存在一个 Markdown 文件的 frontmatter `opportunities` 数组里，正文自动投影成可读表格 + 明细；支持手动拖拽排序、单状态分栏 + 右侧内联详情编辑、★ 转路标标记。
 
@@ -106,7 +106,7 @@ npm run test                # 数据层单元测试（node --test）
 
 ### 安装到 Obsidian
 
-插件目录 `<Vault>/.obsidian/plugins/agent-dashboard/` 只需要三个文件：
+插件目录 `<Vault>/.obsidian/plugins/dashboard/` 只需要三个文件：
 
 ```
 main.js        # 构建产物
@@ -114,33 +114,13 @@ manifest.json
 styles.css
 ```
 
-- **个人版**：根目录三件套（`My Dashboard/main.js` 等）。
-- **通用版**：`generic/` 下的三件套（`generic/main.js` 等），由 `scripts/build-generic.py` 派生。
-
-> ⚠️ 两份产物的 `id` / `name` 完全相同（`agent-dashboard` / `Dashboard`），靠文件夹区分。
-> **不要将两者装进同一个 vault**——会互相覆盖。通用版装到独立 vault 或打成 zip 分发。
-
-构建后把对应三件套复制过去，然后在 Obsidian 里执行 **Reload app without saving**（Obsidian 不会热重载插件的 JS/CSS）。
+构建后把根目录三件套复制过去，然后在 Obsidian 里执行 **Reload app without saving**（Obsidian 不会热重载插件的 JS/CSS）。
 
 ### 构建环境说明
 
-- **开发在鸿蒙（HarmonyOS）**：源码编辑、跑 python 脚本（`build-generic.py`）在此进行。
+- **开发在鸿蒙（HarmonyOS）**：源码编辑在此进行。
   但本机 **node 完全跑不起来**，因此生成 `main.js` 的打包（rollup / esbuild / tsc）必须到 **Windows** 执行。
-- **打包在 Windows**：`npm install` 之后用 `npm run build:js`（个人版）或 `python scripts/build-generic.py`（通用版）。
-
-### 通用版（Generic）派生
-
-通用版不含「机会点」等个人专属功能，由脚本从个人版源码自动生成，**不是手写的独立分支**：
-
-```bash
-# 鸿蒙：派生源码（python 可跑）
-/data/service/hnp/bin/python3 scripts/build-generic.py
-# Windows：派生源码 + 打包出 generic/main.js
-python scripts/build-generic.py
-```
-
-- 改功能只改 `src/`；通用版永远跟着 `src/` 走。
-- **绝不要手动改 `generic/` 里的文件**——每次跑脚本都会被整体覆盖。
+- **打包在 Windows**：`npm install` 之后用 `npm run build:js`。
 
 ---
 
@@ -148,7 +128,7 @@ python scripts/build-generic.py
 
 ```
 My Dashboard/
-├── src/                          ← 唯一真身（个人版，personal 分支）
+├── src/                          ← 唯一源码
 │   ├── main.ts / settings.ts / constants.ts / icons.ts
 │   ├── data/                     # taskParser / taskParseCore / taskLogic / taskStore /
 │   │                             #   dashboardStore / opportunityParser / virtualList / mockData（均含单测）
@@ -160,9 +140,7 @@ My Dashboard/
 ├── esbuild.config.mjs           # 官方模板构建配置（dev / build）
 ├── eslint.config.mts / tsconfig.json / version-bump.mjs
 ├── scripts/
-│   ├── build-generic.py         # ★ 通用版唯一派生入口
 │   └── verify.mjs               # 一键校验脚本（npm run verify）
-├── generic/                     # 通用版（派生生成，勿手改）
 ├── AGENTS.md / CLAUDE.md        # AI 协作开发规范（两份内容一致）
 ├── PROJECT_CONTEXT.md           # 完整项目上下文与版本历史
 ├── 项目整理报告.md / 代码审查报告.md / 代码改进建议.md / 架构对比与统一建议.md / 设计规范说明.md
@@ -185,11 +163,7 @@ My Dashboard/
 ## 分支与版本模型
 
 - 当前 git **只有一个 `personal` 分支**（源码真身），不维护独立的 `master` / `generic` 分支。
-- **个人版** = `src/`（含机会点等个人专属功能）。
-- **通用版** = `generic/`，由 `scripts/build-generic.py` 从 `src/` 派生（去掉机会点），
-  不进 git、不是手写的独立分支。详见下方「通用版（Generic）派生」。
-- 两份产物的 `id` / `name` 完全一致（`agent-dashboard` / `Dashboard`），
-  仅靠 `根目录` 与 `generic/` 两个文件夹区分；不要装进同一 vault。
+- 唯一版本 = `src/`（含机会点等全部功能），不再派生任何「通用版」。
 
 ## License
 

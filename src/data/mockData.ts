@@ -1,5 +1,5 @@
 /* ============================================================
-   Agent Dashboard · Mock Data
+   Dashboard · Mock Data
    Centralized typed data for prototype UI. No real vault access.
    ============================================================ */
 
@@ -107,7 +107,7 @@ export const MOCK_DATA: DashboardData = {
 	},
 	today_todos: [
 		{ id: 't1', priority: 'p0', text: '提交 GA 项目 PRD v2 给评审', done: false, tag: 'GA' },
-		{ id: 't2', priority: 'p1', text: '补全 agent-dashboard 的 ItemView 骨架', done: false, tag: 'dev' },
+		{ id: 't2', priority: 'p1', text: '补全 Dashboard 的 ItemView 骨架', done: false, tag: 'dev' },
 		{ id: 't3', priority: 'p1', text: '回 3 条 async 留言（@bobo @lily @mark）', done: false, tag: 'sync' },
 		{ id: 't4', priority: 'p2', text: '整理 "weekly review" 模板', done: true, tag: 'note' },
 		{ id: 't5', priority: 'p2', text: '读 Diff Screenshot Service RFC', done: false, tag: 'read' },
@@ -126,7 +126,7 @@ export const MOCK_DATA: DashboardData = {
 			{ id: 'o2', date: '06-27', text: '修 Obsidian 0.15 兼容：WorkspaceLeaf.onload', owner: '@xw' },
 		],
 		this_week: [
-			{ id: 'w1', date: '06-29', text: 'Agent Dashboard 静态原型验收', state: 'today' },
+			{ id: 'w1', date: '06-29', text: 'Dashboard 静态原型验收', state: 'today' },
 			{ id: 'w2', date: '06-30', text: 'GA 立项会 · 准备 deck 23p', state: 'soon' },
 			{ id: 'w3', date: '07-01', text: 'Notes pipeline 重构设计评审', state: 'later' },
 			{ id: 'w4', date: '07-02', text: '写一篇关于 vault-as-state 的博客草稿', state: 'later' },
@@ -135,7 +135,7 @@ export const MOCK_DATA: DashboardData = {
 		],
 	},
 	projects: [
-		{ id: 'p1', name: 'Agent Dashboard', owner: '@xw', type: 'dev', stage: 2, stages: ['立项','规划','开发','测试','上线'], percent: 42, next: '完善 ItemView 骨架 & 设置面板' },
+		{ id: 'p1', name: 'Dashboard', owner: '@xw', type: 'dev', stage: 2, stages: ['立项','规划','开发','测试','上线'], percent: 42, next: '完善 ItemView 骨架 & 设置面板' },
 		{ id: 'p2', name: 'Diff Screenshot Service', owner: '@team', type: 'dev', stage: 3, stages: ['立项','规划','开发','测试','上线'], percent: 68, next: '测试用例补全 & 性能 profile' },
 		{ id: 'p3', name: 'Q2 GA 上线', owner: '@ops', type: 'ga', stage: 1, stages: ['立项','规划','开发','测试','上线'], percent: 18, next: '对齐 GTM 时间线' },
 		{ id: 'p4', name: 'Notes Pipeline v2', owner: '@xw', type: 'dev', stage: 1, stages: ['立项','规划','开发','测试','上线'], percent: 25, next: '细化 ingestion 接口' },

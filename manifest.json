@@ -1,9 +1,9 @@
 {
-	"id": "agent-dashboard",
+	"id": "dashboard",
 	"name": "Dashboard",
-	"version": "0.2.8",
+	"version": "0.2.9",
 	"minAppVersion": "1.8.0",
-	"description": "A dashboard for tracking AI agent workflows, sessions, and outputs inside Obsidian.",
+	"description": "Turn your Obsidian home into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
 	"author": "xw",
 	"isDesktopOnly": false
 }

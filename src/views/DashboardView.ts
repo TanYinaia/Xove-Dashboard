@@ -2,22 +2,87 @@ import { ItemView, Menu, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { MOCK_DATA, DashboardData } from '../data/mockData';
 import { BannerSettings, DEFAULT_SETTINGS } from '../settings';
 import { BannerModal } from './BannerModal';
+import { CountdownModal } from './CountdownModal';
 import { TaskEditModal } from './TaskEditModal';
 import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
+import { writeFrontmatter as fmWriteFrontmatter, yamlScalar } from '../data/frontmatterWriter';
 import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
 
-import type AgentDashboard from '../main';
+import type Dashboard from '../main';
 import {
 	ICON_home, ICON_newDiary, ICON_newTask, ICON_newProject,
 	ICON_allProjects, ICON_opportunity, injectSvg,
 } from '../icons';
 
-export const VIEW_TYPE = 'agent-dashboard-view';
+export const VIEW_TYPE = 'dashboard-view';
+
+/** 首页模块描述符：id 对应 settings.homeModules，render 为对应渲染函数 */
+interface HomeModule {
+	id: string;
+	title: string;
+	cardCls: string;
+	/** 是否参与数据刷新（refreshHomeCards）。false = 仅在初次渲染时绘制（如快速捕捉输入框、热力图、倒计时），避免刷新时清空输入或重复创建 */
+	live?: boolean;
+	render: (board: HTMLElement, allTasks?: TaskItem[]) => Promise<void> | void;
+}
+
+/** 卡片比例的最大格数（宽/高均为 1..4，4 = 页面最宽） */
+const MAX_SPAN = 4;
+
+/** 部分卡片的最低宽度（单位=格），限制缩放/比例菜单，避免关键卡片被压得过窄 */
+const MIN_COLS: Record<string, number> = {
+	'projects': 2, // 项目情况：最低宽度 2 格
+	'heatmap': 2,  // 笔记统计：最低宽度 2 格（2×1 走窄版间距 + 自适应窗口）
+};
+
+/** 热力图格子尺寸（px，固定不变）与列间距的允许区间 —— 只调间距、不改格子尺寸 */
+const HM_CELL = 15;
+const HM_GAP_MIN = 3;
+const HM_GAP_MAX = 14;
+/** 星期列（22px）+ grid 列间距（4px），即 cells 相对 heat 容器的左侧偏移 */
+const HM_DOW_W = 26;
+/** 窄卡时至少保留的周数，避免退化成几根竖条 */
+const HM_MIN_WEEKS = 10;
+
+/** 部分卡片的最低宽高比（宽:高），限制缩放/比例菜单与响应式夹紧，避免关键卡片被压成过窄过高的竖条 */
+const MIN_RATIO: Record<string, number> = {
+	'projects': 2, // 项目情况：最低 2:1
+	'heatmap': 3,  // 笔记统计：最低 3:1
+};
+
+/** 进度圆环动画参数（可按需微调）：时长 + 缓动曲线 */
+const RING_ANIM = {
+	/** 单次动画时长（毫秒） */
+	duration: 900,
+	/** 缓动曲线：easeOutCubic —— 起步快、收尾缓，符合进度填充的直觉 */
+	easing: (t: number): number => 1 - Math.pow(1 - t, 3),
+};
+
+/** 把任意输入夹到合法的格数区间，非法值回退为 1 */
+function clampSpan(v: unknown): number {
+	const n = typeof v === 'number' ? Math.round(v) : parseInt(String(v ?? ''), 10);
+	if (!Number.isFinite(n) || n < 1) return 1;
+	return Math.min(MAX_SPAN, n);
+}
+
+/** 拖拽过程中的临时状态（编辑态下长按卡片后跟随指针移动） */
+interface DragState {
+	card: HTMLElement;
+	placeholder: HTMLElement;
+	offsetX: number;
+	offsetY: number;
+	lastX: number;
+	lastY: number;
+	overTrash: boolean;
+	moved: boolean;
+	/** rAF 节流句柄：拖拽期间每帧最多做一次重排计算 */
+	raf: number | null;
+}
 
 /* ---- Repeat rule helpers (modal English freq → Chinese frontmatter) ---- */
 
@@ -120,7 +185,7 @@ function getLunarDate(d: Date): string {
 }
 
 export class DashboardView extends ItemView {
-	public plugin: AgentDashboard;
+	public plugin: Dashboard;
 	private bannerState: BannerSettings;
 	private bannerImg: HTMLImageElement | null = null;
 	private bannerPh: HTMLElement | null = null;
@@ -142,6 +207,50 @@ export class DashboardView extends ItemView {
 	/** Header theme-toggle button. Prefixed to avoid clashing with ItemView fields. */
 	private adThemeBtn: HTMLElement | null = null;
 
+	// 首页编辑态（长按进入，仿手机桌面：拖拽排序 / 拖入垃圾桶删除 / 添加卡片）
+	private adEditMode = false;
+	private adEditBar: HTMLElement | null = null;
+	private adDrag: DragState | null = null;
+	private adResize: { card: HTMLElement; modId: string; startCols: number; startRows: number; x0: number; y0: number; moved: boolean } | null = null;
+	private adLongPressTimer: number | null = null;
+	private adBoardWired = false;
+	/** 监听板面宽度，计算每行最大可容纳列数，并在 flex-wrap 布局下重夹紧卡片比例 */
+	private adRowHObs?: ResizeObserver;
+	private adLastColCount = 0; // 上次每行最大可容纳列数，用于变化时重夹紧卡片比例
+	/** 监听笔记统计卡宽度，动态调整热力图列间距（格子尺寸固定），宽卡填满、窄卡收紧 */
+	private adHmObs?: ResizeObserver;
+	private adHmObsTarget?: HTMLElement;
+	/** 上次热力图采用的布局指纹（周数|列间距|行间距），相同则跳过重排，避免 ResizeObserver 自激循环 */
+	private adHmKey = '';
+	/** 热力图每一周所属月份（长度=全年周数），窄卡只显示最近 N 周时据此重建月份标签 */
+	private adHmWeekMonths: number[] = [];
+	/** 热力图当前渲染的年份（用于底部窗口文案「YYYY 全年 / 近 N 周」） */
+	private adHmYear = 0;
+	/** 缩放触达限制时的红色抖动反馈计时器 */
+	private adLimitTimer: number | null = null;
+	/** 进度圆环：各环当前显示值与进行中的动画句柄（实例级持久化，
+	 *  保证相邻刷新从「上次显示值」平滑过渡到新目标值，而非瞬间跳变） */
+	private ringAnim: Record<string, { raf: number; value: number }> = {};
+	/** 编辑态下拦截卡片自身的点击（避免误触下钻），仅拦截卡片内部；比例按钮例外放行 */
+	private adClickGuard = (e: MouseEvent): void => {
+		const t = e.target as HTMLElement;
+		if (this.adEditMode && t.closest('.ad-card') && !t.closest('.ad-card__resize')) {
+			e.preventDefault();
+			e.stopPropagation();
+		}
+	};
+
+	// 首页模块注册表：将 7 张卡的渲染从硬编码顺序统一为「注册表驱动 + settings.homeModules 排序/显隐」
+	private homeModules: HomeModule[] = [
+		{ id: 'quick-capture', title: '快速捕捉', cardCls: 'ad-card ad-b-capture', live: false, render: (b) => this.renderQuickCapture(b) },
+		{ id: 'todo', title: 'TODO', cardCls: 'ad-card ad-b-todo', render: (b, t) => void this.renderTodo(b, t) },
+		{ id: 'progress', title: '工作进度', cardCls: 'ad-card ad-b-progress', render: (b, t) => void this.renderProgress(b, t) },
+		{ id: 'weekly', title: '本周待办 & 逾期', cardCls: 'ad-card ad-b-weekly', render: (b, t) => void this.renderWeekly(b, t) },
+		{ id: 'projects', title: '项目情况', cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
+		{ id: 'heatmap', title: '笔记统计', cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
+		{ id: 'countdown', title: '倒计时', cardCls: 'ad-card ad-b-countdown', live: false, render: (b) => this.renderCountdown(b) },
+	];
+
 	// Project overview state (renderer extracted into ProjectBoard)
 	public selectedProject: string | null = null;
 
@@ -154,7 +263,7 @@ export class DashboardView extends ItemView {
 	private oppBoard: OpportunityBoard;
 	private projectBoard: ProjectBoard;
 
-	constructor(leaf: WorkspaceLeaf, plugin: AgentDashboard) {
+	constructor(leaf: WorkspaceLeaf, plugin: Dashboard) {
 		super(leaf);
 		this.plugin = plugin;
 		this.bannerState = { ...DEFAULT_SETTINGS.banner, ...plugin.settings.banner };
@@ -172,7 +281,7 @@ export class DashboardView extends ItemView {
 	}
 
 	private applyTheme(): void {
-		const root = this.dashboardEl ?? (this.containerEl.querySelector('.agent-dashboard'));
+		const root = this.dashboardEl ?? (this.containerEl.querySelector('.dashboard-plugin'));
 		if (root) root.setAttribute('data-theme', this.effectiveTheme());
 		this.refreshThemeButton();
 	}
@@ -188,17 +297,17 @@ export class DashboardView extends ItemView {
 	}
 
 	getViewType(): string { return VIEW_TYPE; }
-	getDisplayText(): string { return 'Agent dashboard'; }
+	getDisplayText(): string { return 'Dashboard'; }
 	getIcon(): string { return 'layout-dashboard'; }
 
 	async onOpen(): Promise<void> {
-		// NOTE: earlier builds emptied this.containerEl then added .agent-dashboard
+		// NOTE: earlier builds emptied this.containerEl then added .dashboard-plugin
 		// directly; that was fine (the "setText on null" bug was the titleEl field
 		// collision, NOT the empty()). Now we clear the container's leftovers
 		// (Obsidian/theme placeholders) so our root div sits at the very top, then
-		// create a child <div class="agent-dashboard"> and render into it.
+		// create a child <div class="dashboard-plugin"> and render into it.
 		this.containerEl.empty();
-		this.dashboardEl = this.containerEl.createDiv({ cls: 'agent-dashboard' });
+		this.dashboardEl = this.containerEl.createDiv({ cls: 'dashboard-plugin' });
 		this.applyTheme();
 		this.registerEvent(this.app.workspace.on('css-change', () => this.applyTheme()));
 
@@ -236,8 +345,8 @@ export class DashboardView extends ItemView {
 				if (file instanceof TFile && file.name.startsWith('project-')) return;
 				void this.updatePulse();
 				void this.projectBoard.refresh();
-			} else if (this.currentPage === 'opportunity') {
-				if (file instanceof TFile && file.path === this.plugin.settings.opportunityFile) {
+				} else if (this.currentPage === 'opportunity' && this.plugin.settings.boardEnabled) {
+					if (file instanceof TFile && file.path === this.plugin.settings.opportunityFile) {
 					void this.updatePulse();
 					this.oppBoard.scheduleRefresh();
 				}
@@ -264,12 +373,15 @@ export class DashboardView extends ItemView {
 				this.dashboardEl?.empty();
 				this.dashboardEl?.createEl('pre', { cls: 'ad-error', text: 'Dashboard 渲染出错：\n' + (e.stack || e.message) });
 			} catch { /* ignore */ }
-			console.error('[AgentDashboard] render error', err);
+			console.error('[Dashboard] render error', err);
 		}
 	}
 
 	async onClose(): Promise<void> {
 		if (this.noiseId) { window.cancelAnimationFrame(this.noiseId); this.noiseId = null; }
+		if (this.adRowHObs) { this.adRowHObs.disconnect(); this.adRowHObs = undefined; }
+		if (this.adHmObs) { this.adHmObs.disconnect(); this.adHmObs = undefined; this.adHmObsTarget = undefined; }
+		if (this.adLimitTimer !== null) { window.clearTimeout(this.adLimitTimer); this.adLimitTimer = null; }
 		this.oppBoard.dispose();
 		if (this.storeUnsub) { this.storeUnsub(); this.storeUnsub = null; }
 		this.dashboardStore.dispose();
@@ -377,8 +489,9 @@ export class DashboardView extends ItemView {
 	}
 
 	private refreshHeatmap(): void {
-		if (!this.heatmapCard || !this.boardEl) return;
-		this.heatmapCard.remove();
+		// 直接复用现有卡片（getOrCreateCard 会命中并清空旧卡子节点），不要先 remove 再重建——
+		// 重建会丢掉卡片的 --cols/--rows（回退 1×1），且造成无谓的重排闪烁。
+		if (!this.boardEl) return;
 		this.renderHeatmap(this.boardEl);
 	}
 
@@ -565,8 +678,10 @@ export class DashboardView extends ItemView {
 		const navItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
 			{ glyph: '\u2302', label: '\u4E3B\u9875', action: 'home', svg: ICON_home },
 			{ glyph: '\u203A', label: '\u5168\u90E8\u9879\u76EE', action: 'all', svg: ICON_allProjects },
-			{ glyph: '\u25C8', label: '\u673A\u4F1A\u70B9', action: 'opportunity', svg: ICON_opportunity },
 		];
+		if (this.plugin.settings.boardEnabled) {
+			navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || '\u770B\u677F', action: 'opportunity', svg: ICON_opportunity });
+		}
 		// 动作组：建什么（新建日记 / 新建任务 / 新建项目）
 		const actionItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
 			{ glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
@@ -583,7 +698,7 @@ export class DashboardView extends ItemView {
 			btn.addEventListener('click', () => {
 				btn.addClass('is-active');
 				try {
-					if (it.action === 'home') this.showDashboard();
+					if (it.action === 'home') void this.showDashboard();
 					if (it.action === 'diary') void this.createDiary();
 					if (it.action === 'task') void this.openTaskModal(this.selectedProject ?? undefined);
 					if (it.action === 'project') void this.createProjectFile();
@@ -592,7 +707,7 @@ export class DashboardView extends ItemView {
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
 					this.showToast('打开失败：' + msg, 'error');
-					console.error('[AgentDashboard] toolbar action "' + it.action + '" failed', e);
+					console.error('[Dashboard] toolbar action "' + it.action + '" failed', e);
 				}
 				window.setTimeout(() => btn.removeClass('is-active'), 350);
 			});
@@ -706,19 +821,16 @@ export class DashboardView extends ItemView {
 	private renderBoard(root: HTMLElement, d: DashboardData): void {
 		const board = root.createDiv({ cls: 'ad-board' });
 		this.boardEl = board;
-		this.renderQuickCapture(board);
-		void this.renderTodo(board);
-		void this.renderProgress(board);
-		void this.renderWeekly(board);
-		void this.renderProjects(board);
-		this.renderHeatmap(board);
-		this.renderCountdown(board);
+		// 按注册表渲染全部启用模块
+		void this.renderEnabledModules(board);
+		this.attachBoardInteractions();
 		void this.renderFirstRunIfEmpty(board);
 	}
 
 	/* ---- Quick Capture ---- */
 	private renderQuickCapture(board: HTMLElement): void {
-		const card = board.createDiv({ cls: 'ad-card ad-b-capture' });
+		// 复用已存在的卡壳（由 renderEnabledModules 按顺序建好），否则每次渲染都会追加一张新卡
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-capture');
 		this.cardHead(card, '\u25C6', '\u5FEB\u901F\u6355\u6349');
 		const qc = card.createDiv({ cls: 'ad-qc' });
 		const area = qc.createEl('textarea', {
@@ -737,7 +849,7 @@ export class DashboardView extends ItemView {
 				area.value = '';
 				this.showToast('\u2728 \u60F3\u6CD5\u5DF2\u6355\u6349\uFF01');
 			} catch (err) {
-				console.error('[Agent Dashboard] 快速捕捉失败', err);
+				console.error('[Dashboard] 快速捕捉失败', err);
 				this.showToast('\u26A0\uFE0F 捕捉失败，请检查「存储路径」设置', 'error');
 			} finally {
 				window.setTimeout(() => cta.removeClass('flash'), 400);
@@ -867,13 +979,29 @@ export class DashboardView extends ItemView {
 
 	private applyNamingPattern(pattern: string, d: Date): string {
 		const pad = (n: number) => String(n).padStart(2, '0');
-		const name = pattern
-			.replace('YYYY', String(d.getFullYear()))
-			.replace('MM', pad(d.getMonth() + 1))
-			.replace('DD', pad(d.getDate()))
-			.replace('HH', pad(d.getHours()))
-			.replace('mm', pad(d.getMinutes()))
-			.replace('SS', pad(d.getSeconds()));
+		const WK_SHORT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+		const WK_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+		const meridiem = d.getHours() < 12 ? '上午' : '下午';
+		const h12 = d.getHours() % 12 || 12;
+		// 支持的命名占位符（一次性正则替换，避免 DD 与 ddd/dddd 互相串扰）。
+		// YYYY 年 / MM 月(2位) / MMM 月缩写(如 8月) / DD 日(2位)
+		// ddd 星期短(周日) / dddd 星期全(星期日)
+		// HH 24小时 / hh 12小时 / mm 分 / ss|SS 秒 / A 上午·下午
+		const map: Record<string, string> = {
+			YYYY: String(d.getFullYear()),
+			MMM: `${d.getMonth() + 1}月`,
+			MM: pad(d.getMonth() + 1),
+			dddd: WK_FULL[d.getDay()]!,
+			ddd: WK_SHORT[d.getDay()]!,
+			DD: pad(d.getDate()),
+			HH: pad(d.getHours()),
+			hh: pad(h12),
+			mm: pad(d.getMinutes()),
+			ss: pad(d.getSeconds()),
+			SS: pad(d.getSeconds()),
+			A: meridiem,
+		};
+		const name = pattern.replace(/(dddd|ddd|YYYY|MMM|MM|DD|HH|hh|mm|ss|SS|A)/g, (m) => map[m] ?? m);
 		// Remove characters not allowed in filenames (Windows/Mac/Linux)
 		return name.replace(/[*"/<>:|?\\]/g, '-');
 	}
@@ -902,88 +1030,22 @@ export class DashboardView extends ItemView {
 			}
 		}
 
-		const content = await this.app.vault.read(file);
-		const eol = content.includes('\r\n') ? '\r\n' : '\n';
-		const lines = content.split(/\r?\n/);
-		let inFM = false;
-
 		const newStatus: TaskStatus = task.status === '\u5DF2\u5B8C\u6210' ? '\u5F85\u529E' : '\u5DF2\u5B8C\u6210';
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') { inFM = !inFM; continue; }
-			if (!inFM) continue;
-			if (line.startsWith('\u72B6\u6001:')) {
-				lines[i] = `\u72B6\u6001: ${newStatus}`;
-				break;
-			}
-		}
-
-		// Record / clear 完成时间 (precise to minute) when whole task toggled
 		const now = nowFmt();
-		if (newStatus === '\u5DF2\u5B8C\u6210') {
-			let found = false;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.startsWith('\u5B8C\u6210\u65F6\u95F4:')) { lines[i] = `\u5B8C\u6210\u65F6\u95F4: ${now}`; found = true; break; }
-		}
-			if (!found) {
-				const si = lines.findIndex((l) => l?.startsWith('\u72B6\u6001:'));
-				if (si >= 0) lines.splice(si + 1, 0, `\u5B8C\u6210\u65F6\u95F4: ${now}`);
-			}
-		} else {
-			const ci = lines.findIndex((l) => l?.startsWith('\u5B8C\u6210\u65F6\u95F4:'));
-			if (ci >= 0) lines.splice(ci, 1);
-		}
-
-		await this.app.vault.modify(file, lines.join(eol));
+		// 统一走 data 层写入器：一次调用完成 状态切换 + 完成时间 set/del
+		// （CRLF-safe + 值转义；此前这里是手写行扫描，且不处理值含换行/冒号的情形）
+		await fmWriteFrontmatter(this.app, file, {
+			'\u72B6\u6001': newStatus,
+			'\u5B8C\u6210\u65F6\u95F4': newStatus === '\u5DF2\u5B8C\u6210' ? now : null,
+		});
 		task.status = newStatus;
 		task.completeTime = newStatus === '\u5DF2\u5B8C\u6210' ? now : null;
 		row.toggleClass('is-done', newStatus === '\u5DF2\u5B8C\u6210');
 	}
 
-	/** Write a single frontmatter field to task file */
-	/** Read a file and apply frontmatter field updates (create if missing). CRLF-safe. */
-	async writeFrontmatter(file: TFile, updates: Record<string, string>): Promise<void> {
-		const content = await this.app.vault.read(file);
-		const eol = content.includes('\r\n') ? '\r\n' : '\n';
-		const lines = content.split(/\r?\n/);
-		this.applyFrontmatterUpdates(lines, updates);
-		await this.app.vault.modify(file, lines.join(eol));
-	}
-
-	/** Mutate a lines array: update existing frontmatter fields, insert missing ones before closing ---. CRLF-safe. */
-	private applyFrontmatterUpdates(lines: string[], updates: Record<string, string>): void {
-		let inFM = false;
-		let fmEnd = -1;
-		const done = new Set<string>();
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line) continue;
-			if (line.trim() === '---') {
-				if (!inFM) { inFM = true; continue; }
-				fmEnd = i;
-				inFM = false;
-				continue;
-			}
-			if (!inFM) continue;
-			for (const key of Object.keys(updates)) {
-				if (line.startsWith(key + ':')) {
-					lines[i] = `${key}: ${updates[key]}`;
-					done.add(key);
-				}
-			}
-		}
-		const missing = Object.keys(updates).filter((k) => !done.has(k));
-		if (missing.length === 0) return;
-		if (fmEnd > 0) {
-			lines.splice(fmEnd, 0, ...missing.map((k) => `${k}: ${updates[k]}`));
-		} else {
-			// No frontmatter at all — prepend a block
-			lines.unshift(...['---', ...missing.map((k) => `${k}: ${updates[k]}`), '---', '']);
-		}
+	/** Write frontmatter fields to a file via the shared data-layer writer (CRLF-safe + YAML value escaping). */
+	async writeFrontmatter(file: TFile, updates: Record<string, string | null>): Promise<void> {
+		await fmWriteFrontmatter(this.app, file, updates);
 	}
 
 	private async writeTaskField(task: TaskItem, fieldKey: string, value: string): Promise<void> {
@@ -1065,7 +1127,7 @@ export class DashboardView extends ItemView {
 		const typeLabel = data.type === 'nostage' ? '\u975E\u9636\u6BB5\u9879\u76EE' : '\u9636\u6BB5\u9879\u76EE';
 		await this.writeFrontmatter(file, {
 			'\u9879\u76EE\u540D\u79F0': data.name,
-			'\u989C\u8272': `"${data.color}"`,
+			'\u989C\u8272': data.color,
 			'\u9879\u76EE\u7C7B\u578B': typeLabel,
 			'\u63CF\u8FF0': data.description,
 			'\u5F00\u59CB\u65E5\u671F': data.startDate,
@@ -1076,21 +1138,17 @@ export class DashboardView extends ItemView {
 		await this.projectBoard.refresh();
 	}
 
-	private showDashboard(): void {
+	private async showDashboard(): Promise<void> {
 		if (!this.boardEl) return;
+		// 进入首页前确保退出可能的编辑态（修复「切页未退出编辑态」残留）
+		this.exitEditMode();
 		this.boardEl.empty();
 		this.boardEl.removeClass('po-board');
 		this.boardEl.removeClass('op-board');
 		this.boardEl.addClass('ad-board');
 		this.currentPage = 'home';
-		// Re-render all dashboard cards
-		this.renderQuickCapture(this.boardEl);
-		void this.renderTodo(this.boardEl);
-		void this.renderProgress(this.boardEl);
-		void this.renderWeekly(this.boardEl);
-		void this.renderProjects(this.boardEl);
-		this.renderHeatmap(this.boardEl);
-		this.renderCountdown(this.boardEl);
+		// 按注册表渲染全部启用模块（顺序/显隐由 settings.homeModules 决定）
+		await this.renderEnabledModules(this.boardEl);
 	}
 
 	/** Delete task file from vault */
@@ -1205,18 +1263,18 @@ export class DashboardView extends ItemView {
 			startDate,
 		}) : null;
 
-		const lines: string[] = ['---'];
-		lines.push(`\u72B6\u6001: ${fmStatus}`);
-		lines.push(`\u4F18\u5148\u7EA7: ${fmPriority}`);
-		lines.push(`\u5F00\u59CB\u65E5\u671F: ${startDate}`);
-		// 截止日期 acts as the recurrence bound for recurring tasks (omitted when 无结束日期).
-		if (endDate) lines.push(`\u622A\u6B62\u65E5\u671F: ${endDate}`);
-		lines.push(`\u9879\u76EE: ${projectName}`);
-		lines.push(`tags: ${JSON.stringify(tags)}`);
-		lines.push(`\u7C7B\u578B: ${fmType}`);
-		lines.push(`\u63D0\u9192: ${JSON.stringify(reminders)}`);
-		lines.push(`\u5907\u6CE8: ${notes}`);
-		if (parent) lines.push(`\u7236\u4EFB\u52A1: ${parent}`);
+	const lines: string[] = ['---'];
+	lines.push(`\u72B6\u6001: ${yamlScalar(fmStatus)}`);
+	lines.push(`\u4F18\u5148\u7EA7: ${yamlScalar(fmPriority)}`);
+	lines.push(`\u5F00\u59CB\u65E5\u671F: ${yamlScalar(startDate)}`);
+	// 截止日期 acts as the recurrence bound for recurring tasks (omitted when 无结束日期).
+	if (endDate) lines.push(`\u622A\u6B62\u65E5\u671F: ${yamlScalar(endDate)}`);
+	lines.push(`\u9879\u76EE: ${yamlScalar(projectName)}`);
+	lines.push(`tags: ${JSON.stringify(tags)}`);
+	lines.push(`\u7C7B\u578B: ${yamlScalar(fmType)}`);
+	lines.push(`\u63D0\u9192: ${JSON.stringify(reminders)}`);
+	lines.push(`\u5907\u6CE8: ${yamlScalar(notes)}`);
+	if (parent) lines.push(`\u7236\u4EFB\u52A1: ${yamlScalar(parent)}`);
 
 		if (isRecurring && repeatRule) {
 			lines.push('\u91CD\u590D\u89C4\u5219:');
@@ -1264,21 +1322,21 @@ export class DashboardView extends ItemView {
 		const createDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
 		const typeLabel = type === 'nostage' ? '\u975E\u9636\u6BB5\u9879\u76EE' : '\u9636\u6BB5\u9879\u76EE';
-		const lines: string[] = [
-			'---',
-			`\u9879\u76EE\u540D\u79F0: ${name}`,
-			`\u989C\u8272: "${color}"`,
-			`\u9879\u76EE\u7C7B\u578B: ${typeLabel}`,
-			`tags: [\u914D\u7F6E]`,
-			`\u63CF\u8FF0: ${description}`,
-			`\u5F00\u59CB\u65E5\u671F: ${startDate}`,
-			`\u7ED3\u675F\u65E5\u671F: ${endDate}`,
-			`\u521B\u5EFA\u65F6\u95F4: ${createDate}`,
-			'---',
-			'',
-			`# ${name}`,
-			'',
-		];
+	const lines: string[] = [
+		'---',
+		`\u9879\u76EE\u540D\u79F0: ${yamlScalar(name)}`,
+		`\u989C\u8272: ${yamlScalar(color)}`,
+		`\u9879\u76EE\u7C7B\u578B: ${yamlScalar(typeLabel)}`,
+		`tags: [\u914D\u7F6E]`,
+		`\u63CF\u8FF0: ${yamlScalar(description)}`,
+		`\u5F00\u59CB\u65E5\u671F: ${yamlScalar(startDate)}`,
+		`\u7ED3\u675F\u65E5\u671F: ${yamlScalar(endDate)}`,
+		`\u521B\u5EFA\u65F6\u95F4: ${createDate}`,
+		'---',
+		'',
+		`# ${name}`,
+		'',
+	];
 
 		// Config file: project-{name}.md
 		const projectFilePath = `${projectFolderPath}/project-${safeName}.md`;
@@ -1369,15 +1427,911 @@ export class DashboardView extends ItemView {
 		await this.renderTodo(this.boardEl, allTasks);
 	}
 
+	/**
+	 * 由多类名字符串构造合法的类选择器：'ad-card ad-b-todo' → '.ad-card.ad-b-todo'
+	 *
+	 * ⚠️ 历史 bug（本轮修复的总根因）：此前各处直接写 `'.' + cardCls`，得到的是
+	 * **后代选择器** `.ad-card ad-b-todo`（在 .ad-card 内找 <ad-b-todo> 标签），永远匹配不到。
+	 * 由此连锁导致：卡片拿不到 data-mod（缩放手柄不注入、拖拽删除拿不到 id、顺序无法回写）、
+	 * 拿不到 --cols/--rows（所有卡片回退 1:1），并且 getOrCreateCard 永远命中不到旧卡片而重复创建。
+	 */
+	private static cardSel(cls: string): string {
+		return '.' + cls.trim().split(/\s+/).join('.');
+	}
+
 	/** Reuse an existing card element (keeps its grid placement → no disappearance flash)
 	 *  by emptying its contents, or create it if missing. */
 	private getOrCreateCard(board: HTMLElement, cls: string): HTMLElement {
-		const existing = board.querySelector('.' + cls);
+		const existing = board.querySelector(DashboardView.cardSel(cls));
 		if (existing) {
 			existing.empty();
 			return existing as HTMLElement;
 		}
 		return board.createDiv({ cls });
+	}
+
+	/**
+	 * 按 settings.homeModules 的「启用 + 顺序」驱动首页渲染（注册表化核心）。
+	 * - 渲染前先移除「已禁用 / 已不存在」模块的残留卡片，保证显隐即时生效、无重复。
+	 * - onlyLive=true 时只重渲染 live 模块（数据刷新路径，保护快速捕捉输入框、热力图、倒计时不被重建）。
+	 * - 一次 vault 扫描的 allTasks 在 todo/progress/weekly 间共享。
+	 */
+	private async renderEnabledModules(
+		board: HTMLElement,
+		opts?: { onlyLive?: boolean; allTasks?: TaskItem[] },
+	): Promise<void> {
+		const configs = this.plugin.settings.homeModules ?? [];
+		const enabled = configs
+			.filter((m) => m.enabled && this.homeModules.some((x) => x.id === m.id))
+			.sort((a, b) => a.order - b.order);
+
+		const enabledTokens = enabled
+			.map((m) => {
+				const mod = this.homeModules.find((x) => x.id === m.id);
+				return mod ? mod.cardCls.split(' ')[1] : '';
+			})
+			.filter((t): t is string => t !== '');
+
+		// 移除被禁用模块残留的卡片（显隐切换后旧卡需清掉，否则会留空白卡）
+		board.querySelectorAll('.ad-card').forEach((el) => {
+			const matched = enabledTokens.some((tok) => el.classList.contains(tok));
+			if (!matched) el.remove();
+		});
+
+		// ── 第一步：**同步**建好全部卡壳并按 settings 顺序摆位 ──────────────────
+		// 关键：部分模块的 render 是 async（todo/progress/weekly/projects 包在 `void` 里），
+		// 若等它们各自 createDiv，DOM 顺序就变成「谁先 resolve 谁在前」→ 表现为
+		// 「排好的布局一切页/一重启就乱」。先同步占好位置，异步内容只是往壳里填。
+		const shells: HTMLElement[] = [];
+		for (const cfg of enabled) {
+			const mod = this.homeModules.find((x) => x.id === cfg.id);
+			if (!mod) continue;
+			const sel = DashboardView.cardSel(mod.cardCls);
+			let el = board.querySelector(sel) as HTMLElement | null;
+			if (!el) el = board.createDiv({ cls: mod.cardCls });
+			el.setAttribute('data-mod', mod.id);
+			this.applyCardSpan(el, cfg.cols, cfg.rows);
+			shells.push(el);
+		}
+		// 只在实际错位时才移动节点：避免无谓的重新插入导致快速捕捉输入框失焦
+		let prev: HTMLElement | null = null;
+		for (const el of shells) {
+			// 显式标注类型：Obsidian 对 insertBefore 的类型增强会让此处的推断形成循环（TS7022）
+			const expected: Element | null = prev ? prev.nextElementSibling : board.firstElementChild;
+			if (expected !== el) board.insertBefore(el, expected);
+			prev = el;
+		}
+
+		// ── 第二步：填充内容（各 render 内部用 getOrCreateCard 命中上面的壳） ──────
+		const allTasks = opts?.allTasks ?? await this.taskStore.scanAllTasks();
+		for (const cfg of enabled) {
+			const mod = this.homeModules.find((x) => x.id === cfg.id);
+			if (!mod) continue;
+			if (opts?.onlyLive && mod.live === false) continue;
+			// 异步渲染期间用户可能已切页，必须重校验，否则会把主页卡渲染进其它页面
+			if (this.currentPage !== 'home' || !this.boardEl) return;
+			await mod.render(board, allTasks);
+			// 内容渲染可能重建了卡片，比例/标识需要复位一次（幂等）
+			const cardEl = board.querySelector(DashboardView.cardSel(mod.cardCls)) as HTMLElement | null;
+			if (cardEl) {
+				cardEl.setAttribute('data-mod', mod.id);
+				this.applyCardSpan(cardEl, cfg.cols, cfg.rows);
+			}
+		}
+
+		// 编辑态下确保每张卡都带「比例」按钮（重渲染（如数据刷新）会清空按钮，这里补回）
+		if (this.adEditMode) this.injectCardResizeButtons();
+		// 内容渲染（可能改变卡片数量/比例）后，确保行高仍与单列宽一致
+		this.updateRowH();
+	}
+
+	/** 把「宽 cols 格 × 高 rows 格」写进卡片的 CSS 变量（grid-column span 由此驱动）。
+	 *  统一经过 resolveSpan 夹紧：按当前实际列数裁剪宽度（避免撑出隐式列）、
+	 *  按模块最低宽度（MIN_COLS）与最低宽高比（MIN_RATIO）夹紧，保证项目情况/笔记统计
+	 *  等关键卡片既不被压得过窄、也不会被拉成「过窄过高的竖条」。 */
+	private applyCardSpan(el: HTMLElement, cols?: number, rows?: number): void {
+		const modId = el.getAttribute('data-mod') ?? '';
+		const { cols: c, rows: r } = this.resolveSpan(modId, clampSpan(cols), clampSpan(rows));
+		el.style.setProperty('--cols', String(c));
+		el.style.setProperty('--rows', String(r));
+	}
+
+	/** 把一个（可能非法的）宽高格数解析成合法组合，渲染 / 拖拽 / 比例菜单 / 响应式夹紧共用，保证规则一致：
+	 *  - 夹到 1..MAX_SPAN；
+	 *  - 按当前实际列数裁剪宽度（2 列/1 列响应式下避免撑出隐式列）；
+	 *  - 按模块最低宽度（MIN_COLS）夹紧；
+	 *  - 按模块最低宽高比（MIN_RATIO）夹紧：宽/高 ≥ 最低比例 ⇒ 高 ≤ 宽/最低比例。 */
+	private resolveSpan(modId: string, cols: number, rows: number): { cols: number; rows: number } {
+		const colCount = this.currentColCount();
+		let c = this.clampMinCols(modId, Math.min(colCount, clampSpan(cols)), colCount);
+		let r = clampSpan(rows);
+		const ratio = MIN_RATIO[modId];
+		if (ratio) {
+			const maxRows = Math.max(1, Math.floor(c / ratio));
+			if (r > maxRows) r = maxRows;
+		}
+		return { cols: c, rows: r };
+	}
+
+	/** 把宽度按「模块最低宽度」与「当前实际列数」双重夹紧：响应式到更窄列数时只填充满，不强行跨列 */
+	private clampMinCols(modId: string, cols: number, colCount: number): number {
+		const min = MIN_COLS[modId] ?? 1;
+		const c = colCount >= min ? Math.max(min, cols) : cols;
+		// 硬上限 = 当前列数：span 一旦超过列数就会撑出隐式列，使所有轨道被 1fr 均分、
+		// 每张卡整体变窄（= 用户看到的「挤压」）。这里是最后一道闸，任何调用路径都不得绕过。
+		return Math.max(1, Math.min(colCount, c));
+	}
+
+	/** 设置页修改显隐/排序后，立即重建首页（清空并重渲染全部启用模块） */
+	rebuildHome(): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		this.boardEl.empty();
+		void this.renderEnabledModules(this.boardEl);
+	}
+
+	/** 设置页修改看板开关/名称/阶段配置后，立即刷新导航与看板页（无需重启） */
+	refreshNav(): void {
+		if (!this.dashboardEl) return;
+		// 1) 重渲染顶部导航：看板入口显隐 + 看板名称 label 实时生效。
+		//    renderActions 会把 nav append 到末尾，故先在临时容器渲染，再插回 header 之后。
+		//    ⚠️ 锚点必须用 .ad-header（始终存在），不能用 .ad-board：当视图停在项目/机会页时
+		//    boardEl 已移除 .ad-board class，querySelector 找不到会 fallback 到 appendChild，
+		//    把 toolbar 插到页面最底部（=「按钮栏漂移到卡片下方」的偶发 bug）。
+		const oldToolbar = this.dashboardEl.querySelector('.ad-toolbar');
+		if (oldToolbar) oldToolbar.remove();
+		const tmp = this.dashboardEl.createDiv();
+		this.renderActions(tmp);
+		const nav = tmp.firstElementChild;
+		tmp.remove();
+		if (nav) {
+			const header = this.dashboardEl.querySelector('.ad-header');
+			if (header) {
+				header.after(nav);
+			} else {
+				const boardEl = this.dashboardEl.querySelector('.ad-board');
+				if (boardEl) this.dashboardEl.insertBefore(nav, boardEl);
+				else this.dashboardEl.appendChild(nav);
+			}
+		}
+		// 2) 看板被关闭且当前正停在看板页 → 切回主页
+		if (!this.plugin.settings.boardEnabled && this.currentPage === 'opportunity') {
+			void this.showDashboard();
+			return;
+		}
+		// 3) 看板仍开启且当前正停在看板页 → 重刷看板（阶段名/颜色/输入框配置变化即时生效）
+		if (this.currentPage === 'opportunity') {
+			void this.oppBoard.show();
+		}
+	}
+
+	/* ============================================================
+	   首页编辑态：长按进入，仿手机桌面（拖拽排序 / 拖入垃圾桶删除 / 添加卡片）
+	   ============================================================ */
+
+	/** 绑定 board 的 pointerdown（长按进入编辑态 / 编辑态内直接拖拽），只绑一次 */
+	private attachBoardInteractions(): void {
+		if (this.adBoardWired || !this.boardEl) return;
+		this.adBoardWired = true;
+		this.boardEl.addEventListener('pointerdown', (e) => this.onBoardPointerDown(e));
+		this.boardEl.addEventListener('contextmenu', (e) => this.onBoardContextMenu(e));
+		// 板面宽度变化时重新计算每行最大可容纳列数，并据此夹紧卡片比例
+		this.updateRowH();
+		if (typeof ResizeObserver !== 'undefined') {
+			this.adRowHObs = new ResizeObserver(() => this.updateRowH());
+			this.adRowHObs.observe(this.boardEl);
+		}
+		// 首屏延一帧再夹紧一次：renderEnabledModules 同步写入 --cols 时可能读到尚未落定的列数
+		// （例如先按 4 列算，使 projects/heatmap 这类 MIN_COLS=2 卡被钉成 2 列），
+		// 等视图真正布局完成、auto-fill 算出最终（可能只有 1~2 列）后再 reapplySpans，
+		// 让它们在该窄则窄、整卡满宽可读，避免被压成竖条。
+		requestAnimationFrame(() => this.updateRowH());
+	}
+
+	/** 响应式布局中枢：按板面（= Obsidian 窗格）实际宽度算出列数并写入 --ad-cols，
+	 *  同时把 Grid 行高 --ad-row-h 锁成「单列宽」（1×1 卡正方、多列卡与 1×1 同高、比例不变）。
+	 *  列数走 4→3→2→1 梯度，保证每列宽度 ≥ MIN_CARD_W（可读下限），列宽仍是 1fr 随窗口等比缩放。
+	 *  列数变化时重夹紧全部卡片（防 2 列卡在仅剩 1 列时撑出隐式列被挤压）。 */
+	private updateRowH(): void {
+		const board = this.boardEl;
+		if (!board) return;
+		const cs = getComputedStyle(board);
+		const gap = parseFloat(cs.columnGap) || 12;
+		const width = board.getBoundingClientRect().width;
+		if (width <= 0) return; // 视图尚未布局（隐藏 tab / 首帧），等 ResizeObserver 再来
+		const colCount = this.computeColCount(width, gap);
+		board.style.setProperty('--ad-cols', String(colCount));
+		// 行高 = 单列宽：与 CSS 的 minmax(0,1fr) 等宽轨道算法一致
+		const unit = Math.max(40, (width - gap * (colCount - 1)) / colCount);
+		board.style.setProperty('--ad-row-h', `${Math.round(unit)}px`);
+		if (colCount !== this.adLastColCount) {
+			this.adLastColCount = colCount;
+			this.reapplySpans();
+		}
+	}
+
+	/** 按板面实际宽度推算列数：宽→窄 4→3→2→1，每列宽度恒 ≥ MIN_CARD_W。
+	 *  这是「卡片不被挤压」的唯一保证——绝不能交给 CSS auto-fill（它会在宽屏生成 5~7 列，
+	 *  每列只有 MIN_CARD_W 那么宽，卡片内容被挤压竖排，且与 MAX_SPAN=4 的 span 模型冲突）。
+	 *  @param width 板面内容宽度 @param gap 列间距 */
+	private computeColCount(width: number, gap: number): number {
+		const MIN_CARD_W = 260; // 单卡可读下限宽度（px）：低于此宽度 cqi 字号会塌到下限
+		const fit = Math.floor((width + gap) / (MIN_CARD_W + gap));
+		return Math.max(1, Math.min(MAX_SPAN, fit));
+	}
+
+	/** 按当前列数与各模块最低约束，用保存的 settings 比例重新夹紧所有卡片（响应式列数变化时调用） */
+	private reapplySpans(): void {
+		const board = this.boardEl;
+		if (!board) return;
+		const hm = this.plugin.settings.homeModules ?? [];
+		board.querySelectorAll('.ad-card').forEach((card) => {
+			const el = card as HTMLElement;
+			const modId = el.getAttribute('data-mod') ?? '';
+			const m = hm.find((x) => x.id === modId);
+			if (!m) return;
+			const { cols, rows } = this.resolveSpan(modId, clampSpan(m.cols), clampSpan(m.rows));
+			el.style.setProperty('--cols', String(cols));
+			el.style.setProperty('--rows', String(rows));
+		});
+	}
+
+	private onBoardPointerDown(e: PointerEvent): void {
+		if (e.button !== 0) return;
+		// 编辑态（长按进入 / 加卡片）仅首页有效。项目总览与机会点页复用同一个 boardEl 渲染，
+		// 但其中没有 .ad-card 元素，boardEmpty 恒为 true；若不拦截，长按空白处（含甘特轴/看板拖动）
+		// 会误触发 enterEditMode 并弹出「添加卡片」编辑条。这两个页面本就没有卡片编辑模式，
+		// 故非首页一律不响应板面长按。
+		if (this.currentPage !== 'home') return;
+		// 比例手柄的按下：交给缩放逻辑，绝不触发长按下进入编辑态/拖拽
+		if ((e.target as HTMLElement).closest('.ad-card__resize')) return;
+		const board = this.boardEl;
+		if (!board) return;
+		const target = (e.target as HTMLElement).closest('.ad-card') as HTMLElement | null;
+		// 表单控件内的按下不进入编辑态（如快速捕捉文本框）
+		if ((e.target as HTMLElement).closest('input, textarea, button, select, a')) {
+			if (!this.adEditMode) return;
+		}
+
+		if (this.adEditMode) {
+			if (target) this.beginCardDrag(target, e);
+			return;
+		}
+
+		// 未进入编辑态：仅在「卡片边缘」长按时才进入，避免拖动滑轨/滑块/正文时误入。
+		// 首页已无卡片时，长按空白板面仍可进入（以便直接添加）。
+		const onEdge = target ? this.isOnCardEdge(target, e.clientX, e.clientY) : false;
+		const boardEmpty = board.querySelectorAll('.ad-card').length === 0;
+		if (!onEdge && !boardEmpty) return;
+
+		// 长按 450ms 进入，期间移动超过 10px 视为滚动/意图滑动而取消
+		const x0 = e.clientX;
+		const y0 = e.clientY;
+		const timer = window.setTimeout(() => {
+			this.enterEditMode();
+			if (target) this.beginCardDrag(target, e);
+		}, 450);
+		this.adLongPressTimer = timer;
+		const move = (ev: PointerEvent) => {
+			if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) {
+				window.clearTimeout(timer);
+				window.removeEventListener('pointermove', move);
+			}
+		};
+		const up = () => {
+			window.clearTimeout(timer);
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', up);
+		};
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', up);
+	}
+
+	/** 指针是否落在某张卡片的边缘（边框）区域，用于「仅边缘长按进入编辑态」 */
+	private isOnCardEdge(card: HTMLElement, x: number, y: number): boolean {
+		const r = card.getBoundingClientRect();
+		const EDGE = 18;
+		if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false;
+		return (
+			x - r.left <= EDGE ||
+			r.right - x <= EDGE ||
+			y - r.top <= EDGE ||
+			r.bottom - y <= EDGE
+		);
+	}
+
+	/** 编辑态下右键卡片：倒计时卡片先弹出右键菜单选「编辑」，确认后再开编辑弹窗 */
+	private onBoardContextMenu(e: MouseEvent): void {
+		// 右键菜单仅首页编辑态下用于倒计时卡片；项目/机会点页无卡片编辑模式，直接放行系统右键菜单
+		if (this.currentPage !== 'home') return;
+		if (!this.adEditMode) return;
+		const card = (e.target as HTMLElement).closest('.ad-card') as HTMLElement | null;
+		if (!card) return;
+		if ((card.getAttribute('data-mod') ?? '') !== 'countdown') return;
+		e.preventDefault();
+		const menu = new Menu();
+		menu.addItem((item) => item
+			.setTitle('\u7F16\u8F91')
+			.setIcon('pencil')
+			.onClick(() => this.openCountdownEdit()));
+		menu.showAtMouseEvent(e);
+	}
+
+	/** 打开倒计时事件编辑弹窗，保存后回写 settings 并刷新卡片 */
+	private openCountdownEdit(): void {
+		if (!this.boardEl) return;
+		const modal = new CountdownModal(
+			this.app,
+			this.plugin.settings.countdown,
+			(cfg) => {
+				this.plugin.settings.countdown = cfg;
+				void this.plugin.saveSettings();
+				this.renderCountdown(this.boardEl!);
+			},
+		);
+		modal.open();
+	}
+
+	/** 开始拖拽某张卡片：用占位符保留其在网格中的位置，卡片本身提起跟随指针（手机图标式重排） */
+	private beginCardDrag(card: HTMLElement, e: PointerEvent): void {
+		if (this.adDrag) return;
+		e.preventDefault();
+		const rect = card.getBoundingClientRect();
+		const cols = card.style.getPropertyValue('--cols') || '1';
+		const rows = card.style.getPropertyValue('--rows') || '1';
+		// 占位符：保留当前卡片在网格中的尺寸与槽位，其余卡片据此让位
+		const ph = document.createElement('div');
+		ph.className = 'ad-ph';
+		ph.style.setProperty('--cols', cols);
+		ph.style.setProperty('--rows', rows);
+		ph.style.gridColumn = `span ${cols}`;
+		ph.style.gridRow = `span ${rows}`;
+		card.parentNode?.insertBefore(ph, card);
+
+		// 提起当前卡片：脱离网格流，跟随指针
+		card.classList.add('ad-card--dragging');
+		card.style.width = rect.width + 'px';
+		card.style.height = rect.height + 'px';
+		card.style.left = rect.left + 'px';
+		card.style.top = rect.top + 'px';
+		card.style.position = 'fixed';
+		card.style.zIndex = '9999';
+		card.style.pointerEvents = 'none';
+
+		this.adDrag = {
+			card,
+			placeholder: ph,
+			offsetX: e.clientX - rect.left,
+			offsetY: e.clientY - rect.top,
+			lastX: e.clientX,
+			lastY: e.clientY,
+			overTrash: false,
+			moved: false,
+			raf: null,
+		};
+
+		const move = (ev: PointerEvent) => this.onDragMove(ev);
+		const up = (ev: PointerEvent) => {
+			this.onDragEnd(ev);
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', up);
+			window.removeEventListener('pointercancel', up);
+		};
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', up);
+		window.addEventListener('pointercancel', up);
+	}
+
+	/**
+	 * 指针是否落在「拖到此处删除」上。
+	 * 用矩形命中测试而非 elementFromPoint：后者会被编辑条上方的任意浮层/伪元素挡掉，
+	 * 是此前「拖到删除位置却删不掉」的直接原因。外扩 TRASH_PAD 让热区更好命中。
+	 */
+	private isOverTrash(x: number, y: number): boolean {
+		const trash = this.adEditBar?.querySelector('.ad-editbar__trash') as HTMLElement | null;
+		if (!trash) return false;
+		const r = trash.getBoundingClientRect();
+		if (r.width === 0 && r.height === 0) return false;
+		const PAD = 28;
+		return x >= r.left - PAD && x <= r.right + PAD && y >= r.top - PAD && y <= r.bottom + PAD;
+	}
+
+	private onDragMove(ev: PointerEvent): void {
+		const ds = this.adDrag;
+		if (!ds) return;
+		ds.moved = true;
+		ds.lastX = ev.clientX;
+		ds.lastY = ev.clientY;
+		ds.card.style.left = (ev.clientX - ds.offsetX) + 'px';
+		ds.card.style.top = (ev.clientY - ds.offsetY) + 'px';
+
+		// 悬停垃圾桶：高亮并暂停重排，避免边删边抖
+		const overTrash = this.isOverTrash(ev.clientX, ev.clientY);
+		ds.overTrash = overTrash;
+		this.adEditBar?.querySelector('.ad-editbar__trash')?.classList.toggle('is-over', overTrash);
+		ds.card.classList.toggle('is-doomed', overTrash);
+		if (overTrash) return;
+
+		// 每帧最多重排一次（pointermove 触发频率远高于刷新率，不节流会白跑很多次布局计算）
+		if (ds.raf !== null) return;
+		ds.raf = window.requestAnimationFrame(() => {
+			ds.raf = null;
+			if (this.adDrag === ds) this.reflowDuringDrag(ds);
+		});
+	}
+
+	/**
+	 * 手机桌面图标式重排：把占位符插到「指针在阅读顺序上刚好领先」的那张卡之前，
+	 * 其余卡片用 FLIP 动画平滑挤开让位。
+	 *
+	 * 判定规则（按阅读顺序 从左到右、从上到下）：
+	 *  - 指针在某卡上边界之上 → 排在它之前；
+	 *  - 指针在某卡下边界之下 → 排在它之后；
+	 *  - 指针与该卡同一行     → 以该卡水平中线判定左右。
+	 * 相比旧的「越过中心即换位」，只有真正跨过边界/中线才触发，不再来回抖动。
+	 */
+	private reflowDuringDrag(ds: DragState): void {
+		const board = this.boardEl;
+		if (!board) return;
+		const x = ds.lastX;
+		const y = ds.lastY;
+		const cards = Array.from(
+			board.querySelectorAll('.ad-card:not(.ad-card--dragging)'),
+		) as HTMLElement[];
+
+		let ref: HTMLElement | null = null;
+		for (const c of cards) {
+			const r = c.getBoundingClientRect();
+			if (y < r.top) { ref = c; break; }                       // 指针在该卡上方
+			if (y > r.bottom) continue;                               // 指针在该卡下方
+			if (x < r.left + r.width / 2) { ref = c; break; }         // 同一行且在左半边
+		}
+
+		// 位置没变就不要动 DOM，否则每帧都会打断 FLIP 过渡
+		if (ds.placeholder.nextElementSibling === ref) return;
+		if (!ref && ds.placeholder === board.lastElementChild) return;
+
+		const before = this.captureCardRects(board);
+		board.insertBefore(ds.placeholder, ref);
+		this.playFlip(before);
+	}
+
+	/** FLIP 第一步：记录移动前所有卡片的位置 */
+	private captureCardRects(board: HTMLElement): Map<HTMLElement, DOMRect> {
+		const map = new Map<HTMLElement, DOMRect>();
+		board.querySelectorAll('.ad-card:not(.ad-card--dragging)').forEach((el) => {
+			map.set(el as HTMLElement, el.getBoundingClientRect());
+		});
+		return map;
+	}
+
+	/**
+	 * FLIP 第二步：把每张位移过的卡片先「拉回」旧位置，再动画归零 → 视觉上就是被挤开。
+	 * 注意：编辑态抖动动画必须用独立的 `rotate` 属性实现，否则 CSS animation 的
+	 * transform 优先级高于内联样式，会直接吃掉这里的 translate。
+	 */
+	private playFlip(before: Map<HTMLElement, DOMRect>): void {
+		before.forEach((r0, el) => {
+			if (!el.isConnected) return;
+			const r1 = el.getBoundingClientRect();
+			const dx = r0.left - r1.left;
+			const dy = r0.top - r1.top;
+			if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+			el.style.transition = 'none';
+			el.style.transform = `translate(${dx}px, ${dy}px)`;
+			// 强制回流，让上面的「倒带」立即生效，随后的过渡才有起点
+			void el.offsetWidth;
+			el.style.transition = 'transform 220ms cubic-bezier(0.2, 0, 0, 1)';
+			el.style.transform = '';
+			window.setTimeout(() => {
+				el.style.removeProperty('transition');
+				el.style.removeProperty('transform');
+			}, 240);
+		});
+	}
+
+	private onDragEnd(_ev: PointerEvent): void {
+		const ds = this.adDrag;
+		if (!ds) return;
+		this.adDrag = null;
+		if (ds.raf !== null) window.cancelAnimationFrame(ds.raf);
+		const card = ds.card;
+		const id = card.getAttribute('data-mod') || '';
+		// 还原卡片样式，使其回到网格流
+		card.classList.remove('ad-card--dragging');
+		card.classList.remove('is-doomed');
+		card.style.removeProperty('position');
+		card.style.removeProperty('left');
+		card.style.removeProperty('top');
+		card.style.removeProperty('width');
+		card.style.removeProperty('height');
+		card.style.removeProperty('z-index');
+		card.style.removeProperty('pointer-events');
+		this.adEditBar?.querySelector('.ad-editbar__trash')?.classList.remove('is-over');
+
+		// 落点复检垃圾桶（最后一次 move 可能未触发，漏判会导致「拖过去了却没删」）
+		const overTrash = ds.overTrash || this.isOverTrash(ds.lastX, ds.lastY);
+
+		if (overTrash && id) {
+			ds.placeholder.remove();
+			this.removeModule(id);
+			return;
+		}
+		ds.placeholder.parentNode?.insertBefore(card, ds.placeholder);
+		ds.placeholder.remove();
+		this.syncOrderFromDom();
+	}
+
+	/** 把当前 DOM 中卡片的顺序写回 settings.homeModules 并持久化 */
+	private syncOrderFromDom(): void {
+		if (!this.boardEl) return;
+		const order: string[] = [];
+		this.boardEl.querySelectorAll('.ad-card').forEach((el) => {
+			const id = el.getAttribute('data-mod');
+			if (id) order.push(id);
+		});
+		const hm = this.plugin.settings.homeModules;
+		if (!hm || order.length === 0) return; // 防御：读不到 data-mod 时绝不写入空顺序
+		const map = new Map(hm.map((m) => [m.id, m]));
+		order.forEach((id, i) => {
+			const m = map.get(id);
+			if (m) m.order = i;
+		});
+		// 被隐藏的模块统一排到可见卡片之后，保证 order 连续、重新添加时落在末尾
+		let next = order.length;
+		for (const m of hm) {
+			if (!order.includes(m.id)) m.order = next++;
+		}
+		void this.plugin.saveSettings();
+	}
+
+	/** 移除模块（仅隐藏，不删数据），随后从 DOM 移除卡片 */
+	private removeModule(id: string): void {
+		const hm = this.plugin.settings.homeModules;
+		const m = hm?.find((x) => x.id === id);
+		if (m) m.enabled = false;
+		void this.plugin.saveSettings();
+		this.boardEl?.querySelector(`[data-mod="${id}"]`)?.remove();
+		if (this.boardEl && this.boardEl.querySelectorAll('.ad-card').length === 0) {
+			this.renderBoardEmptyHint();
+		}
+	}
+
+	/** 恢复首页默认布局（显隐 / 顺序 / 比例），保留编辑态便于继续调整 */
+	private async resetLayout(): Promise<void> {
+		await this.plugin.resetHomeLayout();
+		if (this.boardEl) this.boardEl.empty();
+		await this.showDashboardKeepEditMode();
+		this.showToast('↺ 已恢复默认布局');
+	}
+
+	/** 重建首页但不退出编辑态（供「重置布局 / 添加卡片」在编辑态内复用） */
+	private async showDashboardKeepEditMode(): Promise<void> {
+		if (!this.boardEl) return;
+		this.currentPage = 'home';
+		await this.renderEnabledModules(this.boardEl);
+		if (this.adEditMode) this.injectCardResizeButtons();
+	}
+
+	/** 重新启用被隐藏的模块并追加到末尾 */
+	private async addModule(id: string): Promise<void> {
+		const hm = this.plugin.settings.homeModules;
+		const m = hm?.find((x) => x.id === id);
+		if (!m) return;
+		m.enabled = true;
+		const maxOrder = hm && hm.length ? Math.max(...hm.map((x) => x.order)) : -1;
+		m.order = maxOrder + 1;
+		await this.plugin.saveSettings();
+		// 保持编辑态：加回卡片后用户通常还要继续排序/调比例
+		this.boardEl?.querySelector('.ad-empty')?.remove();
+		await this.showDashboardKeepEditMode();
+	}
+
+	private enterEditMode(): void {
+		if (this.adEditMode) return;
+		this.adEditMode = true;
+		this.dashboardEl?.classList.add('ad-edit');
+		this.showEditBar();
+		this.injectCardResizeButtons();
+		this.boardEl?.addEventListener('click', this.adClickGuard, true);
+		// 若首页已无卡片，直接进入添加流程
+		if (this.boardEl && this.boardEl.querySelectorAll('.ad-card').length === 0) {
+			this.openAddMenu();
+		}
+	}
+
+	/** 退出编辑态；同时清理可能残留的比例/添加弹层与编辑条（切页或点「完成」时调用） */
+	public exitEditMode(): void {
+		if (!this.adEditMode) return;
+		this.adEditMode = false;
+		this.dashboardEl?.classList.remove('ad-edit');
+		this.boardEl?.querySelectorAll('.ad-card__resize, .ad-card__ratio, .ad-ph').forEach((b) => b.remove());
+		// 清掉拖拽/缩放过程中可能残留的瞬时类，避免退出后卡片still抖动或带高亮描边
+		this.boardEl?.querySelectorAll('.ad-card').forEach((c) => {
+			c.classList.remove('ad-card--dragging', 'ad-card--resizing', 'is-doomed');
+			(c as HTMLElement).style.removeProperty('transform');
+			(c as HTMLElement).style.removeProperty('transition');
+		});
+		// 清理残留弹层：添加卡片列表 / 比例选择器（修复「点完成后小卡片未消失」）
+		this.dashboardEl?.querySelectorAll('.ad-addmenu-backdrop, .ad-propmenu-backdrop').forEach((b) => b.remove());
+		this.hideEditBar();
+		this.boardEl?.removeEventListener('click', this.adClickGuard, true);
+	}
+
+	private showEditBar(): void {
+		if (this.adEditBar || !this.dashboardEl) return;
+		const bar = this.dashboardEl.createDiv({ cls: 'ad-editbar' });
+		bar.createEl('button', { cls: 'ad-editbar__trash', text: '\uD83D\uDDD1 拖到此处删除' });
+		bar.createDiv({ cls: 'ad-editbar__spacer' });
+		const add = bar.createEl('button', { cls: 'ad-editbar__add', text: '＋ 添加卡片' });
+		add.addEventListener('click', () => this.openAddMenu());
+		const reset = bar.createEl('button', { cls: 'ad-editbar__reset', text: '↺ 重置布局' });
+		reset.addEventListener('click', () => void this.resetLayout());
+		const done = bar.createEl('button', { cls: 'ad-editbar__done', text: '完成' });
+		done.addEventListener('click', () => this.exitEditMode());
+		this.adEditBar = bar;
+	}
+
+	private hideEditBar(): void {
+		this.adEditBar?.remove();
+		this.adEditBar = null;
+	}
+
+	/** 编辑态：给每张卡片追加「⤢ 比例」手柄（重复调用安全：先清后加，重渲染后补回）。
+	 *  手柄在卡片右下角，悬停可见；按下并拖动即可按方向缩放比例，轻点则打开精确比例菜单。 */
+	private injectCardResizeButtons(): void {
+		if (!this.boardEl) return;
+		this.boardEl.querySelectorAll('.ad-card__resize').forEach((b) => b.remove());
+		this.boardEl.querySelectorAll('.ad-card').forEach((card) => {
+			const c = card as HTMLElement;
+			// data-mod 优先；兜底用卡片类名反查模块 id，避免任何一处遗漏就整卡失去缩放能力
+			const modId = c.getAttribute('data-mod')
+				?? this.homeModules.find((m) => c.classList.contains(m.cardCls.split(' ')[1] ?? ''))?.id;
+			if (!modId) return;
+			if (!c.getAttribute('data-mod')) c.setAttribute('data-mod', modId);
+			const btn = c.createDiv({ cls: 'ad-card__resize', text: '⤢' });
+			btn.setAttribute('aria-label', '调整卡片比例（拖动缩放，点击精确设置）');
+			btn.addEventListener('pointerdown', (ev) => {
+				ev.stopPropagation();
+				ev.preventDefault();
+				this.beginResizeDrag(c, modId, ev);
+			});
+		});
+	}
+
+	/** 当前网格列数（1~4，由 updateRowH 按板面宽度写入 --ad-cols）。
+	 *  用于 resolveSpan / gridUnit：卡片 span 必须 ≤ 此值，否则会撑出隐式列被挤压。 */
+	private currentColCount(): number {
+		const board = this.boardEl;
+		if (!board) return MAX_SPAN;
+		const v = parseInt(board.style.getPropertyValue('--ad-cols'), 10);
+		if (v > 0) return Math.max(1, Math.min(MAX_SPAN, v));
+		// --ad-cols 尚未写入（首屏同步渲染阶段）：按当前宽度即时推算，
+		// 避免误按 4 列把 MIN_COLS=2 的 projects/heatmap 钉成 2 列而在窄窗格撑出隐式列
+		const gap = parseFloat(getComputedStyle(board).columnGap) || 12;
+		const width = board.getBoundingClientRect().width;
+		return width > 0 ? this.computeColCount(width, gap) : MAX_SPAN;
+	}
+
+	/** 单个基础尺寸单元（单列宽）与列间距（用于把指针位置换算成「几格」） */
+	private gridUnit(): { unit: number; gap: number; colCount: number } {
+		const board = this.boardEl;
+		const colCount = this.currentColCount();
+		if (!board) return { unit: 200, gap: 12, colCount };
+		const cs = getComputedStyle(board);
+		const gap = parseFloat(cs.columnGap) || 12;
+		const width = board.getBoundingClientRect().width;
+		const unit = Math.max(40, (width - gap * (colCount - 1)) / colCount);
+		return { unit, gap, colCount };
+	}
+
+	/**
+	 * 从右下角手柄开始拖拽缩放。
+	 * 与旧实现（固定 45px 一档的相对位移）不同，这里按**指针的绝对位置**换算格数：
+	 * 指针拖到哪，卡片右下角就吸附到哪一格，所见即所得。
+	 */
+	private beginResizeDrag(card: HTMLElement, modId: string, e: PointerEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		const m = this.plugin.settings.homeModules?.find((x) => x.id === modId);
+		const startCols = clampSpan(m?.cols);
+		const startRows = clampSpan(m?.rows);
+		this.adResize = { card, modId, startCols, startRows, x0: e.clientX, y0: e.clientY, moved: false };
+		card.classList.add('ad-card--resizing');
+		const move = (ev: PointerEvent) => this.onResizeMove(ev);
+		const up = (ev: PointerEvent) => {
+			this.onResizeEnd(ev);
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', up);
+			window.removeEventListener('pointercancel', up);
+		};
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', up);
+		window.addEventListener('pointercancel', up);
+	}
+
+	private onResizeMove(ev: PointerEvent): void {
+		const st = this.adResize;
+		if (!st) return;
+		// 4px 死区：手抖不该被当成缩放，否则轻点打不开精确菜单
+		if (!st.moved && Math.hypot(ev.clientX - st.x0, ev.clientY - st.y0) < 4) return;
+		st.moved = true;
+
+		const { unit, gap, colCount } = this.gridUnit();
+		const r = st.card.getBoundingClientRect();
+		// 卡片左上角是锚点：指针到锚点的距离 ÷ 单元格尺寸 = 目标格数
+		const wantCols = Math.round((ev.clientX - r.left + gap) / (unit + gap));
+		const wantRows = Math.round((ev.clientY - r.top + gap) / (unit + gap));
+		const rawCols = Math.max(1, Math.min(colCount, wantCols));
+		const rawRows = Math.max(1, Math.min(MAX_SPAN, wantRows));
+		// 经过 resolveSpan 夹紧（最低宽度 + 最低宽高比），拖到下半屏也不会变成过窄竖条
+		const { cols, rows } = this.resolveSpan(st.modId, rawCols, rawRows);
+		st.card.style.setProperty('--cols', String(cols));
+		st.card.style.setProperty('--rows', String(rows));
+		this.showResizeBadge(st.card, cols, rows);
+		// 指针想要的格数被夹紧 → 已触达上/下限，边框转红并抖动（只在状态翻转时加类，动画才会重新播放）
+		this.setResizeLimit(st.card, wantCols !== cols || wantRows !== rows);
+	}
+
+	/** 缩放触达限制的视觉反馈：边框变红 + 抖动脉冲（状态翻转时才切类，避免动画每帧重启） */
+	private setResizeLimit(card: HTMLElement, limited: boolean): void {
+		const on = card.classList.contains('is-limit');
+		if (limited === on) return;
+		card.classList.toggle('is-limit', limited);
+	}
+
+	private onResizeEnd(_ev: PointerEvent): void {
+		const st = this.adResize;
+		if (!st) return;
+		this.adResize = null;
+		st.card.classList.remove('ad-card--resizing');
+		st.card.classList.remove('is-limit');
+		st.card.querySelector('.ad-card__ratio')?.remove();
+		// 几乎没拖动（视为点击）→ 打开精确比例菜单
+		if (!st.moved) {
+			this.openProportionMenu(st.card, st.modId);
+			return;
+		}
+		const cols = clampSpan(st.card.style.getPropertyValue('--cols'));
+		const rows = clampSpan(st.card.style.getPropertyValue('--rows'));
+		const m = this.plugin.settings.homeModules?.find((x) => x.id === st.modId);
+		if (m) {
+			m.cols = cols;
+			m.rows = rows;
+			void this.plugin.saveSettings();
+		}
+	}
+
+	/** 缩放过程中在卡片中央显示当前比例，如「2×1」 */
+	private showResizeBadge(card: HTMLElement, cols: number, rows: number): void {
+		let badge = card.querySelector('.ad-card__ratio') as HTMLElement | null;
+		if (!badge) badge = card.createDiv({ cls: 'ad-card__ratio' });
+		badge.setText(`${cols} × ${rows}`);
+	}
+
+	/**
+	 * 创建统一的弹层容器。
+	 * 挂到 document.body 而非 dashboardEl：面板所在的滚动容器会成为 fixed 的包含块，
+	 * 导致「居中」被算到整个滚动内容的中点（表现为弹窗跑到最底部、要滚动才点得到）。
+	 * 同时把 data-theme 复制过来，令牌（--ad-*）在 body 层依然按当前主题解析。
+	 */
+	private createPopover(cls: string, opts?: { anchored?: boolean }): { backdrop: HTMLElement; close: () => void } {
+		const backdrop = document.body.createDiv({ cls: `ad-popover ${cls}` + (opts?.anchored ? ' is-anchored' : '') });
+		const theme = this.dashboardEl?.getAttribute('data-theme');
+		if (theme) backdrop.setAttribute('data-theme', theme);
+		const close = (): void => {
+			window.removeEventListener('keydown', onKey, true);
+			backdrop.remove();
+		};
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key === 'Escape') { e.preventDefault(); close(); }
+		};
+		window.addEventListener('keydown', onKey, true);
+		backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+		return { backdrop, close };
+	}
+
+	/** 把弹层就近定位到锚点旁（优先锚点左上方，越界自动翻转/收边，始终留 12px 视口边距） */
+	private placeNearAnchor(menu: HTMLElement, anchor: HTMLElement | null): void {
+		const pad = 12;
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		const mr = menu.getBoundingClientRect();
+		const ar = anchor?.getBoundingClientRect();
+		let left: number;
+		let top: number;
+		if (ar) {
+			// 手柄在卡片右下角：默认把菜单摆在手柄左上方，视觉上「从手柄长出来」
+			left = ar.right - mr.width;
+			top = ar.top - mr.height - 8;
+			if (top < pad) top = Math.min(vh - mr.height - pad, ar.bottom + 8); // 上方不够 → 翻到下方
+		} else {
+			left = (vw - mr.width) / 2;
+			top = (vh - mr.height) / 2;
+		}
+		menu.style.left = Math.round(Math.max(pad, Math.min(vw - mr.width - pad, left))) + 'px';
+		menu.style.top = Math.round(Math.max(pad, Math.min(vh - mr.height - pad, top))) + 'px';
+	}
+
+	/** 编辑态：弹出 4×4 比例选择器；宽度/高度各 1-4 格（宽度 4 = 页面最宽），高度可大于宽度（如 1:2 竖卡） */
+	private openProportionMenu(cardEl: HTMLElement, modId: string): void {
+		const hm = this.plugin.settings.homeModules;
+		const m = hm?.find((x) => x.id === modId);
+		if (!m) return;
+		const curCols = m.cols ?? 1;
+		const curRows = m.rows ?? 1;
+		const { backdrop, close } = this.createPopover('ad-propmenu-backdrop', { anchored: true });
+		const menu = backdrop.createDiv({ cls: 'ad-propmenu' });
+		const ratioHint = MIN_RATIO[modId] ? `（本卡最低宽高比 ${MIN_RATIO[modId]}:1）` : '';
+		menu.createDiv({ cls: 'ad-propmenu__title', text: `调整卡片比例（宽 1-4 格，高 1-4 格；如 1×2 竖卡）${ratioHint}` });
+		const grid = menu.createDiv({ cls: 'ad-propmenu__grid' });
+		for (let r = 1; r <= 4; r++) {
+			for (let c = 1; c <= 4; c++) {
+				const cell = grid.createDiv({ cls: 'ad-propmenu__cell', text: `${c}×${r}` });
+				if (c === curCols && r === curRows) cell.addClass('is-current');
+				// 经 resolveSpan 校验：会被最低宽度/最低宽高比改写的组合直接置灰，避免选到非法比例
+				const res = this.resolveSpan(modId, c, r);
+				if (res.cols !== c || res.rows !== r) {
+					cell.addClass('is-dim');
+					// 点击非法比例：红色抖动，明确告知「这里是限制」
+					cell.addEventListener('click', () => this.rejectCell(cell));
+				} else cell.addEventListener('click', () => {
+					m.cols = c;
+					m.rows = r;
+					void this.plugin.saveSettings();
+					cardEl.style.setProperty('--cols', String(c));
+					cardEl.style.setProperty('--rows', String(r));
+					close();
+				});
+			}
+		}
+		// 就近定位到该卡片的「⤢」手柄旁（需先入 DOM 才能量到菜单尺寸）
+		this.placeNearAnchor(menu, cardEl.querySelector('.ad-card__resize') as HTMLElement | null);
+	}
+
+	/** 非法比例格的拒绝反馈：红色抖动一次 */
+	private rejectCell(cell: HTMLElement): void {
+		cell.removeClass('is-reject');
+		// 强制重排以重启动画（连点同一格也能再抖一次）
+		void cell.offsetWidth;
+		cell.addClass('is-reject');
+		if (this.adLimitTimer !== null) window.clearTimeout(this.adLimitTimer);
+		this.adLimitTimer = window.setTimeout(() => {
+			cell.removeClass('is-reject');
+			this.adLimitTimer = null;
+		}, 460);
+	}
+
+	/** 弹出被隐藏模块的列表，点击即加回首页 */
+	private openAddMenu(): void {
+		const hm = this.plugin.settings.homeModules ?? [];
+		const hidden = hm.filter((m) => !m.enabled);
+		const titleMap = new Map(this.homeModules.map((m) => [m.id, m.title]));
+		const { backdrop, close } = this.createPopover('ad-addmenu-backdrop');
+		const menu = backdrop.createDiv({ cls: 'ad-addmenu' });
+		menu.createDiv({ cls: 'ad-addmenu__title', text: '添加卡片到首页' });
+		if (hidden.length === 0) {
+			menu.createDiv({ cls: 'ad-addmenu__empty', text: '所有模块均已显示在首页' });
+		} else {
+			for (const m of hidden) {
+				const item = menu.createDiv({ cls: 'ad-addmenu__item' });
+				item.createSpan({ text: titleMap.get(m.id) ?? m.id });
+				item.createSpan({ text: '＋' });
+				item.addEventListener('click', () => {
+					close();
+					void this.addModule(m.id);
+				});
+			}
+		}
+	}
+
+	/** 全部卡片被移除后的空状态提示 */
+	private renderBoardEmptyHint(): void {
+		if (!this.boardEl) return;
+		this.boardEl.empty();
+		const hint = this.boardEl.createDiv({ cls: 'ad-empty' });
+		hint.createDiv({ cls: 'ad-empty__icon', text: '\uD83D\uDD12' });
+		hint.createDiv({ cls: 'ad-empty__title', text: '首页暂无卡片' });
+		hint.createDiv({ cls: 'ad-empty__hint', text: '长按此处或点「＋ 添加卡片」把模块加回来' });
 	}
 
 	/** Refresh all home dashboard cards (todo + progress + weekly) in-place.
@@ -1392,10 +2346,8 @@ export class DashboardView extends ItemView {
 		// scanAllTasks 是异步耗时操作；期间用户可能已切到其它页面。
 		// 必须在渲染前重校验，否则会把主页卡片渲染进机会点/项目页面。
 		if (this.currentPage !== 'home' || !this.boardEl) return;
-		await this.renderTodo(this.boardEl, allTasks);
-		await this.renderProgress(this.boardEl, allTasks);
-		await this.renderWeekly(this.boardEl, allTasks);
-		await this.renderProjects(this.boardEl);
+		// 仅重渲染 live 模块（保护快速捕捉输入框、热力图、倒计时不被重建）
+		await this.renderEnabledModules(this.boardEl, { onlyLive: true, allTasks });
 		this.refreshParseIssues();
 	}
 
@@ -1552,16 +2504,16 @@ export class DashboardView extends ItemView {
 
 		// Top ring — today's tasks
 		const todayPct = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
-		this.buildRing(dp, todayPct, 'ad-dp__pct-daily');
+		this.buildRing(dp, todayPct, 'ad-dp__pct-daily', 'daily');
 		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u4ECA\u65E5\u5DF2\u5B8C\u6210 ${todayDone} / \u4ECA\u65E5\u603B\u4EFB\u52A1 ${todayTotal}` });
 
 		// Bottom ring — all tasks
 		const allPct = allTotal ? Math.round((allDone / allTotal) * 100) : 0;
-		this.buildRing(dp, allPct, 'ad-dp__pct-proj');
+		this.buildRing(dp, allPct, 'ad-dp__pct-proj', 'proj');
 		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u5DF2\u5B8C\u6210 ${allDone} / \u603B\u4EFB\u52A1 ${allTotal}` });
 	}
 
-	private buildRing(parent: HTMLElement, pct: number, pctCls: string): void {
+	private buildRing(parent: HTMLElement, pct: number, pctCls: string, ringKey: string): void {
 		const C = 263.9;
 		const wrap = parent.createDiv({ cls: 'ad-dp__ring' });
 		const svg = wrap.createSvg('svg');
@@ -1577,9 +2529,68 @@ export class DashboardView extends ItemView {
 		fill.setAttribute('r', '42');
 		fill.classList.add('ad-fill');
 		fill.setAttribute('stroke-dasharray', C.toFixed(2));
-		fill.setAttribute('stroke-dashoffset', (C * (1 - pct / 100)).toFixed(2));
+
+		// 起点 = 上次显示值（首帧即落位，避免整圈闪烁）；终点 = 当前目标进度
+		const from = this.ringAnim[ringKey]?.value ?? 0;
+		const to = Math.max(0, Math.min(100, pct));
+		fill.setAttribute('stroke-dashoffset', (C * (1 - from / 100)).toFixed(2));
+
 		const center = wrap.createDiv({ cls: 'ad-dp__center' });
-		center.createDiv({ cls: `ad-dp__pct ${pctCls}`, text: pct + '%' });
+		const pctEl = center.createDiv({ cls: `ad-dp__pct ${pctCls}` });
+		pctEl.textContent = Math.round(from) + '%';
+
+		// 记录目标值，供下次刷新衔接；动画过程中该值会被实时更新为当前显示值
+		this.ringAnim[ringKey] = { raf: 0, value: to };
+		this.animateRing(fill, pctEl, C, from, to, ringKey);
+	}
+
+	/**
+	 * 用 requestAnimationFrame 驱动进度圆环的填充动画，使圆弧与中心数值同步更新。
+	 * - 从 `from` 平滑过渡到 `to`，时长与缓动曲线由 RING_ANIM 控制；
+	 * - 每帧同时更新 stroke-dashoffset（圆弧）与中心文本（数值），二者始终一致；
+	 * - 若系统开启「减少动态效果」或起止值相同，则直接落位、不做动画。
+	 */
+	private animateRing(
+		fill: SVGElement,
+		pctEl: HTMLElement,
+		C: number,
+		from: number,
+		to: number,
+		ringKey: string,
+	): void {
+		const reduceMotion =
+			typeof window !== 'undefined' &&
+			typeof window.matchMedia === 'function' &&
+			window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+		if (reduceMotion || from === to) {
+			fill.setAttribute('stroke-dashoffset', (C * (1 - to / 100)).toFixed(2));
+			pctEl.textContent = Math.round(to) + '%';
+			if (this.ringAnim[ringKey]) this.ringAnim[ringKey].value = to;
+			return;
+		}
+
+		const { duration, easing } = RING_ANIM;
+		const state = this.ringAnim[ringKey];
+		if (state?.raf) cancelAnimationFrame(state.raf);
+
+		const start = performance.now();
+		const step = (now: number): void => {
+			const t = Math.min(1, (now - start) / duration);
+			const val = from + (to - from) * easing(t);
+			fill.setAttribute('stroke-dashoffset', (C * (1 - val / 100)).toFixed(2));
+			pctEl.textContent = Math.round(val) + '%';
+			const s = this.ringAnim[ringKey];
+			if (!s) return;
+			s.value = val;
+			if (t < 1) {
+				s.raf = requestAnimationFrame(step);
+			} else {
+				s.value = to;
+				s.raf = 0;
+			}
+		};
+		if (state) state.raf = requestAnimationFrame(step);
 	}
 
 	/* ---- Weekly & Overdue ---- */
@@ -1861,160 +2872,272 @@ export class DashboardView extends ItemView {
 	}
 
 	/* ---- Heatmap (year-based: Jan 1 -> Dec 31) ---- */
-	private renderHeatmap(board: HTMLElement): void {
-		const card = board.createDiv({ cls: 'ad-card ad-b-heatmap' });
+		private renderHeatmap(board: HTMLElement): void {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-heatmap');
 		this.heatmapCard = card;
+		// 渲染可能重建卡片元素（如 refreshHeatmap 先 remove 再渲染），需重新套用标识与比例，
+		// 否则新元素无 --cols/--rows，会回退成 1×1（新建笔记刷新热力图后比例丢失即此因）。
+		card.setAttribute('data-mod', 'heatmap');
+		const hm = this.plugin.settings.homeModules?.find((x) => x.id === 'heatmap');
+		this.applyCardSpan(card, hm?.cols, hm?.rows);
 
 		const noteCounts = this.getVaultNoteCounts();
 		const today = new Date();
 		const todayTime = today.getTime();
+		const todayKey = fmtDate(today); // 今天日期（YYYY-MM-DD），用于标记当天格子
 		const year = today.getFullYear();
 		const stats = calcHeatmapStats(noteCounts, year, today);
-
-		// Header row: title (left) + stats (right)
+		
+		// Title header (dashboard header style)
 		const head = card.createDiv({ cls: 'ad-card__head' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u25A5' });
 		h3.appendText('\u7B14\u8BB0\u7EDF\u8BA1');
-		const statsEl = head.createDiv({ cls: 'ad-card__stats' });
-		statsEl.createSpan({ cls: 'ad-big', text: String(stats.total) });
-		statsEl.createSpan({ cls: 'ad-dot' });
-		statsEl.createSpan({ text: `${stats.active} \u5929\u6D3B\u8DC3` });
-		statsEl.createSpan({ cls: 'ad-dot' });
-		statsEl.createSpan({ text: `\u5F53\u524D\u8FDE\u7EED ${stats.streak} \u5929` });
-
-		// --- Year boundaries ---
-		const yearStart = new Date(year, 0, 1);        // Jan 1
-		const yearEnd   = new Date(year, 11, 31);       // Dec 31
+		
+		// 统计数字 + 活跃度指标（顶部右上角，与标题同行右对齐）
+		const nsHead = head.createDiv({ cls: 'ad-ns__head' });
+		nsHead.createDiv({ cls: 'ad-ns__big', text: String(stats.total) });
+		const small = nsHead.createDiv({ cls: 'ad-ns__small' });
+		small.createDiv({ cls: 'ad-ns__active', text: `${stats.active} \u5929\u6D3B\u8DC3` });
+		const streak = small.createDiv({ cls: 'ad-ns__streak' });
+		streak.appendText('\u5F53\u524D\u8FDE\u7EED ');
+		streak.createEl('strong', { text: String(stats.streak) });
+		streak.appendText(' \u5929');
+		
+		// --- Year boundaries (Jan 1 -> Dec 31) ---
+		const yearStart = new Date(year, 0, 1);
+		const yearEnd   = new Date(year, 11, 31);
 		const yearStartTime = yearStart.getTime();
 		const yearEndTime   = yearEnd.getTime();
-
-		// Monday of the week containing Jan 1
-		const startDow = yearStart.getDay(); // 0=Sun
+		
+		const startDow = yearStart.getDay();
 		const startMonday = new Date(year, 0, 1 - ((startDow + 6) % 7));
-
-		// Sunday of the week containing Dec 31
 		const endDow = yearEnd.getDay();
 		const endSunday = new Date(year, 11, 31 + ((7 - endDow) % 7 || 7));
-
-		// Total columns (weeks)
+		
 		const totalDays = Math.round((endSunday.getTime() - startMonday.getTime()) / 86400000) + 1;
 		const totalWeeks = Math.ceil(totalDays / 7);
-
-		// --- Heatmap grid ---
+		
+		// --- Heat area (flex column + horizontal scroll; fixed 13px cells) ---
 		const heat = card.createDiv({ cls: 'ad-ns__heat' });
-		heat.style.setProperty('--ad-w', String(totalWeeks));
-
+		
+		// 月份标签行：内容由 layoutHeatmap 按「可见周窗口 + 实际列间距」动态重建（此处只建容器）
+		heat.createDiv({ cls: 'ad-ns__months' });
 		const startMs = startMonday.getTime();
-
-		// Month labels: assign each week column to the month containing its Thursday
-		const monthsRow = heat.createDiv({ cls: 'ad-ns__months' });
-		const monthNames = ['1\u6708','2\u6708','3\u6708','4\u6708','5\u6708','6\u6708','7\u6708','8\u6708','9\u6708','10\u6708','11\u6708','12\u6708'];
+		// 缓存每周所属月份（取该周周四所在月，GitHub 同款口径），供 layoutHeatmap 重建月份标签
 		const weekMonths: number[] = [];
 		for (let w = 0; w < totalWeeks; w++) {
 			const thu = new Date(startMs + (w * 7 + 3) * 86400000);
 			weekMonths.push(thu.getMonth());
 		}
-		// Group consecutive weeks by month
-		const monthSpans: { month: number; span: number }[] = [];
-		let curM = weekMonths[0] ?? 0;
-		let curS = 1;
-		for (let w = 1; w < totalWeeks; w++) {
-			const m = weekMonths[w] ?? curM;
-			if (m === curM) { curS++; }
-			else { monthSpans.push({ month: curM, span: curS }); curM = m; curS = 1; }
-		}
-		monthSpans.push({ month: curM, span: curS });
-		for (const ms of monthSpans) {
-			const label = monthsRow.createSpan({ text: monthNames[ms.month] });
-			label.style.gridColumn = `span ${ms.span}`;
-		}
-
-		// Day-of-week labels
-		const dow = heat.createDiv({ cls: 'ad-ns__dow' });
-		['\u4E00', '\u4E8C', '\u4E09', '\u56DB', '\u4E94', '\u516D', '\u65E5'].forEach((t) => dow.createSpan({ text: t }));
-
-		// Cells
-		const cells = heat.createDiv({ cls: 'ad-ns__cells' });
-
+		this.adHmWeekMonths = weekMonths;
+		this.adHmYear = year;
+		this.adHmKey = ''; // DOM 已重建，强制重新布局
+		
+		// Grid: day-of-week column + cells (column flow, fixed 13px cells)
+		const grid = heat.createDiv({ cls: 'ad-ns__grid' });
+		const dow = grid.createDiv({ cls: 'ad-ns__dow' });
+		['', '\u4E00', '', '\u4E09', '', '\u4E94', ''].forEach((t) => dow.createSpan({ text: t }));
+		
+		const cells = grid.createDiv({ cls: 'ad-ns__cells' });
 		for (let w = 0; w < totalWeeks; w++) {
 			for (let r = 0; r < 7; r++) {
 				const cellDate = new Date(startMs + (w * 7 + r) * 86400000);
 				const cellTime = cellDate.getTime();
 				const cell = cells.createDiv({ cls: 'ad-ns__cell' });
-
-				// Outside the year → empty
+				
 				if (cellTime < yearStartTime || cellTime > yearEndTime) {
 					cell.addClass('ad-ns__cell--empty');
 					continue;
 				}
-
+				
 				const dateStr = fmtDate(cellDate);
 				const count   = noteCounts.get(dateStr) ?? 0;
 				const isFuture = cellTime > todayTime;
-
-				// Colour: only past/present dates with notes
+				
 				if (!isFuture && count > 0) {
 					if (count === 1)  cell.addClass('l1');
 					else if (count <= 3) cell.addClass('l2');
-					else                 cell.addClass('l3');
+					else if (count <= 6) cell.addClass('l3');
+					else                 cell.addClass('l4');
 				}
-
 				if (isFuture) cell.addClass('is-future');
-
-				// Tooltip
+			if (dateStr === todayKey) cell.addClass('is-today'); // 当天格子：边缘光晕
+				
 				const mm = String(cellDate.getMonth() + 1).padStart(2, '0');
 				const dd = String(cellDate.getDate()).padStart(2, '0');
 				cell.title = isFuture ? `${mm}-${dd} \u00B7 \u672A\u6765` : `${mm}-${dd} \u00B7 ${count} \u7BC7\u7B14\u8BB0`;
 			}
 		}
-
-		// Footer with numeric legend
+		
+		// Footer legend (less ... more)
 		const foot = card.createDiv({ cls: 'ad-ns__foot' });
-		foot.createSpan({ text: `${year} \u5168\u5E74` });
+		foot.createSpan({ cls: 'ad-ns__window', text: `${year} \u5168\u5E74` });
 		const legend = foot.createSpan({ cls: 'ad-ns__legend' });
-		[
-			{ cls: '',  label: '0' },
-			{ cls: 'l1', label: '1' },
-			{ cls: 'l2', label: '2-3' },
-			{ cls: 'l3', label: '4+' },
-		].forEach((lv) => {
-			const item = legend.createSpan({ cls: 'ad-ns__legend-item' });
-			item.createSpan({ cls: 'ad-ns__sw' + (lv.cls ? ' ' + lv.cls : '') });
-			item.createSpan({ cls: 'ad-ns__legend-text', text: lv.label });
+		legend.createSpan({ cls: 'ad-ns__lbl', text: '\u5C11' });
+		['', 'l1', 'l2', 'l3', 'l4'].forEach((lv) => {
+			legend.createSpan({ cls: 'ad-ns__sw' + (lv ? ' ' + lv : '') });
 		});
+		legend.createSpan({ cls: 'ad-ns__lbl', text: '\u591A' });
+
+		// 按卡片实际宽高摊开格子间距（格子尺寸恒为 HM_CELL，绝不缩放），并监听尺寸变化实时重排
+		this.layoutHeatmap(card);
+		if (this.adHmObsTarget !== heat) {
+			this.adHmObs?.disconnect();
+			this.adHmObs = new ResizeObserver(() => {
+				if (this.heatmapCard) this.layoutHeatmap(this.heatmapCard);
+			});
+			this.adHmObs.observe(heat);
+			this.adHmObsTarget = heat;
+		}
 	}
+
+	/**
+	 * 热力图自适应布局：**格子尺寸固定为 HM_CELL，只调间距**。
+	 * 1) 先按最小间距算出当前宽度最多能放几周；放不下全年就只显示最近 N 周（窄卡 2×1 用）；
+	 * 2) 再把剩余空白摊进列间距，把整行填满（宽卡 4×1 右侧不再留大片空白），间距上限 HM_GAP_MAX；
+	 * 3) 行间距同理按可用高度摊开，让热力区纵向也饱满；
+	 * 4) 月份标签按可见周窗口 + 实际间距重建，保证与格子列严格对齐。
+	 */
+	private layoutHeatmap(card: HTMLElement): void {
+		const heat = card.querySelector('.ad-ns__heat') as HTMLElement | null;
+		const cells = card.querySelector('.ad-ns__cells') as HTMLElement | null;
+		const dow = card.querySelector('.ad-ns__dow') as HTMLElement | null;
+		const monthsRow = card.querySelector('.ad-ns__months') as HTMLElement | null;
+		if (!heat || !cells || !dow || !monthsRow) return;
+		const total = this.adHmWeekMonths.length;
+		if (total === 0) return;
+
+		const availW = Math.max(HM_CELL * HM_MIN_WEEKS, heat.clientWidth - HM_DOW_W);
+		// 能完整放下几周（含最小间距）
+		let weeks = Math.floor((availW + HM_GAP_MIN) / (HM_CELL + HM_GAP_MIN));
+		weeks = Math.max(HM_MIN_WEEKS, Math.min(total, weeks));
+		// 把剩余宽度摊进列间距
+		let cgap = weeks > 1 ? (availW - weeks * HM_CELL) / (weeks - 1) : HM_GAP_MIN;
+		cgap = Math.max(HM_GAP_MIN, Math.min(HM_GAP_MAX, Math.round(cgap * 10) / 10));
+
+		// 行间距：可用高度 = 热力区高度 − 月份标签 − 内部 flex 间距/内边距
+		const availH = heat.clientHeight - monthsRow.offsetHeight - 10;
+		let rgap = (availH - 7 * HM_CELL) / 6;
+		rgap = Math.max(HM_GAP_MIN, Math.min(HM_GAP_MAX, Math.round(rgap * 10) / 10));
+
+		const key = `${weeks}|${cgap}|${rgap}`;
+		if (key === this.adHmKey) return; // 与上次一致：跳过，避免 ResizeObserver 自激循环
+		this.adHmKey = key;
+
+		cells.style.setProperty('--hm-cgap', cgap + 'px');
+		cells.style.setProperty('--hm-rgap', rgap + 'px');
+		dow.style.setProperty('--hm-rgap', rgap + 'px');
+
+		// 月份标签行必须与格子列左对齐：整体左移「星期列实际宽 + 网格列间距」。
+		// 读取真实渲染尺寸（不写死），保证任意缩放/主题/屏幕尺寸下都精确对齐。
+		const gridEl = cells.parentElement as HTMLElement | null;
+		const gridGap = gridEl ? (parseFloat(getComputedStyle(gridEl).columnGap) || 4) : 4;
+		monthsRow.style.paddingLeft = (dow.offsetWidth + gridGap) + 'px';
+
+		// 只显示最近 weeks 周：隐藏最早的整列（每列 7 格，auto-flow column 会自动回填）
+		const hiddenCells = (total - weeks) * 7;
+		const kids = cells.children;
+		for (let i = 0; i < kids.length; i++) {
+			(kids[i] as HTMLElement).style.display = i < hiddenCells ? 'none' : '';
+		}
+
+		// 月份标签：按可见周窗口重建，宽度 = 该月周数 × (格子 + 间距) − 间距
+		const monthNames = ['1\u6708','2\u6708','3\u6708','4\u6708','5\u6708','6\u6708','7\u6708','8\u6708','9\u6708','10\u6708','11\u6708','12\u6708'];
+		const visible = this.adHmWeekMonths.slice(total - weeks);
+		monthsRow.empty();
+		const unit = HM_CELL + cgap;
+		let curM = visible[0] ?? 0;
+		let curS = 1;
+		const flush = (m: number, span: number): void => {
+			const label = monthsRow.createSpan({ text: monthNames[m] ?? '' });
+			label.style.minWidth = (span * unit) + 'px';
+		};
+		for (let w = 1; w < visible.length; w++) {
+			const m = visible[w] ?? curM;
+			if (m === curM) { curS++; continue; }
+			flush(curM, curS);
+			curM = m; curS = 1;
+		}
+		flush(curM, curS);
+
+		// 底部窗口文案随可见范围变化
+		const win = card.querySelector('.ad-ns__window') as HTMLElement | null;
+		if (win) win.setText(weeks >= total ? `${this.adHmYear} \u5168\u5E74` : `\u8FD1 ${weeks} \u5468`);
+	}
+
 
 	/* ---- Countdown ---- */
 	private renderCountdown(board: HTMLElement): void {
-		// Real date computation — replaces static MOCK_DATA countdown values
+		const cfg = this.plugin.settings.countdown;
+		const target = this.parseCountdownDate(cfg.targetDate);
 		const now = new Date();
-		const year = now.getFullYear();
-		const yearEnd = new Date(year, 11, 31, 23, 59, 59);
-		const yearStart = new Date(year, 0, 1);
-		const msPerDay = 86400000;
-		const daysLeft = Math.max(0, Math.ceil((yearEnd.getTime() - now.getTime()) / msPerDay));
-		const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / msPerDay) + 1;
-		const isLeap = ((year % 4 === 0 && year % 100 !== 0) || year % 400 === 0);
-		const totalDays = isLeap ? 366 : 365;
-		const weeksLeft = Math.ceil(daysLeft / 7);
-		const percentDone = Math.min(100, Math.round((dayOfYear / totalDays) * 1000) / 10);
-		const card = board.createDiv({ cls: 'ad-card ad-b-countdown' });
-		this.cardHead(card, '\u25C8', `\u5012\u8BA1\u65F6 \u00B7 ${year}`, 'days left');
+		const today = this.startOfDay(now);
+		const targetDay = this.startOfDay(target);
+		// 以「天」为单位的差值：>0 表示未来、0 表示当天到达、<0 表示已过期
+		const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
+
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-countdown');
+		this.cardHead(card, '\u25C7', '\u5012\u8BA1\u65F6', 'Days Left');
+
 		const cd = card.createDiv({ cls: 'ad-cd' });
+		// 副标题：距离 {事件名}
+		cd.createDiv({ cls: 'ad-cd__sub', text: `\u8DDD\u79BB ${cfg.eventName}` });
 
-		const big = cd.createDiv({ cls: 'ad-cd__big' });
-		big.createSpan({ text: String(daysLeft) });
-		big.createSpan({ cls: 'ad-unit', text: 'DAYS' });
+		if (diffDays > 0) {
+			// 进度：以「事件日期前一年」为起点、事件日期为终点（默认即日历年度进度），随事件日期动态变化
+			const periodStart = new Date(target.getFullYear() - 1, target.getMonth(), target.getDate());
+			const total = Math.max(1, target.getTime() - periodStart.getTime());
+			const elapsed = now.getTime() - periodStart.getTime();
+			const pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
 
-		const row = cd.createDiv({ cls: 'ad-cd__row' });
-		row.createSpan({ text: '\u5269\u4F59\u5468\u6570 ' }).createEl('strong', { text: String(weeksLeft) });
-		row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
-		row.createSpan({ text: '\u5DF2\u5B8C\u6210 ' }).createEl('strong', { text: percentDone.toFixed(1) + '%' });
+			const big = cd.createDiv({ cls: 'ad-cd__big' });
+			big.createSpan({ text: String(diffDays) });
+			big.createSpan({ cls: 'ad-unit', text: 'DAYS' });
 
-		const barWrap = cd.createDiv({ cls: 'ad-cd__bar' });
-		const fill = barWrap.createDiv({ cls: 'ad-fill' });
-		fill.style.width = percentDone + '%';
+			// 底部组：小字行紧贴进度条（保留少量间距），整体下移到底部
+			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			const row = bottom.createDiv({ cls: 'ad-cd__row' });
+			row.createSpan({ text: '\u5269\u4F59\u5468\u6570 ' }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
+			row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
+			row.createSpan({ text: '\u5DF2\u5B8C\u6210 ' }).createEl('strong', { text: pct.toFixed(1) + '%' });
+
+			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+			const fill = barWrap.createDiv({ cls: 'ad-fill' });
+			fill.style.width = pct + '%';
+		} else if (diffDays === 0) {
+			// 当天到达目标日期：隐藏数字与 DAYS，居中显示「此时此刻」
+			cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDF89 \u6B64\u65F6\u6B64\u523B' });
+			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+			const fill = barWrap.createDiv({ cls: 'ad-fill' });
+			fill.style.width = '100%';
+		} else {
+			// 已过期：居中显示「旅程已然到达」
+			cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDFC1 \u65C5\u7A0B\u5DF2\u7136\u5230\u8FBE' });
+			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+			const fill = barWrap.createDiv({ cls: 'ad-fill' });
+			fill.style.width = '100%';
+		}
+	}
+
+	/** 解析 ISO yyyy-mm-dd 为目标 Date（当地 0 点）；非法或留空回退到「下一年 1 月 1 日」 */
+	private parseCountdownDate(s: string): Date {
+		const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((s ?? '').trim());
+		if (m) {
+			const y = parseInt(m[1]!, 10);
+			const mo = parseInt(m[2]!, 10) - 1;
+			const d = parseInt(m[3]!, 10);
+			const dt = new Date(y, mo, d);
+			if (!Number.isNaN(dt.getTime()) && dt.getFullYear() === y && dt.getDate() === d) return dt;
+		}
+		return new Date(new Date().getFullYear() + 1, 0, 1);
+	}
+
+	/** 取某日当地 0 点，用于按「天」比较 */
+	private startOfDay(d: Date): Date {
+		return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 	}
 
 	/* ---- Shared card header ---- */

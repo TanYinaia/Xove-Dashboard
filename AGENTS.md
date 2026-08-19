@@ -4,14 +4,13 @@
 
 This is a TypeScript-based Obsidian community plugin project, not an Obsidian Vault.
 
-- **Plugin ID**: `agent-dashboard`
+- **Plugin ID**: `dashboard`
 - **Display Name**: `Dashboard`
 - **Version**: `0.2.7` (source of truth: `manifest.json`)
 - **Min Obsidian Version**: `1.8.0`
 - **Runtime dependencies**: none (plain TypeScript + Obsidian API + native CSS)
-- **Editions**: Personal (`src/`, the single source of truth, on `personal` branch) and
-  Generic (derived into `generic/` by `scripts/build-generic.py`; same id/name `Dashboard`,
-  strips personal-only features such as Opportunity). See `PROJECT_CONTEXT.md` "个人版与通用版".
+- **Single edition**: `src/` is the one and only source of truth (on the `personal` branch).
+  There is no separate "generic" edition.
 
 For the full feature list, data model, and version history, read `PROJECT_CONTEXT.md`.
 For the file inventory and the list of obsolete files, read `项目整理报告.md`.
@@ -36,12 +35,11 @@ npm run test         # Unit tests (node --test, data layer)
 > builds `main.js`; `node --jitless node_modules/typescript/bin/tsc -noEmit -skipLibCheck`
 > type-checks. `npm` is broken (missing npm-cli.js), so invoke the node binary directly.
 > Caveat: `--jitless` disables WebAssembly, so Node's TS type-stripping can't load `.ts`
-> test files — unit tests currently can't run. Python scripts (`scripts/build-generic.py`)
-> run fine on HarmonyOS.
+> test files — unit tests currently can't run.
 
 ## Obsidian Plugin Directory
 
-The final plugin directory (e.g., `.obsidian/plugins/agent-dashboard/`) requires only:
+The final plugin directory (e.g., `.obsidian/plugins/dashboard/`) requires only:
 - `main.js`
 - `manifest.json`
 - `styles.css`
@@ -52,14 +50,14 @@ Obsidian does not hot-reload plugin JS/CSS. After copying the three files, run
 ## Source Layout
 
 ```
-src/                                   # Personal edition — the single source of truth
+src/                                   # the single source of truth
 ├── main.ts                  # plugin lifecycle: view / ribbon / command / settings tab
 ├── settings.ts              # settings interface, defaults, settings UI
 ├── constants.ts             # shared constants (status, priority, NPDP phases, …)
 ├── icons.ts                 # inline SVG icon constants (currentColor, theme-adaptive)
 ├── data/
 │   ├── taskParser.ts        # task & project frontmatter parsing, daily-node read/write
-│   ├── opportunityParser.ts # opportunity data layer (personal-only; stripped in Generic)
+│   ├── opportunityParser.ts # opportunity data layer
 │   ├── taskParseCore.ts     # parsing primitives
 │   ├── taskLogic.ts         # task/project derivation & calculations
 │   ├── taskStore.ts         # in-memory store + debounced vault sync
@@ -69,13 +67,11 @@ src/                                   # Personal edition — the single source 
 └── views/
     ├── DashboardView.ts     # home page (the single ItemView)
     ├── ProjectBoard.ts      # project overview (4 sub-views)
-    ├── OpportunityBoard.ts  # opportunity board/list (personal-only)
+    ├── OpportunityBoard.ts  # opportunity board/list
     ├── TaskModal.ts, TaskEditModal.ts, ProjectModal.ts,
     └── OpportunityModal.ts, BannerModal.ts
 scripts/
-└── build-generic.py         # derive Generic edition from src/ -> generic/ (overwrite, no delete)
-generic/                               # Generic edition — DERIVED, do not hand-edit
-├── src/ (opportunity stripped)  main.js (build on Windows)  styles.css  manifest.json
+└── verify.mjs              # one-shot local check: typecheck + lint + build + tests
 ```
 
 ## Development Guidelines
@@ -138,11 +134,8 @@ Before performing the following actions, you must explain and wait for confirmat
 - "发布版本 X.Y.Z" from the user authorizes both the version bump and a local commit;
   stage the release files explicitly (`main.js` is gitignored, exclude `.workbuddy/` and
   dev tools)
-- Branches: a single `personal` branch is the only git branch. The Generic edition is NOT a
-  separate branch — it is derived from `src/` into the `generic/` folder by
-  `scripts/build-generic.py` (strips personal-only features such as Opportunity; id/name both
-  `Dashboard`). Never edit files under `generic/` by hand; re-run the script after changing
-  `src/`. Do not create a `master`/`generic` branch (historical drift risk).
+- Branches: a single `personal` branch is the only git branch. There is no `master`/`generic`
+  branch and no separate edition — `src/` is the only source of truth.
 - Never run `git checkout .` or `git stash` on the whole tree — the working tree usually
   carries a large amount of uncommitted work
 

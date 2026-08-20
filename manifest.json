@@ -5,5 +5,5 @@
 	"minAppVersion": "1.8.0",
 	"description": "Turn your Obsidian home into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
 	"author": "xw",
-	"isDesktopOnly": false
+	"isDesktopOnly": true
 }

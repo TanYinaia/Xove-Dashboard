@@ -4,7 +4,7 @@ import { DashboardView, VIEW_TYPE } from './views/DashboardView';
 import type { BoardStage } from './data/opportunityParser';
 
 export default class Dashboard extends Plugin {
-	settings!: DashboardSettings;
+	declare settings: DashboardSettings;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -49,6 +49,9 @@ export default class Dashboard extends Plugin {
 		this.normalizeHomeModules(storedLayoutVersion);
 		// 迁移看板阶段结构：旧数据用 kind(终态)，新结构用 hasInput(是否启用输入框)。
 		this.normalizeBoardStages();
+		// 迁移工作日志设置：老 data.json 缺失 workLog 字段时由 DEFAULT_SETTINGS 补齐；
+		// 此处再对个别字段做类型/空值兜底，保证运行期不报空。
+		this.normalizeWorkLog();
 	}
 
 	/**
@@ -139,6 +142,27 @@ export default class Dashboard extends Plugin {
 			}
 		}
 
+		if (changed) void this.saveSettings();
+	}
+
+	/**
+	 * 归一化工作日志设置（向后兼容老 data.json）：
+	 * Object.assign 已用默认值补齐缺失的 workLog 字段，这里再加一层类型/空值兜底，
+	 * 保证 enabled 为布尔、storagePath/namingPattern 非空、templateFile 为字符串。
+	 */
+	private normalizeWorkLog(): void {
+		const def = DEFAULT_SETTINGS.workLog;
+		const wl = this.settings.workLog;
+		let changed = false;
+		if (typeof wl !== 'object' || wl === null) {
+			this.settings.workLog = { ...def };
+			changed = true;
+		} else {
+			if (typeof wl.enabled !== 'boolean') { wl.enabled = def.enabled; changed = true; }
+			if (typeof wl.storagePath !== 'string' || !wl.storagePath) { wl.storagePath = def.storagePath; changed = true; }
+			if (typeof wl.namingPattern !== 'string' || !wl.namingPattern) { wl.namingPattern = def.namingPattern; changed = true; }
+			if (typeof wl.templateFile !== 'string') { wl.templateFile = ''; changed = true; }
+		}
 		if (changed) void this.saveSettings();
 	}
 

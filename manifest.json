@@ -1,7 +1,7 @@
 {
 	"id": "dashboard",
 	"name": "Dashboard",
-	"version": "0.2.9",
+	"version": "0.3.0",
 	"minAppVersion": "1.8.0",
 	"description": "Turn your Obsidian home into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
 	"author": "xw",

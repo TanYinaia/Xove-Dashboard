@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-dashboard",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "obsidian": "^1.8.0",
+    "typescript": "^5.6.0"
+  }
+}

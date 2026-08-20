@@ -19,6 +19,18 @@ export interface DiarySettings {
 	templateFile: string;
 }
 
+/** 工作日志：以「每日笔记」形式存放带时间段的日程条目 */
+export interface WorkLogSettings {
+	/** 是否在顶部导航显示入口 */
+	enabled: boolean;
+	/** 每日笔记存放文件夹 */
+	storagePath: string;
+	/** 文件命名规则（须含日期占位符） */
+	namingPattern: string;
+	/** 模板文件（可空） */
+	templateFile: string;
+}
+
 /** 倒计时卡片自定义事件：事件名称与目标日期 */
 export interface CountdownSettings {
 	/** 事件名称，如「高考」「新年」；文案显示「距离 {eventName} 还有」 */
@@ -51,6 +63,8 @@ export interface DashboardSettings {
 	boardStages: BoardStage[];
 	opportunityFile: string;
 	currentOppView: string;
+	/** 工作日志：月历视图 + 每日笔记存储 */
+	workLog: WorkLogSettings;
 	/** 首页模块显隐与排序：每个模块一个开关 + 顺序权重 + 比例；重置见「恢复默认布局」 */
 	homeModules?: HomeModuleConfig[];
 	/** 首页布局数据版本；低于 HOME_LAYOUT_VERSION 时由 main.ts 迁移并重置默认比例 */
@@ -113,6 +127,12 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	],
 	opportunityFile: '看板.md',
 	currentOppView: 'kanban',
+	workLog: {
+		enabled: true,
+		storagePath: 'Daily/工作日志',
+		namingPattern: 'YYYY-MM-DD',
+		templateFile: '',
+	},
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
 	countdown: { eventName: '2027', targetDate: '2027-01-01' },
 	homeModules: [
@@ -370,6 +390,54 @@ export class DashboardSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.diary.templateFile)
 				.onChange(async (v) => {
 					this.plugin.settings.diary.templateFile = v.trim();
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		/* ---- 工作日志 ---- */
+		new Setting(containerEl).setName('工作日志').setHeading();
+
+		new Setting(containerEl)
+			.setName('启用工作日志')
+			.setDesc('关闭后，顶部导航的「工作日志」入口与对应页面都会被隐藏；下方设置项同步折叠')
+			.addToggle((t) => t
+				.setValue(this.plugin.settings.workLog.enabled)
+				.onChange(async (v) => {
+					this.plugin.settings.workLog.enabled = v;
+					await this.plugin.saveSettings();
+					this.plugin.refreshNav();
+					this.display();
+				}),
+			);
+
+		// 工作日志相关设置项容器：关闭时整体折叠隐藏（联动）
+		const wlOptions = containerEl.createDiv({ cls: 'dashboard-worklog-options' });
+		if (!this.plugin.settings.workLog.enabled) wlOptions.hide();
+
+		addFolderDropdown(
+			new Setting(wlOptions).setName('存储路径').setDesc('每日工作日志笔记的存放文件夹'),
+			this.app,
+			this.plugin.settings.workLog.storagePath,
+			async (v) => { this.plugin.settings.workLog.storagePath = v; await this.plugin.saveSettings(); },
+		);
+
+		new Setting(wlOptions)
+			.setName('文件命名规则')
+			.setDesc('支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午。须包含日期占位符（如 YYYY-MM-DD），否则整月会指向同一文件')
+			.addText((t) => t
+				.setPlaceholder('YYYY-MM-DD')
+				.setValue(this.plugin.settings.workLog.namingPattern)
+				.onChange(async (v) => { this.plugin.settings.workLog.namingPattern = v; await this.plugin.saveSettings(); }),
+			);
+
+		new Setting(wlOptions)
+			.setName('模板文件')
+			.setDesc('输入模板路径，不使用模板则为空')
+			.addText((t) => t
+				.setPlaceholder('Templates/工作日志.md')
+				.setValue(this.plugin.settings.workLog.templateFile)
+				.onChange(async (v) => {
+					this.plugin.settings.workLog.templateFile = v.trim();
 					await this.plugin.saveSettings();
 				}),
 			);

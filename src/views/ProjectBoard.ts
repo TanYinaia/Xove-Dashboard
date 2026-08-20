@@ -26,7 +26,7 @@ export interface ProjectHost {
 		saveSettings(): Promise<void>;
 	};
 	boardEl: HTMLElement | null;
-	currentPage: 'home' | 'project' | 'opportunity';
+	currentPage: 'home' | 'project' | 'opportunity' | 'worklog';
 	exitEditMode(): void;
 	selectedProject: string | null;
 	showToast(message: string, kind?: 'success' | 'error'): void;
@@ -65,7 +65,7 @@ export class ProjectBoard {
 	private get plugin() { return this.host.plugin; }
 	private get boardEl() { return this.host.boardEl; }
 	private get currentPage() { return this.host.currentPage; }
-	private set currentPage(v: 'home' | 'project' | 'opportunity') { this.host.currentPage = v; }
+	private set currentPage(v: 'home' | 'project' | 'opportunity' | 'worklog') { this.host.currentPage = v; }
 	private get selectedProject() { return this.host.selectedProject; }
 	private set selectedProject(v: string | null) { this.host.selectedProject = v; }
 	private get showToast() { return this.host.showToast.bind(this.host); }

@@ -9,14 +9,16 @@ import { TaskStore } from '../data/taskStore';
 import { writeFrontmatter as fmWriteFrontmatter, yamlScalar } from '../data/frontmatterWriter';
 import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
+import { applyNamingPattern } from '../data/naming';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
+import { WorkLogBoard } from './WorkLogBoard';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
 
 import type Dashboard from '../main';
 import {
 	ICON_home, ICON_newDiary, ICON_newTask, ICON_newProject,
-	ICON_allProjects, ICON_opportunity, injectSvg,
+	ICON_allProjects, ICON_opportunity, ICON_calendar, injectSvg,
 } from '../icons';
 
 export const VIEW_TYPE = 'dashboard-view';
@@ -254,14 +256,15 @@ export class DashboardView extends ItemView {
 	// Project overview state (renderer extracted into ProjectBoard)
 	public selectedProject: string | null = null;
 
-	// Which top-level page is currently shown (home / project overview / opportunity board)
-	public currentPage: 'home' | 'project' | 'opportunity' = 'home';
+	// Which top-level page is currently shown (home / project overview / opportunity board / work log)
+	public currentPage: 'home' | 'project' | 'opportunity' | 'worklog' = 'home';
 
 	public taskStore: TaskStore;
 	private dashboardStore: DashboardStore;
 	private storeUnsub: (() => void) | null = null;
 	private oppBoard: OpportunityBoard;
 	private projectBoard: ProjectBoard;
+	private workLogBoard: WorkLogBoard;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Dashboard) {
 		super(leaf);
@@ -271,6 +274,7 @@ export class DashboardView extends ItemView {
 		this.dashboardStore = new DashboardStore(this.taskStore);
 		this.oppBoard = new OpportunityBoard(this);
 		this.projectBoard = new ProjectBoard(this);
+		this.workLogBoard = new WorkLogBoard(this);
 	}
 
 	/** Theme actually in effect for the dashboard right now. */
@@ -329,6 +333,8 @@ export class DashboardView extends ItemView {
 				void this.projectBoard.refresh();
 			} else if (this.currentPage === 'opportunity') {
 				this.oppBoard.scheduleRefresh();
+			} else if (this.currentPage === 'worklog') {
+				void this.workLogBoard.refresh();
 			} else {
 				this.scheduleHeatmapRefresh();
 				this.dashboardStore.requestRefresh();
@@ -345,10 +351,16 @@ export class DashboardView extends ItemView {
 				if (file instanceof TFile && file.name.startsWith('project-')) return;
 				void this.updatePulse();
 				void this.projectBoard.refresh();
-				} else if (this.currentPage === 'opportunity' && this.plugin.settings.boardEnabled) {
-					if (file instanceof TFile && file.path === this.plugin.settings.opportunityFile) {
+			} else if (this.currentPage === 'opportunity' && this.plugin.settings.boardEnabled) {
+				if (file instanceof TFile && file.path === this.plugin.settings.opportunityFile) {
 					void this.updatePulse();
 					this.oppBoard.scheduleRefresh();
+				}
+			} else if (this.currentPage === 'worklog') {
+				// 仅当改动的是工作日志存储路径下的笔记时才刷新，避免无关编辑触发整月重扫
+				const wl = this.plugin.settings.workLog;
+				if (file instanceof TFile && file.path.startsWith(wl.storagePath) && file.path.endsWith('.md')) {
+					void this.workLogBoard.refresh();
 				}
 			} else {
 				// Home: ignore edits to unrelated files. Only task files (markdown under
@@ -682,6 +694,9 @@ export class DashboardView extends ItemView {
 		if (this.plugin.settings.boardEnabled) {
 			navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || '\u770B\u677F', action: 'opportunity', svg: ICON_opportunity });
 		}
+		if (this.plugin.settings.workLog.enabled) {
+			navItems.push({ glyph: '\uD83D\uDCC5', label: '\u5DE5\u4F5C\u65E5\u5FD7', action: 'worklog', svg: ICON_calendar });
+		}
 		// 动作组：建什么（新建日记 / 新建任务 / 新建项目）
 		const actionItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
 			{ glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
@@ -702,8 +717,9 @@ export class DashboardView extends ItemView {
 					if (it.action === 'diary') void this.createDiary();
 					if (it.action === 'task') void this.openTaskModal(this.selectedProject ?? undefined);
 					if (it.action === 'project') void this.createProjectFile();
-					if (it.action === 'all') void this.projectBoard.show();
-					if (it.action === 'opportunity') void this.oppBoard.show();
+				if (it.action === 'all') void this.projectBoard.show();
+				if (it.action === 'opportunity') void this.oppBoard.show();
+				if (it.action === 'worklog') void this.showWorklog();
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
 					this.showToast('打开失败：' + msg, 'error');
@@ -764,7 +780,7 @@ export class DashboardView extends ItemView {
 		}
 	}
 
-	private async openFileByPath(path: string): Promise<void> {
+	async openFileByPath(path: string): Promise<void> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) {
 			const leaf = this.app.workspace.getLeaf(true);
@@ -874,7 +890,7 @@ export class DashboardView extends ItemView {
 
 	/* ---- Create note in vault ---- */
 	/** Ensure a folder exists, creating parent folders recursively if needed. */
-	private async ensureFolder(path: string): Promise<void> {
+	async ensureFolder(path: string): Promise<void> {
 		if (!path || path === '/') return;
 		if (this.app.vault.getAbstractFileByPath(path)) return;
 		// createFolder only creates a single level, so build parents first.
@@ -897,7 +913,7 @@ export class DashboardView extends ItemView {
 		await this.ensureFolder(folderPath);
 
 		// Generate filename
-		const filename = this.applyNamingPattern(qc.namingPattern, now);
+		const filename = applyNamingPattern(qc.namingPattern, now);
 		const filepath = `${folderPath}/${filename}.md`;
 
 		// Build content: template or plain
@@ -922,7 +938,7 @@ export class DashboardView extends ItemView {
 		// Ensure folder
 		await this.ensureFolder(dc.storagePath);
 
-		const filename = this.applyNamingPattern(dc.namingPattern, now);
+		const filename = applyNamingPattern(dc.namingPattern, now);
 		const filepath = `${dc.storagePath}/${filename}.md`;
 
 		// Check if already exists
@@ -975,35 +991,6 @@ export class DashboardView extends ItemView {
 		const f = file.trim();
 		if (!f) return '';
 		return f.endsWith('.md') ? f : `${f}.md`;
-	}
-
-	private applyNamingPattern(pattern: string, d: Date): string {
-		const pad = (n: number) => String(n).padStart(2, '0');
-		const WK_SHORT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-		const WK_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-		const meridiem = d.getHours() < 12 ? '上午' : '下午';
-		const h12 = d.getHours() % 12 || 12;
-		// 支持的命名占位符（一次性正则替换，避免 DD 与 ddd/dddd 互相串扰）。
-		// YYYY 年 / MM 月(2位) / MMM 月缩写(如 8月) / DD 日(2位)
-		// ddd 星期短(周日) / dddd 星期全(星期日)
-		// HH 24小时 / hh 12小时 / mm 分 / ss|SS 秒 / A 上午·下午
-		const map: Record<string, string> = {
-			YYYY: String(d.getFullYear()),
-			MMM: `${d.getMonth() + 1}月`,
-			MM: pad(d.getMonth() + 1),
-			dddd: WK_FULL[d.getDay()]!,
-			ddd: WK_SHORT[d.getDay()]!,
-			DD: pad(d.getDate()),
-			HH: pad(d.getHours()),
-			hh: pad(h12),
-			mm: pad(d.getMinutes()),
-			ss: pad(d.getSeconds()),
-			SS: pad(d.getSeconds()),
-			A: meridiem,
-		};
-		const name = pattern.replace(/(dddd|ddd|YYYY|MMM|MM|DD|HH|hh|mm|ss|SS|A)/g, (m) => map[m] ?? m);
-		// Remove characters not allowed in filenames (Windows/Mac/Linux)
-		return name.replace(/[*"/<>:|?\\]/g, '-');
 	}
 
 	/* ============================================================
@@ -1149,6 +1136,17 @@ export class DashboardView extends ItemView {
 		this.currentPage = 'home';
 		// 按注册表渲染全部启用模块（顺序/显隐由 settings.homeModules 决定）
 		await this.renderEnabledModules(this.boardEl);
+	}
+
+	/** 进入工作日志页（第四页） */
+	private async showWorklog(): Promise<void> {
+		if (!this.boardEl) return;
+		this.exitEditMode();
+		this.boardEl.empty();
+		this.boardEl.addClass('wl-board');
+		this.boardEl.removeClass('ad-board', 'po-board', 'op-board');
+		this.currentPage = 'worklog';
+		await this.workLogBoard.show();
 	}
 
 	/** Delete task file from vault */
@@ -1598,9 +1596,18 @@ export class DashboardView extends ItemView {
 			void this.showDashboard();
 			return;
 		}
+		// 2.5) 工作日志被关闭且当前正停在工作日志页 → 切回主页
+		if (!this.plugin.settings.workLog.enabled && this.currentPage === 'worklog') {
+			void this.showDashboard();
+			return;
+		}
 		// 3) 看板仍开启且当前正停在看板页 → 重刷看板（阶段名/颜色/输入框配置变化即时生效）
 		if (this.currentPage === 'opportunity') {
 			void this.oppBoard.show();
+		}
+		// 3.5) 工作日志仍开启且当前正停在工作日志页 → 重刷（设置变化即时生效）
+		if (this.currentPage === 'worklog') {
+			void this.workLogBoard.show();
 		}
 	}
 
@@ -2360,6 +2367,8 @@ export class DashboardView extends ItemView {
 			void this.projectBoard.refresh();
 		} else if (this.currentPage === 'opportunity') {
 			this.oppBoard.scheduleRefresh();
+		} else if (this.currentPage === 'worklog') {
+			void this.workLogBoard.refresh();
 		} else {
 			void this.dashboardStore.refresh();
 		}

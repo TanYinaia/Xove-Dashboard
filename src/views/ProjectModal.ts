@@ -1,6 +1,6 @@
 import { App, Modal } from 'obsidian';
 import { ProjectType, PROJECT_TYPE_LIST } from '../data/taskParser';
-import { UI_TEXT } from '../constants';
+import { UI_TEXT, MODAL_TEXT } from '../constants';
 
 export interface ProjectFormData {
 	name: string;
@@ -52,12 +52,12 @@ export class ProjectModal extends Modal {
 		const { contentEl } = this;
 		const ed = this.opts.editData;
 		contentEl.addClass('ad-task-modal');
-		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? '编辑项目' : '新建项目' });
+		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? MODAL_TEXT.projectEdit : MODAL_TEXT.projectNew });
 
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目名称 *' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectName });
 		const nameInput = contentEl.createEl('input', {
 			cls: 'ad-modal-input ad-input-name',
-			attr: { type: 'text', placeholder: '输入项目名称' },
+			attr: { type: 'text', placeholder: MODAL_TEXT.projectNamePlaceholder },
 		});
 		if (ed) {
 			(nameInput).value = ed.name;
@@ -65,11 +65,13 @@ export class ProjectModal extends Modal {
 		}
 
 		// Project type selector (阶段项目 / 非阶段项目)
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目类型' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectType });
 		const typeWrap = contentEl.createDiv({ cls: 'ad-modal-row' });
 		const typeSelect = typeWrap.createEl('select', { cls: 'ad-modal-input' });
+		const typeLabelOf = (v: ProjectType): string =>
+			v === 'stage' ? MODAL_TEXT.projectTypeStage : MODAL_TEXT.projectTypeNoStage;
 		for (const opt of PROJECT_TYPE_LIST) {
-			typeSelect.createEl('option', { value: opt.value, text: opt.label });
+			typeSelect.createEl('option', { value: opt.value, text: typeLabelOf(opt.value) });
 		}
 		typeSelect.value = this.selectedType;
 		typeSelect.addEventListener('change', () => {
@@ -78,7 +80,7 @@ export class ProjectModal extends Modal {
 			stageField.style.display = this.selectedType === 'stage' ? '' : 'none';
 		});
 
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目颜色（用于甘特图）' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectColor });
 		const colorWrap = contentEl.createDiv({ cls: 'ad-color-group' });
 		for (const c of COLORS) {
 			const swatch = colorWrap.createEl('button', {
@@ -96,26 +98,26 @@ export class ProjectModal extends Modal {
 		const row = contentEl.createDiv({ cls: 'ad-modal-row' });
 
 		const startCol = row.createDiv({ cls: 'ad-modal-col' });
-		startCol.createEl('label', { cls: 'ad-modal-label', text: '开始日期 *' });
+		startCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.startDate });
 		const startInput = startCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
 		(startInput).value = ed ? (ed.startDate || getToday()) : getToday();
 
 		const endCol = row.createDiv({ cls: 'ad-modal-col' });
-		endCol.createEl('label', { cls: 'ad-modal-label', text: '结束日期' });
+		endCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.endDate });
 		const endInput = endCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
 		if (ed) (endInput).value = ed.endDate || '';
 
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目描述' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectDesc });
 		const descArea = contentEl.createEl('textarea', {
 			cls: 'ad-modal-input',
-			attr: { rows: '3', placeholder: '简要描述项目目标和范围…' },
+			attr: { rows: '3', placeholder: MODAL_TEXT.projectDescPlaceholder },
 		});
 		if (ed) (descArea).value = ed.description;
 
 		// Stage dropdown (hidden for 非阶段项目)
-		const stages = this.opts.stages || ['立项', '规划', '开发', '测试', '上线'];
+		const stages = this.opts.stages || MODAL_TEXT.stagesDefault;
 		const stageField = contentEl.createDiv({ cls: 'ad-modal-field' });
-		stageField.createEl('label', { cls: 'ad-modal-label', text: '项目阶段' });
+		stageField.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectStage });
 		const stageWrap = stageField.createDiv({ cls: 'ad-modal-row' });
 		const stageSelect = stageWrap.createEl('select', { cls: 'ad-modal-input' });
 		stages.forEach((label, i) => {
@@ -135,7 +137,7 @@ export class ProjectModal extends Modal {
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
 		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
-		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : '创建项目' })
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : MODAL_TEXT.createProject })
 			.addEventListener('click', () => {
 				const name = String((nameInput).value || '').trim();
 				if (!name) { (nameInput).focus(); return; }

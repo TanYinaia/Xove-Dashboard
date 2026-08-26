@@ -24,3 +24,20 @@ data.json
 
 # agent tooling (not project source)
 .agents/
+
+# dev artifacts / one-off exports (keep out of the published repo)
+.workbuddy/
+prototype/
+tools/
+参考项目/
+插件图标/
+dashboard v0.2.9/
+*.zip
+
+# design spec docs (local only)
+i18n-language-switch-spec.md
+日历视图设计方案.md
+日记视图设计方案.md
+
+# legacy full-folder backups
+agent-dashboard 0.2.6/

@@ -119,7 +119,7 @@ function coerceBool(v: unknown): boolean {
 	return v === true || v === 'true' || v === '是' || v === 'yes' || v === '1';
 }
 
-function fromFmObject(raw: Record<string, unknown>, fallbackId: string): BoardItem {
+function fromFmObject(raw: Record<string, unknown>, fallbackId: string, configuredLabels: string[] = []): BoardItem {
 	// 旧键别名（兼容历史「机会点」数据）
 	const title = typeof raw['标题'] === 'string' ? (raw['标题'] as string)
 		: (typeof raw['机会点名称'] === 'string' ? (raw['机会点名称'] as string) : '');
@@ -146,7 +146,13 @@ function fromFmObject(raw: Record<string, unknown>, fallbackId: string): BoardIt
 	}
 
 	const rawStatus = typeof raw['状态'] === 'string' ? (raw['状态'] as string) : '';
-	const status = rawStatus ? migrateStatus(rawStatus) : '收集箱';
+	// 旧「机会点」条目用旧字段判断（机会点名称/沟通结论/调研结论/上会结论/转路标）；
+	// 只有旧条目才做状态迁移，且目标状态未出现在当前配置阶段时。新条目（标题/状态 架构）
+	// 原样保留——否则用户把阶段改名成旧状态名（如「未沟通」）会被误迁移成「收集箱」。
+	const isLegacyItem = !!(oldComm || oldRes || oldMeet || raw['机会点名称'] || raw['转路标']);
+	const status = rawStatus
+		? (isLegacyItem && !configuredLabels.includes(rawStatus) ? migrateStatus(rawStatus) : rawStatus)
+		: (configuredLabels[0] ?? '收集箱');
 	const tags = Array.isArray(raw['标签']) ? (raw['标签'] as unknown[]).map(String) : [];
 	return {
 		id: typeof raw['id'] === 'string' ? (raw['id'] as string) : fallbackId,
@@ -251,7 +257,7 @@ export async function ensureOpportunityFile(app: App, path: string, title: strin
 }
 
 /** Read all items from the master file (empty array if missing). */
-export async function parseOpportunitiesFile(app: App, path: string, title: string): Promise<BoardItem[]> {
+export async function parseOpportunitiesFile(app: App, path: string, title: string, configuredLabels: string[] = []): Promise<BoardItem[]> {
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile)) {
 		await ensureOpportunityFile(app, path, title);
@@ -266,7 +272,7 @@ export async function parseOpportunitiesFile(app: App, path: string, title: stri
 		// ⚠️ fallbackId 必须稳定（按数组索引），不能用 Date.now()：历史数据无 id 字段时，
 		//    若每次读取都生成新 id，updateOpportunity 按 id 找不到条目会静默失败 → 数据「保存后丢失」。
 		//    用索引保证同一位置的数据每次读到相同 id，首次保存后 id 即固化为真实值。
-		.map((r, i) => fromFmObject(r as Record<string, unknown>, `board-${i}`))
+		.map((r, i) => fromFmObject(r as Record<string, unknown>, `board-${i}`, configuredLabels))
 		// 旧数据无 order 字段时，按数组顺序赋默认权重，保证稳定排序且不互相冲突
 		.map((it, i) => (it.order >= 0 ? it : ({ ...it, order: i })));
 }
@@ -290,13 +296,13 @@ export async function writeOpportunitiesFile(app: App, path: string, items: Boar
 
 /* ---- Item-level operations ---- */
 
-export async function createOpportunity(app: App, path: string, data: BoardFormData, title: string): Promise<BoardItem> {
-	const items = await parseOpportunitiesFile(app, path, title);
+export async function createOpportunity(app: App, path: string, data: BoardFormData, title: string, configuredLabels: string[] = []): Promise<BoardItem> {
+	const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
 	const now = todayStr();
 	const item: BoardItem = {
 		id: 'board-' + Date.now(),
 		title: data.title,
-		status: data.status || '收集箱',
+		status: data.status || configuredLabels[0] || '收集箱',
 		tags: data.tags || [],
 		notes: data.notes || '',
 		stageNotes: data.stageNotes || {},
@@ -311,26 +317,26 @@ export async function createOpportunity(app: App, path: string, data: BoardFormD
 	return item;
 }
 
-export async function updateOpportunity(app: App, path: string, id: string, patch: Partial<BoardItem>, title: string): Promise<void> {
-	const items = await parseOpportunitiesFile(app, path, title);
+export async function updateOpportunity(app: App, path: string, id: string, patch: Partial<BoardItem>, title: string, configuredLabels: string[] = []): Promise<void> {
+	const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
 	const idx = items.findIndex((i) => i.id === id);
 	if (idx < 0) return;
 	items[idx] = { ...items[idx], ...patch, id, updateDate: todayStr() } as BoardItem;
 	await writeOpportunitiesFile(app, path, items, title);
 }
 
-export async function updateBoardItemStatus(app: App, path: string, id: string, status: string, title: string): Promise<void> {
+export async function updateBoardItemStatus(app: App, path: string, id: string, status: string, title: string, configuredLabels: string[] = []): Promise<void> {
 	// 只改状态；星标是独立的「重要 / 待跟进」标记，与阶段终态解耦，不再随状态切换被清除。
 	const patch: Partial<BoardItem> = { status };
-	await updateOpportunity(app, path, id, patch, title);
+	await updateOpportunity(app, path, id, patch, title, configuredLabels);
 }
 
-export async function toggleBoardItemStarred(app: App, path: string, id: string, val: boolean, title: string): Promise<void> {
-	await updateOpportunity(app, path, id, { starred: val }, title);
+export async function toggleBoardItemStarred(app: App, path: string, id: string, val: boolean, title: string, configuredLabels: string[] = []): Promise<void> {
+	await updateOpportunity(app, path, id, { starred: val }, title, configuredLabels);
 }
 
-export async function deleteOpportunity(app: App, path: string, id: string, title: string): Promise<void> {
-	const items = await parseOpportunitiesFile(app, path, title);
+export async function deleteOpportunity(app: App, path: string, id: string, title: string, configuredLabels: string[] = []): Promise<void> {
+	const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
 	const next = items.filter((i) => i.id !== id);
 	await writeOpportunitiesFile(app, path, next, title);
 }

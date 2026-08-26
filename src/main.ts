@@ -1,7 +1,8 @@
 import { Plugin } from 'obsidian';
-import { DEFAULT_SETTINGS, DEFAULT_HOME_MODULES, HOME_LAYOUT_VERSION, DashboardSettings, DashboardSettingTab } from './settings';
+import { DEFAULT_SETTINGS, DEFAULT_HOME_MODULES, HOME_LAYOUT_VERSION, DashboardSettings, DashboardSettingTab, CountdownSettings } from './settings';
 import { DashboardView, VIEW_TYPE } from './views/DashboardView';
 import type { BoardStage } from './data/opportunityParser';
+import { setLang, getLang } from './i18n';
 
 export default class Dashboard extends Plugin {
 	settings!: DashboardSettings;
@@ -11,7 +12,7 @@ export default class Dashboard extends Plugin {
 
 		this.registerView(VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
 
-		this.addRibbonIcon('layout-dashboard', 'Dashboard', () => {
+		this.addRibbonIcon('layout-dashboard', 'Xove dashboard', () => {
 			void this.activateView();
 		});
 
@@ -49,6 +50,10 @@ export default class Dashboard extends Plugin {
 		this.normalizeHomeModules(storedLayoutVersion);
 		// 迁移看板阶段结构：旧数据用 kind(终态)，新结构用 hasInput(是否启用输入框)。
 		this.normalizeBoardStages();
+		// 同步 i18n 模块的语言状态（zh=中英结合默认 / en=纯英文）
+		setLang(this.settings.language ?? 'zh');
+		// 向后兼容迁移：倒计时单对象→数组、banner 增加 enabled、看板默认名随语言
+		this.normalizeSettings();
 	}
 
 	/**
@@ -142,6 +147,47 @@ export default class Dashboard extends Plugin {
 		if (changed) void this.saveSettings();
 	}
 
+	/** 向后兼容迁移（旧 data.json 升级，不丢数据）：
+	 *  1. 倒计时由「单对象」升级为「数组」（最多 5 个）；
+	 *  2. banner 增加 enabled 开关，旧数据默认开启；
+	 *  3. 看板默认名随语言：中文默认「灵感收集」，英文默认「Inspirations」。
+	 */
+	private normalizeSettings(): void {
+		let changed = false;
+
+		// 1) 倒计时：单对象 → 数组（最多 5 个，且每个结构合法）
+		const cd = this.settings.countdown as unknown;
+		if (!Array.isArray(cd)) {
+			const single = (cd && typeof cd === 'object')
+				? (cd as CountdownSettings)
+				: { eventName: '2027', targetDate: '2027-01-01' };
+			this.settings.countdown = [single];
+			changed = true;
+		} else {
+			let arr = cd as CountdownSettings[];
+			if (arr.length > 5) { arr = arr.slice(0, 5); changed = true; }
+			const valid = arr.filter((c) => c && typeof c === 'object' && typeof (c as CountdownSettings).eventName === 'string');
+			if (valid.length !== arr.length || arr.length === 0) {
+				this.settings.countdown = valid.length ? valid : [{ eventName: '2027', targetDate: '2027-01-01' }];
+				changed = true;
+			}
+		}
+
+		// 2) banner.enabled：旧数据缺失时默认开启
+		if (typeof this.settings.banner?.enabled !== 'boolean') {
+			this.settings.banner = { ...(this.settings.banner || { imageDataUrl: null, offsetY: 0 }), enabled: true };
+			changed = true;
+		}
+
+		// 3) 看板默认名随语言（未自定义时）
+		if (!this.settings.boardTitle || this.settings.boardTitle === '灵感收集') {
+			this.settings.boardTitle = getLang() === 'en' ? 'Inspirations' : '灵感收集';
+			changed = true;
+		}
+
+		if (changed) void this.saveSettings();
+	}
+
 	/** 恢复首页默认布局（显隐 / 顺序 / 比例全部回到默认） */
 	async resetHomeLayout(): Promise<void> {
 		this.settings.homeModules = DEFAULT_HOME_MODULES.map((m) => ({ ...m }));
@@ -204,11 +250,38 @@ export default class Dashboard extends Plugin {
 		}
 	}
 
+	/** 语言切换后重建所有已打开的仪表盘视图（全部文案重渲染，无需重载） */
+	refreshLanguage(): void {
+		void (async () => {
+			await this.app.workspace.detachLeavesOfType(VIEW_TYPE);
+			await this.activateView();
+		})();
+	}
+
 	/** 设置页修改看板开关/名称/阶段配置后，立即刷新所有已打开视图的导航与看板页（无需重启） */
 	refreshNav(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
 			const view = leaf.view;
 			if (view instanceof DashboardView) view.refreshNav();
+		}
+	}
+
+	/** 设置页切换「完成后不消失」等开关后，立即刷新所有已打开首页的 TODO 与本周待办卡片（无需切页） */
+	refreshTodoHome(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+			const view = leaf.view;
+			if (view instanceof DashboardView) {
+				view.refreshTodo();
+				view.refreshWeekly();
+			}
+		}
+	}
+
+	/** 设置页开关顶部横幅后，立即重建所有已打开仪表盘视图的横幅显隐 */
+	refreshBanner(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+			const view = leaf.view;
+			if (view instanceof DashboardView) view.refreshBanner();
 		}
 	}
 

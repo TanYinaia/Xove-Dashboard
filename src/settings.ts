@@ -1,10 +1,13 @@
 import { App, PluginSettingTab, Setting, TFile, TFolder } from 'obsidian';
 import Dashboard from './main';
 import type { BoardStage } from './data/opportunityParser';
+import { t, setLang, getLang } from './i18n';
 
 export interface BannerSettings {
 	imageDataUrl: string | null;
 	offsetY: number;
+	/** 是否显示顶部横幅区域（封面图）；默认开启 */
+	enabled: boolean;
 }
 
 export interface QuickCaptureSettings {
@@ -35,6 +38,10 @@ export interface DashboardSettings {
 	quickCapture: QuickCaptureSettings;
 	diary: DiarySettings;
 	todoSourceFolder: string;
+	/** 开启后，已完成任务不消失：保留在 TODO 列表中，变灰 + 删除线 */
+	todoShowCompleted: boolean;
+	/** 任务详情弹窗显示模式：detail（详细，默认，显示全部字段）/ compact（简洁，隐藏所属项目、任务类型、父任务） */
+	taskDetailMode: 'detail' | 'compact';
 	projectsFolder: string;
 	currentPoView: string;
 	poProjectOrder: string[];
@@ -55,8 +62,10 @@ export interface DashboardSettings {
 	homeModules?: HomeModuleConfig[];
 	/** 首页布局数据版本；低于 HOME_LAYOUT_VERSION 时由 main.ts 迁移并重置默认比例 */
 	homeLayoutVersion?: number;
-	/** 倒计时卡片自定义事件（事件名称 + 目标日期） */
-	countdown: CountdownSettings;
+	/** 倒计时卡片自定义事件（事件名称 + 目标日期），支持多个（最多 5 个） */
+	countdown: CountdownSettings[];
+	/** 界面语言：zh（中英结合，默认）/ en（纯英文） */
+	language: 'zh' | 'en';
 }
 
 /**
@@ -79,7 +88,7 @@ export interface HomeModuleConfig {
 }
 
 export const DEFAULT_SETTINGS: DashboardSettings = {
-	banner: { imageDataUrl: null, offsetY: 0 },
+	banner: { imageDataUrl: null, offsetY: 0, enabled: true },
 	quickCapture: {
 		storagePath: '00 inbox/速记',
 		namingPattern: 'YYYY-MM-DD HH-mm 捕捉',
@@ -91,6 +100,8 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 		templateFile: '',
 	},
 	todoSourceFolder: '',
+	todoShowCompleted: false,
+	taskDetailMode: 'detail',
 	projectsFolder: 'Projects',
 	currentPoView: 'gantt',
 	poProjectOrder: [],
@@ -114,7 +125,8 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	opportunityFile: '看板.md',
 	currentOppView: 'kanban',
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
-	countdown: { eventName: '2027', targetDate: '2027-01-01' },
+	countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
+	language: 'zh',
 	homeModules: [
 		{ id: 'quick-capture', enabled: true, order: 0, cols: 1, rows: 1 },
 		{ id: 'todo', enabled: true, order: 1, cols: 1, rows: 1 },
@@ -183,208 +195,43 @@ export class DashboardSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		/* ---- 快速捕捉 ---- */
-		new Setting(containerEl).setName('快速捕捉').setHeading();
-
-		addFolderDropdown(
-			new Setting(containerEl).setName('存储路径').setDesc('捕捉笔记的存放位置'),
-			this.app,
-			this.plugin.settings.quickCapture.storagePath,
-			async (v) => { this.plugin.settings.quickCapture.storagePath = v; await this.plugin.saveSettings(); },
-		);
+		/* ============ 通用 ============ */
+		new Setting(containerEl).setName(t('settings.secGeneral')).setHeading();
 
 		new Setting(containerEl)
-			.setName('文件命名规则')
-			.setDesc('支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午')
-			.addText((t) => t
-				.setPlaceholder('YYYY-MM-DD HH-mm 捕捉')
-				.setValue(this.plugin.settings.quickCapture.namingPattern)
-				.onChange(async (v) => { this.plugin.settings.quickCapture.namingPattern = v; await this.plugin.saveSettings(); }),
-			);
-
-		new Setting(containerEl)
-			.setName('模板文件')
-			.setDesc('输入模板路径，不使用模板则为空')
-			.addText((t) => t
-				.setPlaceholder('Templates/速记.md')
-				.setValue(this.plugin.settings.quickCapture.templateFile)
-				.onChange(async (v) => {
-					this.plugin.settings.quickCapture.templateFile = v.trim();
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		/* ---- TODO ---- */
-		new Setting(containerEl).setName('TODO 待办').setHeading();
-
-		addFolderDropdown(
-			new Setting(containerEl).setName('数据来源文件夹').setDesc('扫描该文件夹下的 Markdown 文件解析任务。留空则扫描整个知识库'),
-			this.app,
-			this.plugin.settings.todoSourceFolder,
-			async (v) => { this.plugin.settings.todoSourceFolder = v; await this.plugin.saveSettings(); },
-		);
-
-		/* ---- 项目 ---- */
-		new Setting(containerEl).setName('项目').setHeading();
-
-		addFolderDropdown(
-			new Setting(containerEl).setName('项目文件夹').setDesc('存放项目文件的文件夹路径'),
-			this.app,
-			this.plugin.settings.projectsFolder,
-			async (v) => { this.plugin.settings.projectsFolder = v; await this.plugin.saveSettings(); },
-		);
-
-		new Setting(containerEl)
-			.setName('甘特图默认时间粒度')
-			.setDesc('项目总览的甘特图默认以该粒度展示。重新打开项目总览或重载插件后生效；也可在甘特图界面直接点击缩放按钮临时切换（会自动记住）')
+			.setName(t('settings.languageName'))
+			.setDesc(t('settings.languageDesc'))
 			.addDropdown((dropdown) => {
-				dropdown.addOption('week', '周（默认）');
-				dropdown.addOption('day', '日');
-				dropdown.addOption('month', '月');
-				dropdown.addOption('quarter', '季度');
-				dropdown.setValue(this.plugin.settings.poGanttScale || 'week');
+				dropdown.addOption('zh', t('settings.langZh'));
+				dropdown.addOption('en', t('settings.langEn'));
+				dropdown.setValue(this.plugin.settings.language);
 				dropdown.onChange(async (v) => {
-					this.plugin.settings.poGanttScale = v as 'day' | 'week' | 'month' | 'quarter';
-					await this.plugin.saveSettings();
-				});
-			});
-
-		/* ---- 看板 ---- */
-		new Setting(containerEl).setName('看板').setHeading();
-
-		new Setting(containerEl)
-			.setName('启用看板')
-			.setDesc('关闭后，顶部导航的看板入口与对应页面都会被隐藏；下方看板设置项同步折叠')
-			.addToggle((t) => t
-				.setValue(this.plugin.settings.boardEnabled)
-				.onChange(async (v) => {
-					this.plugin.settings.boardEnabled = v;
-					await this.plugin.saveSettings();
-					// 让所有已打开的仪表盘视图立即同步显示/隐藏看板入口，无需重启
-					this.plugin.refreshNav();
-					this.display();
-				}),
-			);
-
-		// 看板相关设置项容器：看板关闭时整体折叠隐藏（联动）
-		const boardOptions = containerEl.createDiv({ cls: 'dashboard-board-options' });
-		if (!this.plugin.settings.boardEnabled) boardOptions.hide();
-
-		new Setting(boardOptions)
-			.setName('看板名称')
-			.setDesc('导航与页面上显示的板块名称，可自定义（如 机会点 / 灵感收集 / 管道）')
-			.addText((t) => t
-				.setPlaceholder('看板')
-				.setValue(this.plugin.settings.boardTitle)
-				.onChange(async (v) => {
-					this.plugin.settings.boardTitle = v.trim() || '看板';
-					await this.plugin.saveSettings();
-					this.plugin.refreshNav();
-				}),
-			);
-
-		new Setting(boardOptions)
-			.setName('看板数据文件')
-			.setDesc('所有看板条目统一存于此 Markdown 文件（frontmatter 数组）。填写库内相对路径，可含子文件夹，如 看板.md。留空或文件不存在时会自动在该路径新建。')
-			.addText((t) => t
-				.setPlaceholder('看板.md')
-				.setValue(this.plugin.settings.opportunityFile)
-				.onChange(async (v) => {
-					this.plugin.settings.opportunityFile = v.trim() || '看板.md';
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(boardOptions)
-			.setName('阶段数量')
-			.setDesc('看板列的数量（4-6 个）')
-			.addDropdown((dropdown) => {
-				for (const n of [4, 5, 6]) dropdown.addOption(String(n), `${n} 个阶段`);
-				dropdown.setValue(String(this.plugin.settings.boardStages.length));
-				dropdown.onChange(async (v) => {
-					const newCount = parseInt(v);
-					const cur = this.plugin.settings.boardStages;
-					if (newCount > cur.length) {
-						let i = cur.length;
-						while (this.plugin.settings.boardStages.length < newCount) {
-							this.plugin.settings.boardStages.push({ id: `stage${i + 1}`, label: `阶段${i + 1}`, color: '#888780', hasInput: false });
-							i++;
-						}
-					} else {
-						this.plugin.settings.boardStages = cur.slice(0, newCount);
+					const lang = v as 'zh' | 'en';
+					this.plugin.settings.language = lang;
+					setLang(lang);
+					// 看板默认名随语言：未自定义（空或中文默认）时切换为对应语言默认名
+					if (!this.plugin.settings.boardTitle || this.plugin.settings.boardTitle === '灵感收集') {
+						this.plugin.settings.boardTitle = lang === 'en' ? 'Inspirations' : '灵感收集';
+					}
+					// 看板文件路径默认名同样随语言：未自定义（仍是内置 zh 默认）时切换
+					if (!this.plugin.settings.opportunityFile || this.plugin.settings.opportunityFile === '看板.md') {
+						this.plugin.settings.opportunityFile = lang === 'en' ? 'Kanban.md' : '看板.md';
 					}
 					await this.plugin.saveSettings();
-					// 让已打开的机会页阶段列立即同步（无需切页）
-					this.plugin.refreshNav();
+					// 立即重绘设置面板文案 + 重建所有已打开的仪表盘视图
 					this.display();
+					this.plugin.refreshLanguage();
 				});
 			});
 
-		for (let i = 0; i < this.plugin.settings.boardStages.length; i++) {
-			const idx = i;
-			const st = this.plugin.settings.boardStages[idx];
-			new Setting(boardOptions)
-				.setName(`阶段 ${idx + 1}`)
-				.setDesc(`自定义第 ${idx + 1} 个阶段的名称、颜色，以及是否在该阶段启用输入框`)
-				.addText((t) => t
-					.setPlaceholder(`阶段 ${idx + 1}`)
-					.setValue(st?.label ?? '')
-					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.label = v; await this.plugin.saveSettings(); this.plugin.refreshNav(); }),
-				)
-				.addText((t) => t
-					.setPlaceholder('#888780')
-					.setValue(st?.color ?? '')
-					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.color = v.trim() || '#888780'; await this.plugin.saveSettings(); this.plugin.refreshNav(); }),
-				)
-				.addToggle((tg) => tg
-					.setTooltip('启用后，处于该阶段的条目在编辑时会出现一个标题与该阶段名一致的输入框')
-					.setValue(st?.hasInput ?? false)
-					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.hasInput = v; await this.plugin.saveSettings(); }),
-				);
-		}
-
-		/* ---- 新日记 ---- */
-		new Setting(containerEl).setName('新日记').setHeading();
-
-		addFolderDropdown(
-			new Setting(containerEl).setName('日记存储路径').setDesc('日记笔记的存放位置'),
-			this.app,
-			this.plugin.settings.diary.storagePath,
-			async (v) => { this.plugin.settings.diary.storagePath = v; await this.plugin.saveSettings(); },
-		);
-
 		new Setting(containerEl)
-			.setName('日记命名规则')
-			.setDesc('支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午')
-			.addText((t) => t
-				.setPlaceholder('YYYY-MM-DD')
-				.setValue(this.plugin.settings.diary.namingPattern)
-				.onChange(async (v) => { this.plugin.settings.diary.namingPattern = v; await this.plugin.saveSettings(); }),
-			);
-
-		new Setting(containerEl)
-			.setName('模板文件')
-			.setDesc('输入模板路径，不使用模板则为空')
-			.addText((t) => t
-				.setPlaceholder('Templates/日记.md')
-				.setValue(this.plugin.settings.diary.templateFile)
-				.onChange(async (v) => {
-					this.plugin.settings.diary.templateFile = v.trim();
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		/* ---- 外观 ---- */
-		new Setting(containerEl).setName('外观').setHeading();
-
-		new Setting(containerEl)
-			.setName('主题')
-			.setDesc('跟随 Obsidian 外观，或手动指定深色/浅色。手动选择会同时切换 Obsidian 整体外观，仪表盘自动跟随')
+			.setName(t('settings.theme'))
+			.setDesc(t('settings.themeDesc'))
 			.addDropdown((dropdown) => {
-				dropdown.addOption('auto', '跟随 Obsidian');
+				dropdown.addOption('auto', t('settings.themeAuto'));
 
-				dropdown.addOption('dark', '深色');
-				dropdown.addOption('light', '浅色');
+				dropdown.addOption('dark', t('settings.themeDark'));
+				dropdown.addOption('light', t('settings.themeLight'));
 				dropdown.setValue(this.plugin.settings.theme);
 				dropdown.onChange(async (v) => {
 					const mode = v as 'auto' | 'dark' | 'light';
@@ -402,23 +249,268 @@ export class DashboardSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('插件标题')
-			.setDesc('自定义仪表盘主标题（即“MY DASHBOARD”那一行）。留空则使用默认标题 “MY DASHBOARD”，修改后立即生效，无需重载')
-			.addText((t) => t
-				.setPlaceholder('MY DASHBOARD')
+			.setName(t('settings.pluginTitle'))
+			.setDesc(t('settings.pluginTitleDesc'))
+			.addText((tc) => tc
+				.setPlaceholder('XOVE DASHBOARD')
 				.setValue(this.plugin.settings.dashboardTitle)
 				.onChange(async (v) => { this.plugin.settings.dashboardTitle = v; await this.plugin.saveSettings(); this.plugin.refreshDashboardTitle(); }),
 			);
 
-		/* ---- 阶段管道 ---- */
-		new Setting(containerEl).setName('阶段管道').setHeading();
+		new Setting(containerEl)
+			.setName(t('settings.bannerEnable'))
+			.setDesc(t('settings.bannerEnableDesc'))
+			.addToggle((tg) => tg
+				.setValue(this.plugin.settings.banner.enabled)
+				.onChange(async (v) => {
+					this.plugin.settings.banner.enabled = v;
+					await this.plugin.saveSettings();
+					this.plugin.refreshBanner();
+					this.display();
+				}),
+			);
+
+		/* ============ 存储与模板 ============ */
+		new Setting(containerEl).setName(t('settings.secStorage')).setHeading();
+
+		// 快速捕捉
+		addFolderDropdown(
+			new Setting(containerEl).setName(t('settings.captureStoragePath')).setDesc(t('settings.storagePathDesc')),
+			this.app,
+			this.plugin.settings.quickCapture.storagePath,
+			async (v) => { this.plugin.settings.quickCapture.storagePath = v; await this.plugin.saveSettings(); },
+		);
 
 		new Setting(containerEl)
-			.setName('阶段数量')
-			.setDesc('设置项目阶段的数量（4-6个）')
+			.setName(t('settings.captureNamingRule'))
+			.setDesc(t('settings.namingRuleDesc'))
+			.addText((tc) => tc
+				.setPlaceholder(t('settings.namingPlaceholder'))
+				.setValue(this.plugin.settings.quickCapture.namingPattern)
+				.onChange(async (v) => { this.plugin.settings.quickCapture.namingPattern = v; await this.plugin.saveSettings(); }),
+			);
+
+		new Setting(containerEl)
+			.setName(t('settings.captureTemplateFile'))
+			.setDesc(t('settings.captureTemplateFileDesc'))
+			.addText((tc) => tc
+				.setPlaceholder(t('settings.captureTemplatePlaceholder'))
+				.setValue(this.plugin.settings.quickCapture.templateFile)
+				.onChange(async (v) => {
+					this.plugin.settings.quickCapture.templateFile = v.trim();
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		// 新日记
+		addFolderDropdown(
+			new Setting(containerEl).setName(t('settings.diaryPath')).setDesc(t('settings.diaryPathDesc')),
+			this.app,
+			this.plugin.settings.diary.storagePath,
+			async (v) => { this.plugin.settings.diary.storagePath = v; await this.plugin.saveSettings(); },
+		);
+
+		new Setting(containerEl)
+			.setName(t('settings.diaryNaming'))
+			.setDesc(t('settings.namingRuleDesc'))
+			.addText((tc) => tc
+				.setPlaceholder('YYYY-MM-DD')
+				.setValue(this.plugin.settings.diary.namingPattern)
+				.onChange(async (v) => { this.plugin.settings.diary.namingPattern = v; await this.plugin.saveSettings(); }),
+			);
+
+		new Setting(containerEl)
+			.setName(t('settings.diaryTemplateFile'))
+			.setDesc(t('settings.diaryTemplateFileDesc'))
+			.addText((tc) => tc
+				.setPlaceholder(t('settings.diaryTemplatePlaceholder'))
+				.setValue(this.plugin.settings.diary.templateFile)
+				.onChange(async (v) => {
+					this.plugin.settings.diary.templateFile = v.trim();
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		/* ============ 任务与项目 ============ */
+		new Setting(containerEl).setName(t('settings.secTasksProjects')).setHeading();
+
+		// TODO 待办
+		addFolderDropdown(
+			new Setting(containerEl).setName(t('settings.dataSource')).setDesc(t('settings.dataSourceDesc')),
+			this.app,
+			this.plugin.settings.todoSourceFolder,
+			async (v) => { this.plugin.settings.todoSourceFolder = v; await this.plugin.saveSettings(); },
+		);
+
+		new Setting(containerEl)
+			.setName(t('settings.todoShowCompleted'))
+			.setDesc(t('settings.todoShowCompletedDesc'))
+			.addToggle((toggle) => {
+			toggle.setValue(this.plugin.settings.todoShowCompleted).onChange(async (v) => {
+				this.plugin.settings.todoShowCompleted = v;
+				await this.plugin.saveSettings();
+				// 立即刷新 TODO 卡片，无需切页
+				this.plugin.refreshTodoHome();
+			});
+			});
+
+		// 任务详情
+		new Setting(containerEl)
+			.setName(t('settings.taskDetailMode'))
+			.setDesc(t('settings.taskDetailModeDesc'))
+			.addDropdown((dropdown) => {
+				dropdown.addOption('detail', t('settings.taskDetailDetailed'));
+				dropdown.addOption('compact', t('settings.taskDetailCompact'));
+				dropdown.setValue(this.plugin.settings.taskDetailMode);
+				dropdown.onChange(async (v) => {
+					this.plugin.settings.taskDetailMode = v as 'detail' | 'compact';
+					await this.plugin.saveSettings();
+				});
+			});
+
+		// 项目
+		addFolderDropdown(
+			new Setting(containerEl).setName(t('settings.projectFolder')).setDesc(t('settings.projectFolderDesc')),
+			this.app,
+			this.plugin.settings.projectsFolder,
+			async (v) => { this.plugin.settings.projectsFolder = v; await this.plugin.saveSettings(); },
+		);
+
+		new Setting(containerEl)
+			.setName(t('settings.ganttGranularity'))
+			.setDesc(t('settings.ganttGranularityDesc'))
+			.addDropdown((dropdown) => {
+				dropdown.addOption('week', t('settings.optWeek'));
+				dropdown.addOption('day', t('settings.optDay'));
+				dropdown.addOption('month', t('settings.optMonth'));
+				dropdown.addOption('quarter', t('settings.optQuarter'));
+				dropdown.setValue(this.plugin.settings.poGanttScale || 'week');
+				dropdown.onChange(async (v) => {
+					this.plugin.settings.poGanttScale = v as 'day' | 'week' | 'month' | 'quarter';
+					await this.plugin.saveSettings();
+				});
+			});
+
+		/* ============ 看板 ============ */
+		new Setting(containerEl).setName(t('settings.secBoard')).setHeading();
+
+		new Setting(containerEl)
+			.setName(t('settings.boardEnable'))
+			.setDesc(t('settings.boardEnableDesc'))
+			.addToggle((t) => t
+				.setValue(this.plugin.settings.boardEnabled)
+				.onChange(async (v) => {
+					this.plugin.settings.boardEnabled = v;
+					await this.plugin.saveSettings();
+					// 让所有已打开的仪表盘视图立即同步显示/隐藏看板入口，无需重启
+					this.plugin.refreshNav();
+					this.display();
+				}),
+			);
+
+		// 看板相关设置项容器：看板关闭时整体折叠隐藏（联动）
+		const boardOptions = containerEl.createDiv({ cls: 'dashboard-board-options' });
+		if (!this.plugin.settings.boardEnabled) boardOptions.hide();
+
+		new Setting(boardOptions)
+			.setName(t('settings.boardName'))
+			.setDesc(t('settings.boardNameDesc'))
+			.addText((tc) => tc
+				.setPlaceholder(t('settings.boardNamePlaceholder'))
+				.setValue(this.plugin.settings.boardTitle)
+				.onChange(async (v) => {
+					this.plugin.settings.boardTitle = v.trim() || t('settings.boardNamePlaceholder');
+					await this.plugin.saveSettings();
+					this.plugin.refreshNav();
+				}),
+			);
+
+		new Setting(boardOptions)
+			.setName(t('settings.boardFile'))
+			.setDesc(t('settings.boardFileDesc'))
+			.addText((tc) => tc
+				.setPlaceholder(t('settings.boardFilePlaceholder'))
+				.setValue(this.plugin.settings.opportunityFile)
+				.onChange(async (v) => {
+					// 适配用户输入：不带 .md 后缀时自动补，已带则原样保留（兼容旧数据）
+					const raw = v.trim();
+					if (!raw) {
+						this.plugin.settings.opportunityFile = getLang() === 'en' ? 'Kanban.md' : '看板.md';
+					} else {
+						this.plugin.settings.opportunityFile = raw.toLowerCase().endsWith('.md') ? raw : raw + '.md';
+					}
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		/* ============ 阶段管道 ============ */
+		new Setting(containerEl).setName(t('settings.secPipeline')).setHeading();
+
+		// 看板阶段（折叠组）：看板关闭时整体折叠隐藏（联动）
+		const boardStagesWrap = containerEl.createEl('details', { cls: 'dashboard-collapse dashboard-collapse--board' });
+		if (!this.plugin.settings.boardEnabled) boardStagesWrap.hide();
+		boardStagesWrap.createEl('summary', { text: t('settings.boardStageGroup') });
+
+		new Setting(boardStagesWrap)
+			.setName(t('settings.stageCount'))
+			.setDesc(t('settings.stageCountDesc'))
+			.addDropdown((dropdown) => {
+				for (const n of [4, 5, 6]) dropdown.addOption(String(n), t('settings.stageCountOption', { n }));
+				dropdown.setValue(String(this.plugin.settings.boardStages.length));
+				dropdown.onChange(async (v) => {
+					const newCount = parseInt(v);
+					const cur = this.plugin.settings.boardStages;
+					if (newCount > cur.length) {
+						let i = cur.length;
+						while (this.plugin.settings.boardStages.length < newCount) {
+							this.plugin.settings.boardStages.push({ id: `stage${i + 1}`, label: `阶段${i + 1}`, color: '#888780', hasInput: false });
+							i++;
+						}
+					} else {
+						this.plugin.settings.boardStages = cur.slice(0, newCount);
+					}
+					await this.plugin.saveSettings();
+					// 让已打开的机会页阶段列立即同步（无需切页）
+					this.plugin.refreshNav();
+					this.display();
+					// 改动数量后展开折叠组，便于继续编辑新阶段
+					this.containerEl.querySelector('.dashboard-collapse--board')?.setAttribute('open', '');
+				});
+			});
+
+		for (let i = 0; i < this.plugin.settings.boardStages.length; i++) {
+			const idx = i;
+			const st = this.plugin.settings.boardStages[idx];
+			new Setting(boardStagesWrap)
+				.setName(t('settings.stageLabel', { n: idx + 1 }))
+				.setDesc(t('settings.stageNameDescFull', { n: idx + 1 }))
+				.addText((tc) => tc
+					.setPlaceholder(t('settings.stageNamePlaceholder', { n: idx + 1 }))
+					.setValue(st?.label ?? '')
+					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.label = v; await this.plugin.saveSettings(); this.plugin.refreshNav(); }),
+				)
+				.addText((tc) => tc
+					.setPlaceholder('#888780')
+					.setValue(st?.color ?? '')
+					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.color = v.trim() || '#888780'; await this.plugin.saveSettings(); this.plugin.refreshNav(); }),
+				)
+				.addToggle((tg) => tg
+					.setTooltip(t('settings.stageHasInputTooltip'))
+					.setValue(st?.hasInput ?? false)
+					.onChange(async (v) => { this.plugin.settings.boardStages[idx]!.hasInput = v; await this.plugin.saveSettings(); }),
+				);
+		}
+
+		// 项目管道阶段（折叠组）
+		const pipelineWrap = containerEl.createEl('details', { cls: 'dashboard-collapse dashboard-collapse--pipeline' });
+		pipelineWrap.createEl('summary', { text: t('settings.pipelineStageGroup') });
+
+		new Setting(pipelineWrap)
+			.setName(t('settings.pipelineCount'))
+			.setDesc(t('settings.pipelineCountDesc'))
 			.addDropdown((dropdown) => {
 				for (const n of [4, 5, 6]) {
-					dropdown.addOption(String(n), `${n} 个阶段`);
+					dropdown.addOption(String(n), t('settings.stageCountOption', { n }));
 				}
 				dropdown.setValue(String(this.plugin.settings.npdpMaxStage));
 				dropdown.onChange(async (v) => {
@@ -434,16 +526,18 @@ export class DashboardSettingTab extends PluginSettingTab {
 					this.plugin.settings.npdpMaxStage = newCount;
 					await this.plugin.saveSettings();
 					this.display();
+					// 改动数量后展开折叠组，便于继续编辑新阶段
+					this.containerEl.querySelector('.dashboard-collapse--pipeline')?.setAttribute('open', '');
 				});
 			});
 
 		for (let i = 0; i < this.plugin.settings.npdpStages.length; i++) {
 			const idx = i;
-			new Setting(containerEl)
-				.setName(`阶段 ${idx + 1} 名称`)
-				.setDesc(`自定义第 ${idx + 1} 个阶段的名称`)
-				.addText((t) => t
-					.setPlaceholder(`阶段 ${idx + 1}`)
+			new Setting(pipelineWrap)
+				.setName(t('settings.stageName', { n: idx + 1 }))
+				.setDesc(t('settings.stageNameDesc', { n: idx + 1 }))
+				.addText((tc) => tc
+					.setPlaceholder(t('settings.stageNamePlaceholder', { n: idx + 1 }))
 					.setValue(this.plugin.settings.npdpStages[idx] ?? '')
 					.onChange(async (v) => {
 						this.plugin.settings.npdpStages[idx] = v;
@@ -452,20 +546,27 @@ export class DashboardSettingTab extends PluginSettingTab {
 				);
 		}
 
-		new Setting(containerEl)
-			.setName('项目进度卡片筛选')
-			.setDesc('主页"项目进度"卡片显示不超过所选阶段的项目')
+		new Setting(pipelineWrap)
+			.setName(t('settings.progressFilter'))
+			.setDesc(t('settings.progressFilterDesc'))
 			.addDropdown((dropdown) => {
 				for (let i = 0; i < this.plugin.settings.npdpStages.length; i++) {
 					dropdown.addOption(String(i), `≤ ${this.plugin.settings.npdpStages[i]}`);
 				}
-				dropdown.addOption(String(this.plugin.settings.npdpStages.length), '显示全部');
+				dropdown.addOption(String(this.plugin.settings.npdpStages.length), t('settings.pipelineShowAll'));
 				dropdown.setValue(String(this.plugin.settings.npdpProgressFilter ?? this.plugin.settings.npdpStages.length));
 				dropdown.onChange(async (v) => {
 					this.plugin.settings.npdpProgressFilter = parseInt(v);
 					await this.plugin.saveSettings();
 				});
 			});
+
+		/* ============ 关于 ============ */
+		new Setting(containerEl).setName(t('settings.secAbout')).setHeading();
+
+		new Setting(containerEl)
+			.setName(t('settings.aboutVersion'))
+			.setDesc(this.plugin.manifest?.version ? 'v' + this.plugin.manifest.version : '');
 	}
 
 	private applyTheme(): void {

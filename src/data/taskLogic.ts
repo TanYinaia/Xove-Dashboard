@@ -4,6 +4,7 @@
    ============================================================ */
 
 import type { TaskItem } from './taskParser';
+import { t } from '../i18n/index.ts';
 
 /** YYYY-MM-DD from a Date. */
 export function fmtDate(d: Date): string {
@@ -79,12 +80,14 @@ export function calcNextRemindDate(task: TaskItem, today: Date = new Date()): st
 
 /** Universe of tasks relevant to "today" (TODO list + progress rings).
  *  INCLUDES tasks completed earlier today (stable denominator for the ring);
- *  excludes cancelled tasks and prior-day completions. */
-export function getTodayUniverse(tasks: TaskItem[], today: string = todayStr()): TaskItem[] {
+ *  excludes cancelled tasks and prior-day completions.
+ *  keepDone=true 时保留「今天完成的」任务（含今天打卡的每日节点），供「完成后不消失」开关使用；
+ *  更早日期完成的已完成任务不混入今天的列表（避免历史完成项反复出现在 TODO 里）。 */
+export function getTodayUniverse(tasks: TaskItem[], today: string = todayStr(), keepDone: boolean = false): TaskItem[] {
 	return tasks.filter((t) => {
 		if (t.status === '已取消') return false;
-		if (t.completeTime && t.completeTime.startsWith(today)) return true;
-		if (t.status === '已完成') return false;
+		if (t.completeTime && t.completeTime.startsWith(today)) return true; // 今天完成的（含 keepDone 开启时展示）
+		if (t.status === '已完成') return false; // 更早完成的已完成任务不属于今天
 		// Recurring: show if next 提醒日期 is today or already past (a missed
 		// occurrence stays pending and reachable, instead of vanishing).
 		if (t.type === '重复') {
@@ -102,13 +105,23 @@ export function getTodayUniverse(tasks: TaskItem[], today: string = todayStr()):
 }
 
 /** Today's *pending* tasks — what the TODO list actually shows.
- *  Hides already-completed tasks and today's checked-in daily nodes. */
-export function getTodayTasks(tasks: TaskItem[], today: string = todayStr()): TaskItem[] {
-	return getTodayUniverse(tasks, today).filter((t) => {
+ *  Hides already-completed tasks and today's checked-in daily nodes.
+ *  keepDone=true 时保留已完成任务（含今日打卡的每日节点），由 UI 以变灰删除线展示。 */
+export function getTodayTasks(tasks: TaskItem[], today: string = todayStr(), keepDone: boolean = false): TaskItem[] {
+	return getTodayUniverse(tasks, today, keepDone).filter((t) => {
+		const node = t.dailyNodes && t.dailyNodes[today];
+		if (node && node.s === 'skip') return false; // 「今日不做」永远排除（不算完成也不算待办）
+		if (keepDone) {
+			// 保留已完成：仅限「今天完成的」任务（今日打卡 done 同样算今天活动），历史完成的不混入。
+			// 重复任务完成 = 推进 next 提醒，同样归为今天完成 → 保留并由画布变灰呈现。
+			if (t.status === '已完成') return !!(t.completeTime && t.completeTime.startsWith(today));
+			if (t.completeTime && t.completeTime.startsWith(today)) return true;
+			if (node && node.s === 'done') return true;
+		}
 		if (t.status === '已完成') return false;
 		if (t.completeTime && t.completeTime.startsWith(today)) return false; // recurring occurrence done today
 		// Multi-day task: hide today if today's node already done/skipped
-		if (t.dailyNodes && t.dailyNodes[today] && (t.dailyNodes[today].s === 'done' || t.dailyNodes[today].s === 'skip')) return false;
+		if (node && (node.s === 'done' || node.s === 'skip')) return false;
 		return true;
 	});
 }
@@ -137,13 +150,14 @@ export function overdueDays(dueDate: string | null, today: Date = new Date()): n
 	return Math.max(0, Math.round((t.getTime() - d.getTime()) / 86400000));
 }
 
-/** Urgency label + color key derived from task priority (紧急程度). */
+/** Urgency label + color key derived from task priority (紧急程度).
+ *  label 跟随当前语言，key 用于 CSS data-urg 钩子（与颜色对应），不受语言影响。 */
 export function urgencyMeta(priority: TaskItem['priority']): { label: string; key: string } | null {
 	switch (priority) {
-		case '重要且紧急': return { label: '紧急', key: 'high' };
-		case '紧急不重要': return { label: '较急', key: 'mid' };
-		case '重要不紧急': return { label: '一般', key: 'low' };
-		case '不重要不紧急': return { label: '不急', key: 'none' };
+		case '重要且紧急': return { label: t('modal.urgHigh'), key: 'high' };
+		case '紧急不重要': return { label: t('modal.urgMid'), key: 'mid' };
+		case '重要不紧急': return { label: t('modal.urgLow'), key: 'low' };
+		case '不重要不紧急': return { label: t('modal.urgNone'), key: 'none' };
 		default: return null;
 	}
 }

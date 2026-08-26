@@ -1,22 +1,24 @@
 import { ItemView, Menu, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { MOCK_DATA, DashboardData } from '../data/mockData';
-import { BannerSettings, DEFAULT_SETTINGS } from '../settings';
+import { BannerSettings, DEFAULT_SETTINGS, CountdownSettings } from '../settings';
 import { BannerModal } from './BannerModal';
-import { CountdownModal } from './CountdownModal';
+import { CountdownModal, defaultEventName } from './CountdownModal';
 import { TaskEditModal } from './TaskEditModal';
-import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule } from '../data/taskParser';
+import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule, serializeDailyNodesBlock, parseDailyNodesFromBody } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
 import { writeFrontmatter as fmWriteFrontmatter, yamlScalar } from '../data/frontmatterWriter';
 import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
-import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays, urgencyMeta } from '../data/taskLogic';
+import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays } from '../data/taskLogic';
+import { t, tArr, isEnglish } from '../i18n';
+import { UI_TEXT } from '../constants';
 
 import type Dashboard from '../main';
 import {
 	ICON_home, ICON_newDiary, ICON_newTask, ICON_newProject,
-	ICON_allProjects, ICON_opportunity, injectSvg,
+	ICON_allProjects, ICON_opportunity, ICON_gear, ICON_moon, ICON_sun, injectSvg,
 } from '../icons';
 
 export const VIEW_TYPE = 'dashboard-view';
@@ -242,13 +244,13 @@ export class DashboardView extends ItemView {
 
 	// 首页模块注册表：将 7 张卡的渲染从硬编码顺序统一为「注册表驱动 + settings.homeModules 排序/显隐」
 	private homeModules: HomeModule[] = [
-		{ id: 'quick-capture', title: '快速捕捉', cardCls: 'ad-card ad-b-capture', live: false, render: (b) => this.renderQuickCapture(b) },
+		{ id: 'quick-capture', title: t('home.modules.quickCapture'), cardCls: 'ad-card ad-b-capture', live: false, render: (b) => this.renderQuickCapture(b) },
 		{ id: 'todo', title: 'TODO', cardCls: 'ad-card ad-b-todo', render: (b, t) => void this.renderTodo(b, t) },
-		{ id: 'progress', title: '工作进度', cardCls: 'ad-card ad-b-progress', render: (b, t) => void this.renderProgress(b, t) },
-		{ id: 'weekly', title: '本周待办 & 逾期', cardCls: 'ad-card ad-b-weekly', render: (b, t) => void this.renderWeekly(b, t) },
-		{ id: 'projects', title: '项目情况', cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
-		{ id: 'heatmap', title: '笔记统计', cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
-		{ id: 'countdown', title: '倒计时', cardCls: 'ad-card ad-b-countdown', live: false, render: (b) => this.renderCountdown(b) },
+		{ id: 'progress', title: t('home.modules.progress'), cardCls: 'ad-card ad-b-progress', render: (b, t) => void this.renderProgress(b, t) },
+		{ id: 'weekly', title: t('home.modules.weekly'), cardCls: 'ad-card ad-b-weekly', render: (b, t) => void this.renderWeekly(b, t) },
+		{ id: 'projects', title: t('home.modules.projects'), cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
+		{ id: 'heatmap', title: t('home.modules.heatmap'), cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
+		{ id: 'countdown', title: t('home.modules.countdown'), cardCls: 'ad-card ad-b-countdown', live: false, render: () => {} },
 	];
 
 	// Project overview state (renderer extracted into ProjectBoard)
@@ -291,13 +293,13 @@ export class DashboardView extends ItemView {
 		const btn = this.adThemeBtn;
 		if (!btn) return;
 		const eff = this.effectiveTheme();
-		btn.textContent = eff === 'dark' ? '\u2600' : '\uD83C\uDF19';
-		btn.title = (eff === 'dark' ? '\u5207\u6362\u5230\u6D45\u8272' : '\u5207\u6362\u5230\u6DF1\u8272')
-			+ '\uFF08\u540C\u65F6\u5207\u6362 Obsidian \u5916\u89C2\uFF09';
+		btn.textContent = '';
+		injectSvg(btn, eff === 'dark' ? ICON_sun : ICON_moon);
+		btn.title = eff === 'dark' ? t('home.themeToLight') : t('home.themeToDark');
 	}
 
 	getViewType(): string { return VIEW_TYPE; }
-	getDisplayText(): string { return 'Dashboard'; }
+	getDisplayText(): string { return 'Xove Dashboard'; }
 	getIcon(): string { return 'layout-dashboard'; }
 
 	async onOpen(): Promise<void> {
@@ -371,7 +373,7 @@ export class DashboardView extends ItemView {
 			try {
 				const e = err instanceof Error ? err : new Error(String(err));
 				this.dashboardEl?.empty();
-				this.dashboardEl?.createEl('pre', { cls: 'ad-error', text: 'Dashboard 渲染出错：\n' + (e.stack || e.message) });
+				this.dashboardEl?.createEl('pre', { cls: 'ad-error', text: t('home.renderError') + '：\n' + (e.stack || e.message) });
 			} catch { /* ignore */ }
 			console.error('[Dashboard] render error', err);
 		}
@@ -392,8 +394,9 @@ export class DashboardView extends ItemView {
 	   BANNER — image insert via modal, vertical drag only
 	   ============================================================ */
 	private renderBanner(root: HTMLElement): void {
+		if (!this.plugin.settings.banner.enabled) return;
 		const banner = root.createDiv({ cls: 'ad-banner' });
-		const ph = banner.createDiv({ cls: 'ad-banner__ph', text: '[ banner ]  ·  点击右上角按钮插入封面图片' });
+		const ph = banner.createDiv({ cls: 'ad-banner__ph', text: t('home.bannerPlaceholder') });
 		this.bannerPh = ph;
 
 		const img = banner.createEl('img', { cls: 'ad-banner__img ad-banner__img--hidden' });
@@ -402,7 +405,7 @@ export class DashboardView extends ItemView {
 
 		// toolbar
 		const bar = banner.createDiv({ cls: 'ad-banner__bar' });
-		const pickBtn = bar.createEl('button', { cls: 'ad-banner__btn', text: '更换图片' });
+		const pickBtn = bar.createEl('button', { cls: 'ad-banner__btn', text: t('home.changeImage') });
 
 		// hidden file input
 		const fileInput = root.createEl('input', { cls: 'ad-banner__fileinput', attr: { type: 'file', accept: 'image/*' } });
@@ -467,8 +470,31 @@ export class DashboardView extends ItemView {
 	}
 
 	private async saveBanner(): Promise<void> {
-		this.plugin.settings.banner = { ...this.bannerState };
+		// 保留设置中当前的 enabled（横幅开关可能在视图打开后被设置页改过）
+		const enabled = this.plugin.settings.banner?.enabled ?? true;
+		this.plugin.settings.banner = { ...this.bannerState, enabled };
 		await this.plugin.saveSettings();
+	}
+
+	/** 设置页开关横幅后，立即重建横幅显隐（无需重载视图） */
+	refreshBanner(): void {
+		const root = this.dashboardEl;
+		if (!root) return;
+		const old = root.querySelector('.ad-banner');
+		const enabled = !!this.plugin.settings.banner.enabled;
+		if (!enabled) {
+			if (old) old.remove();
+			this.bannerPh = null;
+			this.bannerImg = null;
+			return;
+		}
+		if (old) return; // 已显示，无需重建
+		this.bannerPh = null;
+		this.bannerImg = null;
+		this.bannerState = { ...DEFAULT_SETTINGS.banner, ...this.plugin.settings.banner };
+		this.renderBanner(root);
+		const nb = root.querySelector('.ad-banner');
+		if (nb) root.insertBefore(nb, root.firstChild);
 	}
 
 	/* ---- Vault note counts by creation date ---- */
@@ -608,22 +634,28 @@ export class DashboardView extends ItemView {
 		const left = h.createDiv({ cls: 'ad-header__left' });
 		left.createEl('p', { cls: 'ad-eyebrow', text: d.header.eyebrow });
 		this.adTitleEl = left.createEl('h1', { cls: 'ad-title', text: this.plugin.settings.dashboardTitle || d.header.title });
-		left.createEl('p', { cls: 'ad-subtitle', text: 'Obsidian · Personal Dashboard · v' + (this.plugin.manifest?.version ?? d.header.subtitle.replace(/^.*v/, 'v')) });
+		left.createEl('p', { cls: 'ad-subtitle', text: 'Obsidian · Xove Dashboard · v' + (this.plugin.manifest?.version ?? d.header.subtitle.replace(/^.*v/, 'v')) });
 
 		const right = h.createDiv({ cls: 'ad-header__right' });
 
 		const now = new Date();
-		const dateStr = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
-		const timeStr = now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+		const loc = isEnglish() ? 'en-US' : 'zh-CN';
+		const dateStr = now.toLocaleDateString(loc, { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+		const timeStr = now.toLocaleTimeString(loc, { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 		this.dateEl = right.createDiv({ cls: 'ad-header__date', text: `${dateStr} ${timeStr}` });
 
 		const meta = right.createDiv({ cls: 'ad-header__meta' });
-		this.weekdayEl = meta.createSpan({ text: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }) });
+		this.weekdayEl = meta.createSpan({ text: new Date().toLocaleDateString(loc, { timeZone: 'Asia/Shanghai', weekday: 'long' }) });
 		meta.createSpan({ cls: 'ad-dot' });
 		// Compute the real lunar date up front (mock data has a stale literal);
 		// the 30s interval below keeps it fresh across day boundaries.
+		// 决策2：英文模式下自动隐藏农历。
 		const initialLunar = getLunarDate(new Date());
-		this.lunarEl = meta.createSpan({ text: initialLunar ? '农历 ' + initialLunar : d.lunar });
+		if (initialLunar && !isEnglish()) {
+			this.lunarEl = meta.createSpan({ text: t('home.lunarPrefix') + initialLunar });
+		} else if (!isEnglish()) {
+			this.lunarEl = meta.createSpan({ text: d.lunar });
+		}
 
 		// Buttons row: theme toggle (left) + settings (right), same line
 		const btns = right.createDiv({ cls: 'ad-header__btns' });
@@ -641,8 +673,8 @@ export class DashboardView extends ItemView {
 			this.applyTheme();
 		})(); });
 
-		const settings = btns.createEl('button', { cls: 'ad-header__settings' });
-		settings.textContent = '\u2699 \u8BBE\u7F6E';
+		const settings = btns.createEl('button', { cls: 'ad-header__settings', attr: { 'aria-label': t('home.settingsBtn') } });
+		injectSvg(settings, ICON_gear);
 		settings.addEventListener('click', () => {
 			interface SettingApi { open(): void; openTabById(id: string): void }
 			const app = this.app as unknown as { setting?: SettingApi };
@@ -653,17 +685,19 @@ export class DashboardView extends ItemView {
 		// Update time every 30 seconds
 		this.registerInterval(window.setInterval(() => {
 			const n = new Date();
+			const l = isEnglish() ? 'en-US' : 'zh-CN';
 			if (this.dateEl) {
-				const ds = n.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
-				const ts = n.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+				const ds = n.toLocaleDateString(l, { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+				const ts = n.toLocaleTimeString(l, { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 				this.dateEl.textContent = `${ds} ${ts}`;
 			}
 			if (this.weekdayEl) {
-				this.weekdayEl.textContent = n.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' });
+				this.weekdayEl.textContent = n.toLocaleDateString(l, { timeZone: 'Asia/Shanghai', weekday: 'long' });
 			}
+			// 英文模式下 lunarEl 不存在（决策2：隐藏农历），自然跳过
 			if (this.lunarEl) {
 				const lunar = getLunarDate(n);
-				if (lunar) this.lunarEl.textContent = '\u519C\u5386 ' + lunar;
+				if (lunar) this.lunarEl.textContent = t('home.lunarPrefix') + lunar;
 			}
 		}, 30000));
 	}
@@ -676,17 +710,17 @@ export class DashboardView extends ItemView {
 
 		// 导航组：去哪看（主页 / 全部项目 / 机会点）
 		const navItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
-			{ glyph: '\u2302', label: '\u4E3B\u9875', action: 'home', svg: ICON_home },
-			{ glyph: '\u203A', label: '\u5168\u90E8\u9879\u76EE', action: 'all', svg: ICON_allProjects },
+			{ glyph: '\u2302', label: t('home.nav.home'), action: 'home', svg: ICON_home },
+			{ glyph: '\u203A', label: t('home.nav.allProjects'), action: 'all', svg: ICON_allProjects },
 		];
 		if (this.plugin.settings.boardEnabled) {
-			navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || '\u770B\u677F', action: 'opportunity', svg: ICON_opportunity });
+			navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || t('home.nav.board'), action: 'opportunity', svg: ICON_opportunity });
 		}
 		// 动作组：建什么（新建日记 / 新建任务 / 新建项目）
 		const actionItems: Array<{ glyph: string; label: string; action: string; svg?: string }> = [
-			{ glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
-			{ glyph: '\u25A1', label: '\u65B0\u5EFA\u4EFB\u52A1', action: 'task', svg: ICON_newTask },
-			{ glyph: '\u25A3', label: '\u65B0\u5EFA\u9879\u76EE', action: 'project', svg: ICON_newProject },
+			{ glyph: '+', label: t('home.nav.newDiary'), action: 'diary', svg: ICON_newDiary },
+			{ glyph: '\u25A1', label: t('home.nav.newTask'), action: 'task', svg: ICON_newTask },
+			{ glyph: '\u25A3', label: t('home.nav.newProject'), action: 'project', svg: ICON_newProject },
 		];
 
 		const makeBtn = (it: { glyph: string; label: string; action: string; svg?: string }, extraCls = ''): HTMLElement => {
@@ -706,7 +740,7 @@ export class DashboardView extends ItemView {
 					if (it.action === 'opportunity') void this.oppBoard.show();
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
-					this.showToast('打开失败：' + msg, 'error');
+					this.showToast(t('home.openFailed') + msg, 'error');
 					console.error('[Dashboard] toolbar action "' + it.action + '" failed', e);
 				}
 				window.setTimeout(() => btn.removeClass('is-active'), 350);
@@ -743,20 +777,20 @@ export class DashboardView extends ItemView {
 
 		const bar = el.createDiv({ cls: 'ad-parse-issues__bar' });
 		bar.createSpan({ cls: 'ad-parse-issues__icon', text: '⚠' });
-		bar.createSpan({ cls: 'ad-parse-issues__text', text: `${issues.length} 个文件解析异常（数据可能不完整），点击查看` });
-		const toggle = bar.createSpan({ cls: 'ad-parse-issues__toggle', text: '收起' });
+		bar.createSpan({ cls: 'ad-parse-issues__text', text: t('home.parseIssues', { n: issues.length }) });
+		const toggle = bar.createSpan({ cls: 'ad-parse-issues__toggle', text: t('common.collapse') });
 		const list = el.createDiv({ cls: 'ad-parse-issues__list ad-parse-issues__list--hidden' });
 
 		bar.addEventListener('click', () => {
 			const hidden = list.classList.toggle('ad-parse-issues__list--hidden');
-			toggle.textContent = hidden ? '展开' : '收起';
+			toggle.textContent = hidden ? t('common.expand') : t('common.collapse');
 		});
 
 		for (const it of issues) {
 			const row = list.createDiv({ cls: 'ad-parse-issues__item' });
 			row.createSpan({ cls: 'ad-parse-issues__path', text: it.path });
 			row.createSpan({ cls: 'ad-parse-issues__msg', text: `[${it.kind}] ${it.message}` });
-			const openBtn = row.createEl('button', { cls: 'ad-parse-issues__open', text: '在 Obsidian 打开' });
+			const openBtn = row.createEl('button', { cls: 'ad-parse-issues__open', text: t('home.parseOpen') });
 			openBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				void this.openFileByPath(it.path);
@@ -770,7 +804,7 @@ export class DashboardView extends ItemView {
 			const leaf = this.app.workspace.getLeaf(true);
 			await leaf.openFile(f);
 		} else {
-			this.showToast('文件不存在：' + path, 'error');
+			this.showToast(t('home.fileNotFound') + path, 'error');
 		}
 	}
 
@@ -803,16 +837,16 @@ export class DashboardView extends ItemView {
 			return;
 		}
 		const card = board.createDiv({ cls: 'ad-card ad-card--guide' });
-		this.cardHead(card, '\u{1F680}', '欢迎使用 Dashboard');
-		card.createDiv({ cls: 'ad-guide__body', text: '检测到你的知识库还没有任何项目或任务。从下面任意一个开始，几秒即可上手：' });
+		this.cardHead(card, '\u{1F680}', t('home.guideTitle'));
+		card.createDiv({ cls: 'ad-guide__body', text: t('home.guideBody') });
 		const actions = card.createDiv({ cls: 'ad-guide__actions' });
 		const mk = (label: string, fn: () => void) => {
 			const b = actions.createEl('button', { cls: 'ad-guide__btn', text: label });
 			b.addEventListener('click', fn);
 		};
-		mk('＋ 新建项目', () => void this.createProjectFile());
-		mk('＋ 新建任务', () => void this.openTaskModal(this.selectedProject ?? undefined));
-		mk('＋ 新建日记', () => void this.createDiary());
+		mk(t('home.guideNewProject'), () => void this.createProjectFile());
+		mk(t('home.guideNewTask'), () => void this.openTaskModal(this.selectedProject ?? undefined));
+		mk(t('home.guideNewDiary'), () => void this.createDiary());
 	}
 
 	/* ============================================================
@@ -831,14 +865,14 @@ export class DashboardView extends ItemView {
 	private renderQuickCapture(board: HTMLElement): void {
 		// 复用已存在的卡壳（由 renderEnabledModules 按顺序建好），否则每次渲染都会追加一张新卡
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-capture');
-		this.cardHead(card, '\u25C6', '\u5FEB\u901F\u6355\u6349');
+		this.cardHead(card, '\u25C6', t('home.modules.quickCapture'));
 		const qc = card.createDiv({ cls: 'ad-qc' });
 		const area = qc.createEl('textarea', {
 			cls: 'ad-qc__area',
-			attr: { rows: '3', placeholder: '\u8BB0\u5F55\u4E00\u95EA\u800C\u8FC7\u7684\u60F3\u6CD5\u2026' },
+			attr: { rows: '3', placeholder: t('home.quickCapturePlaceholder') },
 		});
 		const row = qc.createDiv({ cls: 'ad-qc__row' });
-		const cta = row.createEl('button', { cls: 'ad-qc__cta', text: '\u6355\u6349' });
+		const cta = row.createEl('button', { cls: 'ad-qc__cta', text: t('home.captureBtn') });
 
 		const submit = async () => {
 			const content = area.value.trim();
@@ -847,10 +881,10 @@ export class DashboardView extends ItemView {
 			try {
 				await this.createCaptureNote(content);
 				area.value = '';
-				this.showToast('\u2728 \u60F3\u6CD5\u5DF2\u6355\u6349\uFF01');
+				this.showToast(t('home.capturedToast'));
 			} catch (err) {
 				console.error('[Dashboard] 快速捕捉失败', err);
-				this.showToast('\u26A0\uFE0F 捕捉失败，请检查「存储路径」设置', 'error');
+				this.showToast(t('home.captureFailed'), 'error');
 			} finally {
 				window.setTimeout(() => cta.removeClass('flash'), 400);
 			}
@@ -927,7 +961,7 @@ export class DashboardView extends ItemView {
 
 		// Check if already exists
 		if (this.app.vault.getAbstractFileByPath(filepath)) {
-			this.showToast(`\u274C ${filename} \u5DF2\u5B58\u5728`);
+			this.showToast(t('home.fileExists', { name: filename }));
 			return;
 		}
 
@@ -943,7 +977,7 @@ export class DashboardView extends ItemView {
 		}
 
 		await this.app.vault.create(filepath, content);
-		this.showToast(`\u2728 \u65E5\u8BB0\u5DF2\u521B\u5EFA\uFF1A${filename}`);
+		this.showToast(t('home.diaryCreated', { name: filename }));
 
 		// Open the new note
 		const file = this.app.vault.getAbstractFileByPath(filepath);
@@ -979,9 +1013,9 @@ export class DashboardView extends ItemView {
 
 	private applyNamingPattern(pattern: string, d: Date): string {
 		const pad = (n: number) => String(n).padStart(2, '0');
-		const WK_SHORT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-		const WK_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-		const meridiem = d.getHours() < 12 ? '上午' : '下午';
+		const WK_SHORT = tArr('status.weekShort');
+		const WK_FULL = tArr('status.weekLong');
+		const meridiem = tArr('status.amPm')[d.getHours() < 12 ? 0 : 1]!;
 		const h12 = d.getHours() % 12 || 12;
 		// 支持的命名占位符（一次性正则替换，避免 DD 与 ddd/dddd 互相串扰）。
 		// YYYY 年 / MM 月(2位) / MMM 月缩写(如 8月) / DD 日(2位)
@@ -989,7 +1023,7 @@ export class DashboardView extends ItemView {
 		// HH 24小时 / hh 12小时 / mm 分 / ss|SS 秒 / A 上午·下午
 		const map: Record<string, string> = {
 			YYYY: String(d.getFullYear()),
-			MMM: `${d.getMonth() + 1}月`,
+			MMM: tArr('status.months')[d.getMonth()]!,
 			MM: pad(d.getMonth() + 1),
 			dddd: WK_FULL[d.getDay()]!,
 			ddd: WK_SHORT[d.getDay()]!,
@@ -1015,18 +1049,32 @@ export class DashboardView extends ItemView {
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
 
-		// Repeat task: instead of toggling status, advance remindDate
-		if (task.type === '\u91CD\u590D' && task.status !== '\u5DF2\u5B8C\u6210') {
-			const nextDate = calcNextRemindDate(task);
-			if (nextDate) {
-				await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
-				task.remindDate = nextDate;
-				const now = nowFmt();
-				await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
-				task.completeTime = now;
-				this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
+		// Repeat task.
+		if (task.type === '\u91CD\u590D') {
+			// 今日已推进过（完成状态）：再点圆圈 = 取消今日完成 → 回退 remindDate 到今天并清除完成时间
+			const advancedToday = !!task.completeTime && task.completeTime.startsWith(todayStr());
+			if (advancedToday && task.status !== '\u5DF2\u5B8C\u6210') {
+				await this.writeFrontmatter(file, { '\u63D0\u9192\u65E5\u671F': todayStr(), '\u5B8C\u6210\u65F6\u95F4': null });
+				task.remindDate = todayStr();
+				task.completeTime = null;
+				row.toggleClass('is-done', false);
+				this.showToast(t('home.nodeTodo', { date: todayStr() }));
 				void this.refreshRelevant();
 				return;
+			}
+			// 未完成（含今日尚未推进）：推进 remindDate 到下一次
+			if (task.status !== '\u5DF2\u5B8C\u6210') {
+				const nextDate = calcNextRemindDate(task);
+				if (nextDate) {
+					await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
+					task.remindDate = nextDate;
+					const now = nowFmt();
+					await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
+					task.completeTime = now;
+					this.showToast(t('home.repeatNext', { date: nextDate }));
+					void this.refreshRelevant();
+					return;
+				}
 			}
 		}
 
@@ -1046,6 +1094,61 @@ export class DashboardView extends ItemView {
 	/** Write frontmatter fields to a file via the shared data-layer writer (CRLF-safe + YAML value escaping). */
 	async writeFrontmatter(file: TFile, updates: Record<string, string | null>): Promise<void> {
 		await fmWriteFrontmatter(this.app, file, updates);
+	}
+
+	/**
+	 * Set a single daily-node state for a task's date, rewriting the body
+	 * "## 每日节点" block (state: done / todo / skip). Falls back to legacy
+	 * frontmatter "每日节点" key when the body block is absent.
+	 */
+	async setDailyNode(task: TaskItem, date: string, state: 'done' | 'todo' | 'skip'): Promise<void> {
+		if (!task.sourceFile) return;
+		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
+		if (!(file instanceof TFile)) return;
+
+		const raw = await this.app.vault.read(file);
+		const lines = raw.split(/\r?\n/);
+		// End of frontmatter
+		let fmEnd = 0;
+		if (lines[0]?.trim() === '---') {
+			for (let i = 1; i < lines.length; i++) {
+				if (lines[i]?.trim() === '---') { fmEnd = i; break; }
+			}
+		}
+		// Parse existing nodes from the body block (canonical parser: marker words
+		// like 未做/待办/完成 are not treated as notes — see parseDailyNodesFromBody)
+		const nodes = parseDailyNodesFromBody(raw);
+		// Apply the target state (todo = remove node entirely so it counts as "not done")
+		if (state === 'todo') {
+			delete nodes[date];
+		} else {
+			nodes[date] = { s: state, n: (nodes[date]?.n) || '' };
+		}
+		// Rebuild body without the old daily-node block, then append fresh block
+		const block = serializeDailyNodesBlock(nodes);
+		const fmPart = lines.slice(0, fmEnd + 1).join('\n');
+		const bodyLines: string[] = [];
+		let inDnBlock = false;
+		for (let j = fmEnd + 1; j < lines.length; j++) {
+			const l = lines[j] ?? '';
+			if (/^#{1,6}\s+每日节点\s*$/.test(l.trim())) { inDnBlock = true; continue; }
+			if (inDnBlock) {
+				if (/^-\s*\d{4}-\d{2}-\d{2}/.test(l.trim())) continue;
+				if (l.trim() === '') continue;
+				inDnBlock = false;
+			}
+			bodyLines.push(l);
+		}
+		while (bodyLines.length && (bodyLines[bodyLines.length - 1] ?? '').trim() === '') bodyLines.pop();
+		const tail = bodyLines.join('\n').trim();
+		let out = fmPart;
+		if (tail) out += '\n' + tail;
+		if (block) out += '\n\n' + block + '\n';
+		await this.app.vault.modify(file, out.trimEnd() + '\n');
+
+		task.dailyNodes = nodes;
+		this.showToast(state === 'done' ? t('home.nodeDone', { date }) : state === 'skip' ? t('home.nodeSkipped', { date }) : t('home.nodeTodo', { date }));
+		void this.refreshRelevant();
 	}
 
 	private async writeTaskField(task: TaskItem, fieldKey: string, value: string): Promise<void> {
@@ -1090,7 +1193,7 @@ export class DashboardView extends ItemView {
 			task.remindDate = newRemind;
 		}
 
-		this.showToast('\u2728 \u4EFB\u52A1\u5DF2\u5EF6\u540E\u4E00\u5929');
+		this.showToast(t('home.taskPostponed'));
 		void this.refreshRelevant();
 	}
 
@@ -1134,7 +1237,7 @@ export class DashboardView extends ItemView {
 			'\u7ED3\u675F\u65E5\u671F': data.endDate,
 			'\u9636\u6BB5': String(data.stage),
 		});
-		this.showToast('\u2728 \u9879\u76EE\u5DF2\u66F4\u65B0');
+		this.showToast(t('home.projectUpdated'));
 		await this.projectBoard.refresh();
 	}
 
@@ -1154,26 +1257,46 @@ export class DashboardView extends ItemView {
 	/** Delete task file from vault */
 	async deleteTask(task: TaskItem): Promise<void> {
 		if (!task.sourceFile) return;
-		const confirmed = confirm(`\u786E\u5B9A\u5220\u9664\u4EFB\u52A1 "${task.content}"\uFF1F`);
-		if (!confirmed) return;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
-		if (file instanceof TFile) {
-			await this.app.fileManager.trashFile(file);
-			this.showToast('\u274C \u4EFB\u52A1\u5DF2\u5220\u9664: ' + task.content);
-			void this.refreshRelevant();
-		}
+		if (!(file instanceof TFile)) return;
+		const { ConfirmModal } = await import('./ConfirmModal');
+		new ConfirmModal({
+			app: this.app,
+			title: t('common.delete'),
+			message: t('home.deleteTaskConfirm', { name: task.content }),
+			confirmLabel: t('common.delete'),
+			cancelLabel: t('common.cancel'),
+			onConfirm: () => {
+				void (async () => {
+					await this.app.fileManager.trashFile(file);
+					this.showToast(t('home.taskDeleted', { name: task.content }));
+					void this.refreshRelevant();
+				})();
+			},
+		}).open();
 	}
 
 	/** Open TaskEditModal for a given task */
 	openTaskEditModal(task: TaskItem, presetTodayNode?: NodeState): void {
-		new TaskEditModal({
-			app: this.app,
-			task,
-			presetTodayNode,
-			onSave: () => {
-				void this.refreshRelevant();
-			},
-		}).open();
+		// 异步加载项目与任务列表，供任务详情弹窗内的「项目 / 父任务」下拉使用
+		void (async () => {
+			const [projects, allTasks] = await Promise.all([
+				this.taskStore.scanAllProjects(),
+				this.taskStore.scanAllTasks(),
+			]);
+			new TaskEditModal({
+				app: this.app,
+				task,
+				presetTodayNode,
+				projects,
+				allTasks,
+				projectsFolder: this.plugin.settings.projectsFolder,
+				taskDetailMode: this.plugin.settings.taskDetailMode,
+				onSave: () => {
+					void this.refreshRelevant();
+				},
+			}).open();
+		})();
 	}
 
 	/** Find the actual project folder by scanning vault */
@@ -1181,6 +1304,14 @@ export class DashboardView extends ItemView {
 		const rootPath = this.plugin.settings.projectsFolder;
 		const root = this.app.vault.getAbstractFileByPath(rootPath);
 		if (!(root instanceof TFolder)) return null;
+		// 优先按「显示名 → path」映射匹配（TaskModal 传的是 ProjectInfo.name，可能是 frontmatter 项目名称而非文件夹名）
+		const projects = await this.taskStore.scanAllProjects();
+		const byName = projects.find((p) => p.name === projectName);
+		if (byName) {
+			const f = this.app.vault.getAbstractFileByPath(byName.path);
+			if (f instanceof TFolder) return f;
+		}
+		// 兜底：按文件夹名递归匹配
 		return this.findProjectFolderRecursive(root, projectName);
 	}
 
@@ -1217,7 +1348,7 @@ export class DashboardView extends ItemView {
 	): Promise<void> {
 		const projectFolder = await this.findProjectFolder(projectName);
 		if (!projectFolder) {
-			this.showToast(`\u274C \u627E\u4E0D\u5230\u9879\u76EE\u6587\u4EF6\u5939: ${projectName}`);
+			this.showToast(t('home.projectFolderMissing', { name: projectName }));
 			return;
 		}
 
@@ -1227,7 +1358,7 @@ export class DashboardView extends ItemView {
 
 		// Check if already exists
 		if (this.app.vault.getAbstractFileByPath(filePath)) {
-			this.showToast(`\u274C ${title} \u5DF2\u5B58\u5728\u4E8E\u8BE5\u9879\u76EE\u4E2D`);
+			this.showToast(t('home.taskExistsInProject', { name: title }));
 			return;
 		}
 
@@ -1291,8 +1422,14 @@ export class DashboardView extends ItemView {
 		lines.push(`# ${title}`);
 		lines.push('');
 
-		await this.app.vault.create(filePath, lines.join('\n'));
-		this.showToast(`\u2728 \u4EFB\u52A1\u5DF2\u521B\u5EFA`);
+		try {
+			await this.app.vault.create(filePath, lines.join('\n'));
+			this.showToast(t('home.taskCreated'));
+			void this.refreshRelevant();
+		} catch (err) {
+			console.error('createTaskFile failed', err);
+			this.showToast(t('home.taskCreateFailed', { name: title, error: err instanceof Error ? err.message : String(err) }));
+		}
 	}
 
 	/** Create a project folder + project.md with Chinese frontmatter */
@@ -1340,8 +1477,18 @@ export class DashboardView extends ItemView {
 
 		// Config file: project-{name}.md
 		const projectFilePath = `${projectFolderPath}/project-${safeName}.md`;
-		await this.app.vault.create(projectFilePath, lines.join('\n'));
-		this.showToast(`\u2728 \u9879\u76EE\u5DF2\u521B\u5EFA\uFF1A${name}`);
+		try {
+			if (this.app.vault.getAbstractFileByPath(projectFilePath)) {
+				this.showToast(t('home.fileExists', { name: 'project-' + safeName }));
+				return;
+			}
+			await this.app.vault.create(projectFilePath, lines.join('\n'));
+			this.showToast(t('home.projectCreated', { name }));
+			void this.refreshRelevant();
+		} catch (err) {
+			console.error('createProjectFolder failed', err);
+			this.showToast(t('home.projectCreateFailed', { name, error: err instanceof Error ? err.message : String(err) }));
+		}
 	}
 
 	/** Get list of all projects (async version using scanAllProjects) */
@@ -1427,6 +1574,23 @@ export class DashboardView extends ItemView {
 		await this.renderTodo(this.boardEl, allTasks);
 	}
 
+	/** 设置页切换「完成后不消失」等开关后，立即刷新 TODO 卡片（无需切页/重载） */
+	public refreshTodo(): void {
+		void this.refreshTodoList();
+	}
+
+	/** Refresh the weekly & overdue list card in-place */
+	private async refreshWeeklyList(): Promise<void> {
+		if (!this.boardEl) return;
+		const allTasks = await this.taskStore.scanAllTasks();
+		await this.renderWeekly(this.boardEl, allTasks);
+	}
+
+	/** 设置页切换「完成后不消失」等开关后，立即刷新本周待办卡片（无需切页/重载） */
+	public refreshWeekly(): void {
+		void this.refreshWeeklyList();
+	}
+
 	/**
 	 * 由多类名字符串构造合法的类选择器：'ad-card ad-b-todo' → '.ad-card.ad-b-todo'
 	 *
@@ -1478,19 +1642,48 @@ export class DashboardView extends ItemView {
 			if (!matched) el.remove();
 		});
 
+		// ── 第零步：把「启用模块」展开为渲染单元。
+		//   倒计时是多实例模块：settings.countdown 每一项 = 一张独立卡片（cdIdx = 数组下标）；
+		//   列表为空时退化出一张占位卡（cdIdx = -1），保证「右键添加」始终有入口。
+		const units: { mod: HomeModule; cdIdx?: number }[] = [];
+		for (const cfg of enabled) {
+			const mod = this.homeModules.find((x) => x.id === cfg.id);
+			if (!mod) continue;
+			if (mod.id === 'countdown') {
+				const cds = this.plugin.settings.countdown ?? [];
+				const idxs = cds.length ? cds.map((_, i) => i) : [-1];
+				for (const i of idxs) units.push({ mod, cdIdx: i });
+			} else {
+				units.push({ mod });
+			}
+		}
+
 		// ── 第一步：**同步**建好全部卡壳并按 settings 顺序摆位 ──────────────────
 		// 关键：部分模块的 render 是 async（todo/progress/weekly/projects 包在 `void` 里），
 		// 若等它们各自 createDiv，DOM 顺序就变成「谁先 resolve 谁在前」→ 表现为
 		// 「排好的布局一切页/一重启就乱」。先同步占好位置，异步内容只是往壳里填。
 		const shells: HTMLElement[] = [];
-		for (const cfg of enabled) {
-			const mod = this.homeModules.find((x) => x.id === cfg.id);
-			if (!mod) continue;
-			const sel = DashboardView.cardSel(mod.cardCls);
+		// 倒计时卡片数量减少后，残留旧实例（data-cd-idx 不再存在）需按精确下标移除
+		const cdLiveIdx = new Set(units.filter((u) => u.cdIdx !== undefined).map((u) => String(u.cdIdx)));
+		board.querySelectorAll('.ad-b-countdown').forEach((el) => {
+			const idx = (el as HTMLElement).getAttribute('data-cd-idx');
+			if (idx !== null && !cdLiveIdx.has(idx)) el.remove();
+		});
+		for (const u of units) {
+			const sel = DashboardView.cardSel(u.mod.cardCls);
 			let el = board.querySelector(sel) as HTMLElement | null;
-			if (!el) el = board.createDiv({ cls: mod.cardCls });
-			el.setAttribute('data-mod', mod.id);
-			this.applyCardSpan(el, cfg.cols, cfg.rows);
+			// 倒计时多实例：同一 class 有多张卡，必须按 data-cd-idx 精确命中，否则会全命中第一张
+			if (u.cdIdx !== undefined && el) {
+				const exact = board.querySelector(`${sel}[data-cd-idx="${u.cdIdx}"]`) as HTMLElement | null;
+				if (exact) { el = exact; el.empty(); } else { el = null; }
+			}
+			if (!el) {
+				el = board.createDiv({ cls: u.mod.cardCls });
+				if (u.cdIdx !== undefined) el.setAttribute('data-cd-idx', String(u.cdIdx));
+			}
+			el.setAttribute('data-mod', u.mod.id);
+			const cfg = this.plugin.settings.homeModules?.find((m) => m.id === u.mod.id);
+			this.applyCardSpan(el, cfg?.cols, cfg?.rows);
 			shells.push(el);
 		}
 		// 只在实际错位时才移动节点：避免无谓的重新插入导致快速捕捉输入框失焦
@@ -1504,18 +1697,23 @@ export class DashboardView extends ItemView {
 
 		// ── 第二步：填充内容（各 render 内部用 getOrCreateCard 命中上面的壳） ──────
 		const allTasks = opts?.allTasks ?? await this.taskStore.scanAllTasks();
-		for (const cfg of enabled) {
-			const mod = this.homeModules.find((x) => x.id === cfg.id);
-			if (!mod) continue;
-			if (opts?.onlyLive && mod.live === false) continue;
+		for (const u of units) {
 			// 异步渲染期间用户可能已切页，必须重校验，否则会把主页卡渲染进其它页面
 			if (this.currentPage !== 'home' || !this.boardEl) return;
-			await mod.render(board, allTasks);
+			if (u.cdIdx !== undefined) {
+				// 倒计时多实例：按 data-cd-idx 渲染对应独立卡片（live:false，不进 onlyLive 刷新）
+				if (opts?.onlyLive) continue;
+				this.renderCountdownCard(board, u.cdIdx);
+				continue;
+			}
+			if (opts?.onlyLive && u.mod.live === false) continue;
+			await u.mod.render(board, allTasks);
 			// 内容渲染可能重建了卡片，比例/标识需要复位一次（幂等）
-			const cardEl = board.querySelector(DashboardView.cardSel(mod.cardCls)) as HTMLElement | null;
+			const cardEl = board.querySelector(DashboardView.cardSel(u.mod.cardCls)) as HTMLElement | null;
 			if (cardEl) {
-				cardEl.setAttribute('data-mod', mod.id);
-				this.applyCardSpan(cardEl, cfg.cols, cfg.rows);
+				cardEl.setAttribute('data-mod', u.mod.id);
+				const cfg = this.plugin.settings.homeModules?.find((m) => m.id === u.mod.id);
+				this.applyCardSpan(cardEl, cfg?.cols, cfg?.rows);
 			}
 		}
 
@@ -1739,33 +1937,59 @@ export class DashboardView extends ItemView {
 		);
 	}
 
-	/** 编辑态下右键卡片：倒计时卡片先弹出右键菜单选「编辑」，确认后再开编辑弹窗 */
+	/** 首页倒计时卡片右键菜单：仅提供「编辑」（删除统一走编辑态「拖到此处删除」区，
+	 *  避免入口重复、误删；新增卡片走「添加卡片」菜单）。非首页 / 非倒计时卡直接放行系统菜单。 */
 	private onBoardContextMenu(e: MouseEvent): void {
-		// 右键菜单仅首页编辑态下用于倒计时卡片；项目/机会点页无卡片编辑模式，直接放行系统右键菜单
+		// 右键菜单仅作用于首页倒计时卡片；项目/机会点页无此卡片，直接放行系统右键菜单
 		if (this.currentPage !== 'home') return;
-		if (!this.adEditMode) return;
 		const card = (e.target as HTMLElement).closest('.ad-card') as HTMLElement | null;
 		if (!card) return;
 		if ((card.getAttribute('data-mod') ?? '') !== 'countdown') return;
 		e.preventDefault();
+		const idxAttr = card.getAttribute('data-cd-idx');
+		const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
+		if (idx < 0) return; // 占位卡（无事件）不提供右键菜单
+		// 右键仅提供「编辑」；删除统一走编辑态「拖到此处删除」区，避免入口重复、误删
 		const menu = new Menu();
 		menu.addItem((item) => item
-			.setTitle('\u7F16\u8F91')
+			.setTitle(t('common.edit'))
 			.setIcon('pencil')
-			.onClick(() => this.openCountdownEdit()));
+			.onClick(() => this.openCountdownEdit(idx)));
 		menu.showAtMouseEvent(e);
 	}
 
-	/** 打开倒计时事件编辑弹窗，保存后回写 settings 并刷新卡片 */
-	private openCountdownEdit(): void {
+	/** 打开倒计时事件编辑弹窗；idx >= 0 时仅编辑这一张卡（其他不受影响），idx < 0 时编辑整张占位卡。
+	 *  保存后回写 settings 并刷新卡片。 */
+	private openCountdownEdit(idx: number): void {
 		if (!this.boardEl) return;
+		const fullList = this.plugin.settings.countdown ?? [];
+		if (idx >= 0) {
+			// 单卡编辑：弹窗只显示当前这一张卡，确认后只回写这张卡（其他卡片不受影响）
+			const current = fullList[idx];
+			if (!current) return;
+			const modal = new CountdownModal(
+				this.app,
+				[{ ...current }],
+				(cfg) => {
+					const next = fullList.slice();
+					if (cfg.length) next[idx] = cfg[0]!;
+					this.plugin.settings.countdown = next;
+					void this.plugin.saveSettings();
+					void this.renderEnabledModules(this.boardEl!);
+				},
+				{ single: true },
+			);
+			modal.open();
+			return;
+		}
+		// 兜底：占位卡场景，整批编辑
 		const modal = new CountdownModal(
 			this.app,
 			this.plugin.settings.countdown,
 			(cfg) => {
 				this.plugin.settings.countdown = cfg;
 				void this.plugin.saveSettings();
-				this.renderCountdown(this.boardEl!);
+				void this.renderEnabledModules(this.boardEl!);
 			},
 		);
 		modal.open();
@@ -1953,7 +2177,15 @@ export class DashboardView extends ItemView {
 
 		if (overTrash && id) {
 			ds.placeholder.remove();
-			this.removeModule(id);
+			if (id === 'countdown') {
+				// 倒计时是多实例：只删除被拖动的这一张（按 data-cd-idx 精确定位），
+				// 不能走 removeModule（会把整个倒计时模块隐藏，误删其余卡片）
+				const idxAttr = card.getAttribute('data-cd-idx');
+				const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
+				this.deleteCountdownCard(idx);
+			} else {
+				this.removeModule(id);
+			}
 			return;
 		}
 		ds.placeholder.parentNode?.insertBefore(card, ds.placeholder);
@@ -2001,7 +2233,7 @@ export class DashboardView extends ItemView {
 		await this.plugin.resetHomeLayout();
 		if (this.boardEl) this.boardEl.empty();
 		await this.showDashboardKeepEditMode();
-		this.showToast('↺ 已恢复默认布局');
+		this.showToast(t('home.restoreLayout'));
 	}
 
 	/** 重建首页但不退出编辑态（供「重置布局 / 添加卡片」在编辑态内复用） */
@@ -2060,13 +2292,13 @@ export class DashboardView extends ItemView {
 	private showEditBar(): void {
 		if (this.adEditBar || !this.dashboardEl) return;
 		const bar = this.dashboardEl.createDiv({ cls: 'ad-editbar' });
-		bar.createEl('button', { cls: 'ad-editbar__trash', text: '\uD83D\uDDD1 拖到此处删除' });
+		bar.createEl('button', { cls: 'ad-editbar__trash', text: t('home.editbar.trash') });
 		bar.createDiv({ cls: 'ad-editbar__spacer' });
-		const add = bar.createEl('button', { cls: 'ad-editbar__add', text: '＋ 添加卡片' });
+		const add = bar.createEl('button', { cls: 'ad-editbar__add', text: t('home.editbar.add') });
 		add.addEventListener('click', () => this.openAddMenu());
-		const reset = bar.createEl('button', { cls: 'ad-editbar__reset', text: '↺ 重置布局' });
+		const reset = bar.createEl('button', { cls: 'ad-editbar__reset', text: t('home.editbar.reset') });
 		reset.addEventListener('click', () => void this.resetLayout());
-		const done = bar.createEl('button', { cls: 'ad-editbar__done', text: '完成' });
+		const done = bar.createEl('button', { cls: 'ad-editbar__done', text: t('home.editbar.done') });
 		done.addEventListener('click', () => this.exitEditMode());
 		this.adEditBar = bar;
 	}
@@ -2089,7 +2321,7 @@ export class DashboardView extends ItemView {
 			if (!modId) return;
 			if (!c.getAttribute('data-mod')) c.setAttribute('data-mod', modId);
 			const btn = c.createDiv({ cls: 'ad-card__resize', text: '⤢' });
-			btn.setAttribute('aria-label', '调整卡片比例（拖动缩放，点击精确设置）');
+			btn.setAttribute('aria-label', t('home.ratioAria'));
 			btn.addEventListener('pointerdown', (ev) => {
 				ev.stopPropagation();
 				ev.preventDefault();
@@ -2261,8 +2493,8 @@ export class DashboardView extends ItemView {
 		const curRows = m.rows ?? 1;
 		const { backdrop, close } = this.createPopover('ad-propmenu-backdrop', { anchored: true });
 		const menu = backdrop.createDiv({ cls: 'ad-propmenu' });
-		const ratioHint = MIN_RATIO[modId] ? `（本卡最低宽高比 ${MIN_RATIO[modId]}:1）` : '';
-		menu.createDiv({ cls: 'ad-propmenu__title', text: `调整卡片比例（宽 1-4 格，高 1-4 格；如 1×2 竖卡）${ratioHint}` });
+		const ratioHint = MIN_RATIO[modId] ? t('home.ratioHint', { ratio: MIN_RATIO[modId] }) : '';
+		menu.createDiv({ cls: 'ad-propmenu__title', text: t('home.ratioMenuTitle', { hint: ratioHint }) });
 		const grid = menu.createDiv({ cls: 'ad-propmenu__grid' });
 		for (let r = 1; r <= 4; r++) {
 			for (let c = 1; c <= 4; c++) {
@@ -2301,26 +2533,42 @@ export class DashboardView extends ItemView {
 		}, 460);
 	}
 
-	/** 弹出被隐藏模块的列表，点击即加回首页 */
+	/** 弹出可添加的卡片列表；点击即加入首页。
+	 *  - 倒计时：自由追加独立卡片（≤5 张），与「隐藏模块」显隐逻辑解耦；
+	 *  - 其余模块：列出被隐藏（enabled=false）的模块，点击恢复显示。 */
 	private openAddMenu(): void {
 		const hm = this.plugin.settings.homeModules ?? [];
 		const hidden = hm.filter((m) => !m.enabled);
 		const titleMap = new Map(this.homeModules.map((m) => [m.id, m.title]));
+		const cds = this.plugin.settings.countdown ?? [];
 		const { backdrop, close } = this.createPopover('ad-addmenu-backdrop');
 		const menu = backdrop.createDiv({ cls: 'ad-addmenu' });
-		menu.createDiv({ cls: 'ad-addmenu__title', text: '添加卡片到首页' });
-		if (hidden.length === 0) {
-			menu.createDiv({ cls: 'ad-addmenu__empty', text: '所有模块均已显示在首页' });
-		} else {
-			for (const m of hidden) {
-				const item = menu.createDiv({ cls: 'ad-addmenu__item' });
-				item.createSpan({ text: titleMap.get(m.id) ?? m.id });
-				item.createSpan({ text: '＋' });
-				item.addEventListener('click', () => {
-					close();
-					void this.addModule(m.id);
-				});
-			}
+		menu.createDiv({ cls: 'ad-addmenu__title', text: t('home.addMenuTitle') });
+
+		// 倒计时：存在倒计时卡片 ≤5 时，始终提供「添加倒计时卡片」入口
+		if (cds.length < 5) {
+			const item = menu.createDiv({ cls: 'ad-addmenu__item' });
+			item.createSpan({ text: t('home.cdAddCard') });
+			item.createSpan({ text: '＋' });
+			item.addEventListener('click', () => {
+				close();
+				this.addCountdownCard();
+			});
+		}
+
+		for (const m of hidden) {
+			const item = menu.createDiv({ cls: 'ad-addmenu__item' });
+			item.createSpan({ text: titleMap.get(m.id) ?? m.id });
+			item.createSpan({ text: '＋' });
+			item.addEventListener('click', () => {
+				close();
+				void this.addModule(m.id);
+			});
+		}
+
+		// 既无隐藏模块、倒计时也已满 5 张：给个空提示
+		if (hidden.length === 0 && cds.length >= 5) {
+			menu.createDiv({ cls: 'ad-addmenu__empty', text: t('home.addMenuEmpty') });
 		}
 	}
 
@@ -2330,8 +2578,8 @@ export class DashboardView extends ItemView {
 		this.boardEl.empty();
 		const hint = this.boardEl.createDiv({ cls: 'ad-empty' });
 		hint.createDiv({ cls: 'ad-empty__icon', text: '\uD83D\uDD12' });
-		hint.createDiv({ cls: 'ad-empty__title', text: '首页暂无卡片' });
-		hint.createDiv({ cls: 'ad-empty__hint', text: '长按此处或点「＋ 添加卡片」把模块加回来' });
+		hint.createDiv({ cls: 'ad-empty__title', text: t('home.emptyTitle') });
+		hint.createDiv({ cls: 'ad-empty__hint', text: t('home.emptyHint') });
 	}
 
 	/** Refresh all home dashboard cards (todo + progress + weekly) in-place.
@@ -2399,17 +2647,29 @@ export class DashboardView extends ItemView {
 		const list = card.createDiv({ cls: 'ad-todo' });
 
 		try {
-			const todayTasks = getTodayTasks(tasks);
+			// 「完成后不消失」开关：开启时已完成任务保留在列表中，以变灰 + 删除线展示
+			const keepDone = !!this.plugin.settings.todoShowCompleted;
+			const today = todayStr();
+			const todayTasks = getTodayTasks(tasks, today, keepDone);
 
-			// Sort: overdue first, then by priority
+			// 视为「已完成」的行：状态已完成，或重复任务在今日完成推进（默认推进后仍保留待办状态，
+			// 但画布上用变灰呈现）。用于排序沉底与 is-done 样式。
+			const isDoneRow = (t: TaskItem): boolean =>
+				t.status === '\u5DF2\u5B8C\u6210'
+				|| (t.type === '\u91CD\u590D' && !!t.completeTime && t.completeTime.startsWith(today));
+
+			// Sort: 已完成沉底（仅开启保留时才有已完成行）、逾期优先、再按优先级
 			const sorted = todayTasks.sort((a, b) => {
+				const aDone = isDoneRow(a);
+				const bDone = isDoneRow(b);
+				if (aDone !== bDone) return aDone ? 1 : -1;
 				if (a.isOverdue && !b.isOverdue) return -1;
 				if (!a.isOverdue && b.isOverdue) return 1;
 				return priorityWeight(a.priority) - priorityWeight(b.priority);
 			});
 
 			sorted.forEach((task) => {
-				const isDone = task.status === '\u5DF2\u5B8C\u6210';
+				const isDone = isDoneRow(task);
 				const row = list.createDiv({ cls: 'ad-todo__item' + (isDone ? ' is-done' : '') + (task.isOverdue ? ' is-overdue' : '') });
 
 				// Circle click → toggle task (handles repeat tasks)
@@ -2425,34 +2685,35 @@ export class DashboardView extends ItemView {
 			this.openTaskEditModal(task);
 		});
 
-			// Tag with priority
-				const prioLabel = task.priority || '\u672A\u8BBE\u7F6E';
-				row.createSpan({ cls: 'ad-todo__tag', text: prioLabel, attr: { 'data-prio': task.priority || '' } });
+		// Tag with priority
+			// 优先级标签：纯文本无 emoji（不显示 🔴🟡🔵⚪ 圆点），胶囊样式参考本周待办的紧急标签（ad-wo__urg）
+			const prioLabel = task.priority ? UI_TEXT.prioText(task.priority) : t('common.notSet');
+			row.createSpan({ cls: 'ad-todo__tag', text: prioLabel, attr: { 'data-prio': task.priority || '' } });
 
 				// Right-click context menu
 				row.addEventListener('contextmenu', (e) => {
 					e.preventDefault();
 					const menu = new Menu();
-					menu.addItem((item) => {
-						item.setTitle('\u7F16\u8F91\u4EFB\u52A1').setIcon('pencil').onClick(() => this.openTaskEditModal(task));
-					});
-					menu.addItem((item) => {
-						item.setTitle('\u5EF6\u540E\u4E00\u5929').setIcon('calendar').onClick(() => void this.postponeTask(task));
-					});
-					menu.addSeparator();
 				menu.addItem((item) => {
-					item.setTitle('\u5220\u9664\u4EFB\u52A1').setIcon('trash').onClick(() => void this.deleteTask(task));
+					item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
 				});
-				// Multi-day tasks: daily node check-in via edit modal
-				if (task.startDate && task.dueDate && task.startDate !== task.dueDate) {
-					menu.addSeparator();
-					menu.addItem((item) => {
-						item.setTitle('今日完成').setIcon('check').onClick(() => this.openTaskEditModal(task, 'done'));
-					});
-					menu.addItem((item) => {
-						item.setTitle('今日不做').setIcon('x').onClick(() => this.openTaskEditModal(task, 'skip'));
-					});
-				}
+				menu.addItem((item) => {
+					item.setTitle(t('home.postponeDay')).setIcon('calendar').onClick(() => void this.postponeTask(task));
+				});
+				menu.addSeparator();
+			menu.addItem((item) => {
+				item.setTitle(t('common.delete')).setIcon('trash').onClick(() => void this.deleteTask(task));
+			});
+			// Multi-day tasks: daily node check-in via edit modal
+			if (task.startDate && task.dueDate && task.startDate !== task.dueDate) {
+				menu.addSeparator();
+				menu.addItem((item) => {
+					item.setTitle(t('home.todayDone')).setIcon('check').onClick(() => this.openTaskEditModal(task, 'done'));
+				});
+				menu.addItem((item) => {
+					item.setTitle(t('home.todaySkip')).setIcon('x').onClick(() => this.openTaskEditModal(task, 'skip'));
+				});
+			}
 				menu.showAtMouseEvent(e);
 				});
 			});
@@ -2461,10 +2722,10 @@ export class DashboardView extends ItemView {
 			const doneCount = universe.filter((t) => isDoneToday(t)).length;
 			const skipCount = universe.filter((t) => isSkipToday(t)).length;
 			const totalForSummary = universe.length - skipCount;
-			summary.textContent = `${doneCount} / ${totalForSummary} done \u00B7 \u6309\u4F18\u5148\u7EA7`;
+			summary.textContent = t('home.todoSummary', { done: doneCount, total: totalForSummary });
 		} catch {
 			summary.textContent = '0 / 0 done';
-			list.createDiv({ cls: 'ad-todo__empty', text: '\u6682\u65E0\u4ECA\u65E5\u4EFB\u52A1' });
+			list.createDiv({ cls: 'ad-todo__empty', text: t('home.noTodayTasks') });
 		}
 	}
 
@@ -2472,7 +2733,7 @@ export class DashboardView extends ItemView {
 	private async renderProgress(board: HTMLElement, allTasks?: TaskItem[]): Promise<void> {
 		const tasks = allTasks ?? await this.taskStore.scanAllTasks();
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-progress');
-		this.cardHead(card, '\u25D0', '\u5DE5\u4F5C\u8FDB\u5EA6', 'today \u00B7 ring');
+		this.cardHead(card, '\u25D0', t('home.modules.progress'), 'today \u00B7 ring');
 		const dp = card.createDiv({ cls: 'ad-dp' });
 
 		let todayDone = 0, todayTotal = 0, allDone = 0, allTotal = 0;
@@ -2494,9 +2755,9 @@ export class DashboardView extends ItemView {
 		if (tasks.length === 0) {
 			this.renderEmpty(card, {
 				icon: '\u{1F3AF}',
-				title: '还没有任何任务',
-				hint: '在下方「快速捕捉」里随手记一条，或点工具栏「＋ 新建任务」开始。',
-				actionLabel: '＋ 新建任务',
+				title: t('home.todoEmptyTitle'),
+				hint: t('home.todoEmptyHint'),
+				actionLabel: t('home.todoEmptyAction'),
 				onAction: () => void this.openTaskModal(this.selectedProject ?? undefined),
 			});
 			return;
@@ -2505,12 +2766,12 @@ export class DashboardView extends ItemView {
 		// Top ring — today's tasks
 		const todayPct = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
 		this.buildRing(dp, todayPct, 'ad-dp__pct-daily', 'daily');
-		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u4ECA\u65E5\u5DF2\u5B8C\u6210 ${todayDone} / \u4ECA\u65E5\u603B\u4EFB\u52A1 ${todayTotal}` });
+		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: t('home.todayStat', { done: todayDone, total: todayTotal }) });
 
 		// Bottom ring — all tasks
 		const allPct = allTotal ? Math.round((allDone / allTotal) * 100) : 0;
 		this.buildRing(dp, allPct, 'ad-dp__pct-proj', 'proj');
-		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u5DF2\u5B8C\u6210 ${allDone} / \u603B\u4EFB\u52A1 ${allTotal}` });
+		dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: t('home.allStat', { done: allDone, total: allTotal }) });
 	}
 
 	private buildRing(parent: HTMLElement, pct: number, pctCls: string, ringKey: string): void {
@@ -2603,7 +2864,7 @@ export class DashboardView extends ItemView {
 		const head = card.createDiv({ cls: 'ad-card__head' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u{1F4C5}' });
-		h3.appendText('\u672C\u5468\u5F85\u529E & \u903E\u671F\u63D0\u9192');
+		h3.appendText(t('home.modules.weekly'));
 
 		const list = card.createDiv({ cls: 'ad-wo' });
 
@@ -2621,13 +2882,24 @@ export class DashboardView extends ItemView {
 			const isDone = (t: TaskItem): boolean =>
 				t.status === '\u5DF2\u5B8C\u6210' || t.status === '\u5DF2\u53D6\u6D88';
 
+			// 「完成后不消失」开关：开启时本周待办同样保留已完成（变灰+删除线）
+			const keepDone = !!this.plugin.settings.todoShowCompleted;
+
 			// ALL overdue tasks (even outside this week), sorted earliest-overdue first
 			const overdue = tasks.filter((t) => t.isOverdue);
 			overdue.sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : a.dueDate! > b.dueDate! ? 1 : 0));
 
 	// This-week, non-overdue, not done — incl. multi-day tasks that span the week
 	const thisWeek = tasks.filter((t) => {
-		if (isDone(t)) return false;
+		if (isDone(t)) {
+			// 完成后不消失：仅保留「本周内完成」的已完成任务（变灰展示），逾期完成也一并保留
+			if (!keepDone) return false;
+			if (t.completeTime) {
+				const ct = t.completeTime.slice(0, 10);
+				return ct >= weekStartStr && ct < weekEndStr;
+			}
+			return false;
+		}
 		// Recurring tasks: show when their next 提醒日期 falls within this week
 		if (t.type === '\u91CD\u590D' && t.remindDate) {
 			return t.remindDate < weekEndStr && t.remindDate >= weekStartStr;
@@ -2645,7 +2917,7 @@ export class DashboardView extends ItemView {
 			// Overdue badge (hidden when 0)
 			if (overdue.length > 0) {
 				const badge = head.createSpan({ cls: 'ad-badge ad-badge--danger', text: String(overdue.length) });
-				badge.title = `${overdue.length} \u4E2A\u903E\u671F\u4EFB\u52A1`;
+				badge.title = t('home.overdueTooltip', { n: overdue.length });
 			}
 
 			// Section: overdue (pinned top, red)
@@ -2653,7 +2925,7 @@ export class DashboardView extends ItemView {
 				const og = list.createDiv({ cls: 'ad-wo__group ad-wo--overdue' });
 				const oh4 = og.createEl('h4');
 			oh4.createSpan({ cls: 'ad-wo-mark', text: '▲' });
-			oh4.appendText('逾期提醒');
+			oh4.appendText(t('home.overdue'));
 				const ul = og.createEl('ul', { cls: 'ad-wo__list' });
 				overdue.forEach((t) => this.renderWeeklyRow(ul, t, true));
 			}
@@ -2664,37 +2936,37 @@ export class DashboardView extends ItemView {
 			const wg = list.createDiv({ cls: 'ad-wo__group' });
 			const wh4 = wg.createEl('h4');
 			wh4.createSpan({ cls: 'ad-wo-mark', text: '◆' });
-			wh4.appendText('本周待办');
+			wh4.appendText(t('home.thisWeek'));
 			const ul = wg.createEl('ul', { cls: 'ad-wo__list' });
 			if (thisWeek.length === 0 && overdue.length === 0) {
-				list.createDiv({ cls: 'ad-wo__empty', text: '\u{1F389} \u672C\u5468\u6682\u65E0\u5F85\u529E\u4EFB\u52A1' });
+				list.createDiv({ cls: 'ad-wo__empty', text: t('home.weekEmpty') });
 			} else {
 				thisWeek.forEach((t) => this.renderWeeklyRow(ul, t, false));
 			}
 
 			// Footer stats
 			const foot = card.createDiv({ cls: 'ad-wo__foot' });
-			foot.textContent = `\u672C\u5468\u5171 ${thisWeek.length} \u4E2A\u4EFB\u52A1\uFF0C\u903E\u671F ${overdue.length} \u4E2A`;
+			foot.textContent = t('home.weeklyFoot', { n: thisWeek.length, m: overdue.length });
 		} catch {
-			list.createDiv({ cls: 'ad-wo__empty', text: '\u52A0\u8F7D\u5931\u8D25' });
+			list.createDiv({ cls: 'ad-wo__empty', text: t('home.loadFailed') });
 		}
 	}
 
 	/** Build a single weekly/overdue task row (li) with click + context menu */
 	private renderWeeklyRow(ul: HTMLElement, task: TaskItem, isOverdue: boolean): void {
 		const li = ul.createEl('li');
+		if (task.status === '\u5DF2\u5B8C\u6210') li.classList.add('is-done');
 		const due = task.dueDate || task.remindDate || '';
 		li.createSpan({ cls: 'ad-wo__date', text: due ? due.slice(5) : '\u2014' });
 		li.createSpan({ cls: 'ad-wo__text', text: task.content });
 		if (isOverdue) {
 			const days = overdueDays(task.dueDate);
-			li.createSpan({ cls: 'ad-wo__over', text: `\u903E\u671F ${days}\u5929` });
+			li.createSpan({ cls: 'ad-wo__over', text: t('home.overdueDays', { n: days }) });
 			li.classList.add('is-overdue-row');
 		} else {
-			// This-week rows: show urgency tag (color-coded by priority)
-			const urg = urgencyMeta(task.priority);
-			if (urg) {
-				li.createSpan({ cls: 'ad-wo__urg', text: urg.label, attr: { 'data-urg': urg.key } });
+			// This-week rows: 优先级胶囊与 TODO 卡片统一（纯文本 + data-prio 同款配色）
+			if (task.priority) {
+				li.createSpan({ cls: 'ad-todo__tag', text: UI_TEXT.prioText(task.priority), attr: { 'data-prio': task.priority } });
 			}
 		}
 
@@ -2703,25 +2975,25 @@ export class DashboardView extends ItemView {
 			e.preventDefault();
 			const menu = new Menu();
 			menu.addItem((item) => {
-				item.setTitle('\u7F16\u8F91\u4EFB\u52A1').setIcon('pencil').onClick(() => this.openTaskEditModal(task));
+				item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
 			});
 			menu.addItem((item) => {
-				item.setTitle('\u5220\u9664\u4EFB\u52A1').setIcon('trash').onClick(() => void this.deleteTask(task));
+				item.setTitle(t('home.deleteTask')).setIcon('trash').onClick(() => void this.deleteTask(task));
 			});
 			menu.addItem((item) => {
-				item.setTitle('\u6253\u5F00\u6E90\u6587\u4EF6').setIcon('file').onClick(() => {
+				item.setTitle(t('common.openSource')).setIcon('file').onClick(() => {
 					if (task.sourceFile) void this.app.workspace.openLinkText(task.sourceFile, '', true);
 				});
 			});
 			menu.addItem((item) => {
-				item.setTitle('\u5EF6\u540E\u4E00\u5929').setIcon('calendar').onClick(() => void this.postponeTask(task));
+				item.setTitle(t('home.postponeDay')).setIcon('calendar').onClick(() => void this.postponeTask(task));
 			});
 			menu.addItem((item) => {
-				item.setTitle('\u6807\u8BB0\u5B8C\u6210').setIcon('check').onClick(() => void this.markTaskComplete(task));
+				item.setTitle(t('home.markDone')).setIcon('check').onClick(() => void this.markTaskComplete(task));
 			});
 			if (isOverdue) {
 				menu.addItem((item) => {
-					item.setTitle('\u5EF6\u540E\u5230\u4ECA\u5929').setIcon('calendar-clock').onClick(() => void this.postponeTaskToToday(task));
+					item.setTitle(t('home.postponeToday')).setIcon('calendar-clock').onClick(() => void this.postponeTaskToToday(task));
 				});
 			}
 			menu.showAtMouseEvent(e);
@@ -2731,7 +3003,7 @@ export class DashboardView extends ItemView {
 		/** Mark a task as completed (状态: 已完成) */
 	private async markTaskComplete(task: TaskItem): Promise<void> {
 		if (task.status === '\u5DF2\u5B8C\u6210') {
-			this.showToast('\u2705 \u4EFB\u52A1\u5DF2\u5B8C\u6210');
+			this.showToast(t('home.taskDone'));
 			return;
 		}
 		// Repeat task: instead of completing, advance 提醒日期 so it keeps recurring.
@@ -2743,14 +3015,14 @@ export class DashboardView extends ItemView {
 				const now = nowFmt();
 				await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
 				task.completeTime = now;
-				this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
+				this.showToast(t('home.repeatNext', { date: nextDate }));
 				void this.refreshRelevant();
 				return;
 			}
 		}
 		await this.writeTaskField(task, '\u72B6\u6001', '\u5DF2\u5B8C\u6210');
 		task.status = '\u5DF2\u5B8C\u6210';
-		this.showToast('\u2705 \u4EFB\u52A1\u5DF2\u5B8C\u6210');
+		this.showToast(t('home.taskDone'));
 		void this.refreshRelevant();
 	}
 
@@ -2760,7 +3032,7 @@ export class DashboardView extends ItemView {
 		const today = todayStr();
 		await this.writeTaskField(task, '\u622A\u6B62\u65E5\u671F', today);
 		task.dueDate = today;
-		this.showToast('\u2728 \u5DF2\u5EF6\u540E\u5230\u4ECA\u5929');
+		this.showToast(t('home.postponedToday'));
 		void this.refreshRelevant();
 	}
 
@@ -2770,7 +3042,7 @@ export class DashboardView extends ItemView {
 		const head = card.createDiv({ cls: 'ad-card__head ad-card__head--proj' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u25A6' });
-		h3.appendText('\u9879\u76EE\u60C5\u51B5');
+		h3.appendText(t('home.modules.projects'));
 		const hint = head.createSpan({ cls: 'ad-card__hint ad-card__hint--inline' });
 
 		const stages = this.plugin.settings.npdpStages;
@@ -2789,7 +3061,7 @@ export class DashboardView extends ItemView {
 			? stageProjects.filter((p) => (p.stage ?? 0) <= maxStageFilter)
 			: stageProjects;
 
-		hint.textContent = `${filtered.length} / ${stageProjects.length} \u4E2A\u9879\u76EE`;
+		hint.textContent = t('home.projectsCount', { n: filtered.length, m: stageProjects.length });
 		if (maxStageFilter < stages.length) {
 			hint.textContent += ` (\u2264${stages[maxStageFilter - 1]})`;
 		}
@@ -2797,9 +3069,9 @@ export class DashboardView extends ItemView {
 		if (projects.length === 0) {
 			this.renderEmpty(card, {
 				icon: '\u{1F4D1}',
-				title: '\u8FD8\u6CA1\u6709\u4EFB\u4F55\u9879\u76EE',
-				hint: '\u70B9\u5DE5\u5177\u680F\u300C\uFF0B \u65B0\u5EFA\u9879\u76EE\u300D\u521B\u5EFA\u7B2C\u4E00\u4E2A\u9879\u76EE\uFF0C\u8FDB\u5EA6\u7BA1\u9053\u5C31\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\u3002',
-				actionLabel: '\uFF0B \u65B0\u5EFA\u9879\u76EE',
+				title: t('home.projectsEmptyTitle'),
+				hint: t('home.projectsEmptyHint'),
+				actionLabel: t('home.projectsEmptyAction'),
 				onAction: () => void this.createProjectFile(),
 			});
 			return;
@@ -2818,7 +3090,7 @@ export class DashboardView extends ItemView {
 			row.createSpan({ cls: 'ad-proj__dot', attr: { style: `background:${p.color}` } });
 			const name = row.createDiv({ cls: 'ad-proj__name' });
 			name.appendText(p.name);
-			name.createSpan({ cls: 'ad-meta', text: `${p.taskCount} \u4EFB\u52A1 \u00B7 ${p.activeCount}\u6D3B\u8DC3 \u00B7 ${pct}%` });
+			name.createSpan({ cls: 'ad-meta', text: t('home.projectMeta', { tasks: p.taskCount, active: p.activeCount, pct }) });
 
 			// Stage pipeline mini (connector line segments colored by progress, ends at last dot)
 			const track = row.createDiv({ cls: 'ad-proj__track' });
@@ -2846,10 +3118,10 @@ export class DashboardView extends ItemView {
 				e.preventDefault();
 				const menu = new Menu();
 				menu.addItem((item) => {
-					item.setTitle('\u7F16\u8F91\u9879\u76EE').setIcon('pencil').onClick(() => void this.editProject(p));
+					item.setTitle(t('home.editProject')).setIcon('pencil').onClick(() => void this.editProject(p));
 				});
 				menu.addItem((item) => {
-					item.setTitle('\u67E5\u770B\u7518\u7279\u56FE').setIcon('gantt-chart').onClick(() => void this.navigateToProjectGantt(p));
+					item.setTitle(t('home.viewGantt')).setIcon('gantt-chart').onClick(() => void this.navigateToProjectGantt(p));
 				});
 				menu.showAtMouseEvent(e);
 			});
@@ -2860,10 +3132,10 @@ export class DashboardView extends ItemView {
 
 		// Footer summary
 		const sum = proj.createDiv({ cls: 'ad-proj__sum' });
-		const filterLabel = maxStageFilter < stages.length ? `\u2264 ${stages[maxStageFilter - 1]}` : '\u5168\u90E8';
+		const filterLabel = maxStageFilter < stages.length ? `\u2264 ${stages[maxStageFilter - 1]}` : t('ui.opAll');
 		const sumRow = sum.createSpan({ cls: 'ad-row' });
 		sumRow.createSpan({ cls: 'ad-key', text: '\u2299' });
-		sumRow.appendText(` ${activeCount} \u8FDB\u884C\u4E2D \u00B7 ${filterLabel}`);
+		sumRow.appendText(` ${t('home.activeCount', { n: activeCount, filter: filterLabel })}`);
 	}
 
 	/** Navigate to project overview and select a specific project's Gantt view */
@@ -2892,17 +3164,17 @@ export class DashboardView extends ItemView {
 		const head = card.createDiv({ cls: 'ad-card__head' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u25A5' });
-		h3.appendText('\u7B14\u8BB0\u7EDF\u8BA1');
+		h3.appendText(t('home.modules.heatmap'));
 		
 		// 统计数字 + 活跃度指标（顶部右上角，与标题同行右对齐）
 		const nsHead = head.createDiv({ cls: 'ad-ns__head' });
 		nsHead.createDiv({ cls: 'ad-ns__big', text: String(stats.total) });
 		const small = nsHead.createDiv({ cls: 'ad-ns__small' });
-		small.createDiv({ cls: 'ad-ns__active', text: `${stats.active} \u5929\u6D3B\u8DC3` });
+		small.createDiv({ cls: 'ad-ns__active', text: t('home.daysActive', { n: stats.active }) });
 		const streak = small.createDiv({ cls: 'ad-ns__streak' });
-		streak.appendText('\u5F53\u524D\u8FDE\u7EED ');
+		streak.appendText(t('home.streakPrefix'));
 		streak.createEl('strong', { text: String(stats.streak) });
-		streak.appendText(' \u5929');
+		streak.appendText(t('home.daysSuffix'));
 		
 		// --- Year boundaries (Jan 1 -> Dec 31) ---
 		const yearStart = new Date(year, 0, 1);
@@ -2937,7 +3209,7 @@ export class DashboardView extends ItemView {
 		// Grid: day-of-week column + cells (column flow, fixed 13px cells)
 		const grid = heat.createDiv({ cls: 'ad-ns__grid' });
 		const dow = grid.createDiv({ cls: 'ad-ns__dow' });
-		['', '\u4E00', '', '\u4E09', '', '\u4E94', ''].forEach((t) => dow.createSpan({ text: t }));
+		tArr('home.heatDow').forEach((lab) => dow.createSpan({ text: lab }));
 		
 		const cells = grid.createDiv({ cls: 'ad-ns__cells' });
 		for (let w = 0; w < totalWeeks; w++) {
@@ -2966,19 +3238,19 @@ export class DashboardView extends ItemView {
 				
 				const mm = String(cellDate.getMonth() + 1).padStart(2, '0');
 				const dd = String(cellDate.getDate()).padStart(2, '0');
-				cell.title = isFuture ? `${mm}-${dd} \u00B7 \u672A\u6765` : `${mm}-${dd} \u00B7 ${count} \u7BC7\u7B14\u8BB0`;
+				cell.title = isFuture ? t('home.cellFuture', { m: mm, d: dd }) : t('home.cellNotes', { m: mm, d: dd, n: count });
 			}
 		}
 		
 		// Footer legend (less ... more)
 		const foot = card.createDiv({ cls: 'ad-ns__foot' });
-		foot.createSpan({ cls: 'ad-ns__window', text: `${year} \u5168\u5E74` });
+		foot.createSpan({ cls: 'ad-ns__window', text: t('home.heatmapAllYear', { year }) });
 		const legend = foot.createSpan({ cls: 'ad-ns__legend' });
-		legend.createSpan({ cls: 'ad-ns__lbl', text: '\u5C11' });
+		legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendFew') });
 		['', 'l1', 'l2', 'l3', 'l4'].forEach((lv) => {
 			legend.createSpan({ cls: 'ad-ns__sw' + (lv ? ' ' + lv : '') });
 		});
-		legend.createSpan({ cls: 'ad-ns__lbl', text: '\u591A' });
+		legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendMany') });
 
 		// 按卡片实际宽高摊开格子间距（格子尺寸恒为 HM_CELL，绝不缩放），并监听尺寸变化实时重排
 		this.layoutHeatmap(card);
@@ -3043,7 +3315,7 @@ export class DashboardView extends ItemView {
 		}
 
 		// 月份标签：按可见周窗口重建，宽度 = 该月周数 × (格子 + 间距) − 间距
-		const monthNames = ['1\u6708','2\u6708','3\u6708','4\u6708','5\u6708','6\u6708','7\u6708','8\u6708','9\u6708','10\u6708','11\u6708','12\u6708'];
+		const monthNames = tArr('status.months');
 		const visible = this.adHmWeekMonths.slice(total - weeks);
 		monthsRow.empty();
 		const unit = HM_CELL + cgap;
@@ -3063,13 +3335,60 @@ export class DashboardView extends ItemView {
 
 		// 底部窗口文案随可见范围变化
 		const win = card.querySelector('.ad-ns__window') as HTMLElement | null;
-		if (win) win.setText(weeks >= total ? `${this.adHmYear} \u5168\u5E74` : `\u8FD1 ${weeks} \u5468`);
+		if (win) win.setText(weeks >= total ? t('home.heatmapAllYear', { year: this.adHmYear }) : t('home.heatmapRecent', { n: weeks }));
 	}
 
 
-	/* ---- Countdown ---- */
-	private renderCountdown(board: HTMLElement): void {
-		const cfg = this.plugin.settings.countdown;
+	/* ---- Countdown（多实例：每张独立卡片） ---- */
+	/** 渲染「倒计时」多实例中的某一张独立卡片；idx 为 settings.countdown 下标，-1 表示占位卡 */
+	private renderCountdownCard(board: HTMLElement, idx: number): void {
+		const card = board.querySelector(`.ad-card.ad-b-countdown[data-cd-idx="${idx}"]`) as HTMLElement | null;
+		if (!card) return;
+		card.empty();
+		card.setAttribute('data-mod', 'countdown');
+		const list = this.plugin.settings.countdown ?? [];
+		if (idx < 0 || idx >= list.length) {
+			this.cardHead(card, '\u25C7', t('home.modules.countdown'), 'Days Left');
+			const cd = card.createDiv({ cls: 'ad-cd' });
+			cd.createDiv({ cls: 'ad-cd__empty', text: t('modal.cdEmpty') });
+			return;
+		}
+		const cfg = list[idx]!;
+		// 卡片标题固定为模块名「倒计时」（与注册表 homeModules 一致），事件名只出现在副标题「距离 {事件}」
+		this.cardHead(card, '\u25C7', t('home.modules.countdown'), 'Days Left');
+		const cd = card.createDiv({ cls: 'ad-cd' });
+		this.renderOneCountdown(cd, cfg);
+	}
+
+	/** 新增一张倒计时卡片（追加一个独立事件，最多 5 张） */
+	private addCountdownCard(): void {
+		const list = this.plugin.settings.countdown ?? [];
+		if (list.length >= 5) { this.showToast(t('modal.cdMax')); return; }
+		list.push({ eventName: defaultEventName(), targetDate: '2027-01-01' });
+		this.plugin.settings.countdown = list;
+		// 确保倒计时模块本身已启用：被隐藏时也能通过「添加卡片」恢复显示
+		const hm = this.plugin.settings.homeModules;
+		const m = hm?.find((x) => x.id === 'countdown');
+		if (m && !m.enabled) {
+			m.enabled = true;
+			const maxOrder = hm && hm.length ? Math.max(...hm.map((x) => x.order)) : -1;
+			m.order = maxOrder + 1;
+		}
+		void this.plugin.saveSettings();
+		if (this.boardEl) void this.renderEnabledModules(this.boardEl);
+	}
+
+	/** 删除指定下标的倒计时卡片（不影响其它卡片） */
+	private deleteCountdownCard(idx: number): void {
+		const list = this.plugin.settings.countdown ?? [];
+		if (idx < 0 || idx >= list.length) return;
+		list.splice(idx, 1);
+		this.plugin.settings.countdown = list;
+		void this.plugin.saveSettings();
+		if (this.boardEl) void this.renderEnabledModules(this.boardEl);
+	}
+
+	private renderOneCountdown(cd: HTMLElement, cfg: CountdownSettings): void {
 		const target = this.parseCountdownDate(cfg.targetDate);
 		const now = new Date();
 		const today = this.startOfDay(now);
@@ -3077,12 +3396,9 @@ export class DashboardView extends ItemView {
 		// 以「天」为单位的差值：>0 表示未来、0 表示当天到达、<0 表示已过期
 		const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
 
-		const card = this.getOrCreateCard(board, 'ad-card ad-b-countdown');
-		this.cardHead(card, '\u25C7', '\u5012\u8BA1\u65F6', 'Days Left');
-
-		const cd = card.createDiv({ cls: 'ad-cd' });
+		const item = cd.createDiv({ cls: 'ad-cd__item' });
 		// 副标题：距离 {事件名}
-		cd.createDiv({ cls: 'ad-cd__sub', text: `\u8DDD\u79BB ${cfg.eventName}` });
+		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
 
 		if (diffDays > 0) {
 			// 进度：以「事件日期前一年」为起点、事件日期为终点（默认即日历年度进度），随事件日期动态变化
@@ -3091,31 +3407,31 @@ export class DashboardView extends ItemView {
 			const elapsed = now.getTime() - periodStart.getTime();
 			const pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
 
-			const big = cd.createDiv({ cls: 'ad-cd__big' });
+			const big = item.createDiv({ cls: 'ad-cd__big' });
 			big.createSpan({ text: String(diffDays) });
 			big.createSpan({ cls: 'ad-unit', text: 'DAYS' });
 
 			// 底部组：小字行紧贴进度条（保留少量间距），整体下移到底部
-			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
 			const row = bottom.createDiv({ cls: 'ad-cd__row' });
-			row.createSpan({ text: '\u5269\u4F59\u5468\u6570 ' }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
+			row.createSpan({ text: t('home.weeksLeft') }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
 			row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
-			row.createSpan({ text: '\u5DF2\u5B8C\u6210 ' }).createEl('strong', { text: pct.toFixed(1) + '%' });
+			row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
 
 			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
 			const fill = barWrap.createDiv({ cls: 'ad-fill' });
 			fill.style.width = pct + '%';
 		} else if (diffDays === 0) {
 			// 当天到达目标日期：隐藏数字与 DAYS，居中显示「此时此刻」
-			cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDF89 \u6B64\u65F6\u6B64\u523B' });
-			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownArrived') });
+			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
 			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
 			const fill = barWrap.createDiv({ cls: 'ad-fill' });
 			fill.style.width = '100%';
 		} else {
 			// 已过期：居中显示「旅程已然到达」
-			cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDFC1 \u65C5\u7A0B\u5DF2\u7136\u5230\u8FBE' });
-			const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+			item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownReached') });
+			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
 			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
 			const fill = barWrap.createDiv({ cls: 'ad-fill' });
 			fill.style.width = '100%';

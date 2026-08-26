@@ -4,7 +4,8 @@ import {
 	BoardFormData,
 	BoardStage,
 } from '../data/opportunityParser';
-import { UI_TEXT } from '../constants';
+import { UI_TEXT, MODAL_TEXT } from '../constants';
+import { t } from '../i18n';
 
 /** 清理双链文件名中的非法字符（[ ] # ^ | /），避免破坏 [[wikilink]] 解析 */
 function sanitizeWikiName(name: string): string {
@@ -80,18 +81,18 @@ export class OpportunityModal extends Modal {
 		const ed = this.opts.editData;
 		const title = this.opts.title;
 		contentEl.addClass('ad-task-modal');
-		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? ('编辑' + title) : ('新建' + title) });
+		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? t('modal.oppEdit', { title }) : t('modal.opNew', { title }) });
 
 		// 名称
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: title + '名称 *' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: t('modal.oppName', { title }) });
 		const nameInput = contentEl.createEl('input', {
-			cls: 'ad-modal-input', attr: { type: 'text', placeholder: '输入' + title + '名称' },
+			cls: 'ad-modal-input', attr: { type: 'text', placeholder: t('modal.oppNamePlaceholder', { title }) },
 		});
 		if (ed) nameInput.value = ed.title;
 		nameInput.focus?.();
 
 		// 状态
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '状态' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppStatus });
 		const statusSelect = contentEl.createEl('select', { cls: 'ad-modal-input' });
 		for (const s of this.opts.stages) statusSelect.createEl('option', { value: s.label, text: s.label });
 		statusSelect.value = this.selectedStatus;
@@ -100,16 +101,16 @@ export class OpportunityModal extends Modal {
 		});
 
 		// 标签
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '标签（逗号分隔）' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppTags });
 		const tagInput = contentEl.createEl('input', {
-			cls: 'ad-modal-input', attr: { type: 'text', placeholder: '如：增长, 渠道' },
+			cls: 'ad-modal-input', attr: { type: 'text', placeholder: MODAL_TEXT.oppTagsPlaceholder },
 		});
 		if (ed) tagInput.value = (ed.tags || []).join(', ');
 
 		// 背景 / 备注（机会级，始终显示）
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '背景 / 备注' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppNotes });
 		const notesArea = contentEl.createEl('textarea', {
-			cls: 'ad-modal-input', attr: { rows: '3', placeholder: '这个想法是怎么来的、要解决什么…' },
+			cls: 'ad-modal-input', attr: { rows: '3', placeholder: MODAL_TEXT.oppNotesPlaceholder },
 		});
 		if (ed) notesArea.value = ed.notes;
 
@@ -119,23 +120,23 @@ export class OpportunityModal extends Modal {
 			if (!s.hasInput) continue;
 			contentEl.createEl('label', { cls: 'ad-modal-label', text: s.label });
 			const area = contentEl.createEl('textarea', {
-				cls: 'ad-modal-input', attr: { rows: '2', placeholder: '填写该阶段相关记录…' },
+				cls: 'ad-modal-input', attr: { rows: '2', placeholder: MODAL_TEXT.opStagePh },
 			});
 			area.value = this.stageNotes[s.label] || '';
 			stageInputs.push({ label: s.label, area });
 		}
 
 		// 链接
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '链接（展开内容用）' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppLink });
 		const linkInput = contentEl.createEl('input', {
-			cls: 'ad-modal-input', attr: { type: 'text', placeholder: '[[xxx-详情]] 或留空（输入 [ 自动搜索笔记）' },
+			cls: 'ad-modal-input', attr: { type: 'text', placeholder: MODAL_TEXT.oppLinkPlaceholder },
 		});
 		if (ed) linkInput.value = ed.link;
 		// 绑定 Obsidian 原生文件补全：输入 `[` 时弹库内笔记列表
 		this.linkSuggest?.close();
 		this.linkSuggest = new FileSuggest(this.app, linkInput);
 		const linkBtn = contentEl.createEl('button', {
-			cls: 'ad-modal-btn ad-modal-btn--ghost', text: '生成并打开链接笔记',
+			cls: 'ad-modal-btn ad-modal-btn--ghost', text: MODAL_TEXT.oppGenLink,
 		});
 		linkBtn.addEventListener('click', () => {
 			void (async () => {
@@ -152,7 +153,7 @@ export class OpportunityModal extends Modal {
 		// 星标（重要 / 待跟进）：独立标记，与阶段终态解耦，任何时候都可勾选
 		const starRow = contentEl.createDiv({ cls: 'ad-modal-check' });
 		const starCheck = starRow.createEl('input', { cls: 'ad-modal-checkbox', attr: { type: 'checkbox' } });
-		starRow.createEl('label', { cls: 'ad-modal-check-label', text: '星标（重要 / 待跟进）' });
+		starRow.createEl('label', { cls: 'ad-modal-check-label', text: MODAL_TEXT.oppStar });
 		starCheck.checked = this.starred;
 		starCheck.addEventListener('change', () => { this.starred = starCheck.checked; });
 
@@ -160,7 +161,7 @@ export class OpportunityModal extends Modal {
 		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
 		btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
 			.addEventListener('click', () => this.close());
-		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : ('创建' + title) })
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : t('modal.oppCreate', { title }) })
 			.addEventListener('click', () => {
 				const t = String(nameInput.value || '').trim();
 				if (!t) { nameInput.focus(); return; }

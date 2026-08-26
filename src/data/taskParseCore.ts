@@ -116,8 +116,8 @@ export function parseDailyNodesFromBody(content: string): Record<string, DailyNo
 	const out: Record<string, DailyNode> = {};
 	const lines = bodyOf(content).split(/\r?\n/);
 	let inBlock = false;
-	for (const raw of lines) {
-		const line = raw ?? '';
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i] ?? '';
 		const h = line.match(/^#{1,6}\s+(.+?)\s*$/);
 		if (h) { inBlock = (h[1] ?? '').trim() === '每日节点'; continue; }
 		if (!inBlock) continue;
@@ -130,6 +130,14 @@ export function parseDailyNodesFromBody(content: string): Record<string, DailyNo
 		let n = '';
 		const nm = rest.match(/(?:——|—|--)\s*(.+?)\s*$/);
 		if (nm) n = (nm[1] ?? '').trim();
+		// 续行：缩进的非空行视为同一条目的多行备注（前端 .po-cal__daily-note 用 white-space:pre-wrap 渲染换行）
+		while (i + 1 < lines.length) {
+			const next = lines[i + 1] ?? '';
+			if (/^\s+\S/.test(next)) {
+				n += '\n' + next.trim();
+				i++;
+			} else break;
+		}
 		out[date] = { s, n };
 	}
 	return out;
@@ -144,8 +152,14 @@ export function serializeDailyNodesBlock(nodes: Record<string, DailyNode>): stri
 		const node = nodes[d];
 		if (!node) continue;
 		const mark = node.s === 'skip' ? '⏭️ 未做' : node.s === 'todo' ? '📝 待办' : '✅ 完成';
-		const note = node.n ? ` —— ${node.n}` : '';
+		// 多行备注：第一行写在 "- date —" 之后，后续行用 2 空格缩进作为 markdown 列表项续行
+		const noteLines = node.n ? node.n.split('\n') : [];
+		const first = noteLines.shift() ?? '';
+		const note = first ? ` —— ${first}` : '';
 		lines.push(`- ${d} ${mark}${note}`);
+		for (const cont of noteLines) {
+			lines.push(`  ${cont}`);
+		}
 	}
 	return lines.join('\n');
 }

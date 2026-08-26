@@ -7,7 +7,8 @@ import {
 import type { TaskStore } from '../data/taskStore';
 import { fmtDate } from '../data/taskLogic';
 import { computeWindow, filterWithOrig } from '../data/virtualList';
-import { UI_TEXT } from '../constants';
+import { UI_TEXT, MODAL_TEXT } from '../constants';
+import { t, tArr } from '../i18n';
 import { ICON_gantt, ICON_list, ICON_calendar, ICON_kanban, injectSvg } from '../icons';
 
 /** 宿主接口：ProjectBoard 渲染器所需的宿主依赖。 */
@@ -38,6 +39,7 @@ export interface ProjectHost {
 	createProjectFile(): Promise<void>;
 	openTaskModalWithParent(parentName: string, projectName: string): Promise<void>;
 	toggleTask(task: TaskItem, row: HTMLElement): Promise<void>;
+	setDailyNode(task: TaskItem, date: string, state: 'done' | 'todo' | 'skip'): Promise<void>;
 }
 
 /** 项目总览（第二页）渲染器 — 从 DashboardView 抽出。 */
@@ -51,6 +53,8 @@ export class ProjectBoard {
 	private poMainEl: HTMLElement | null = null;
 	private calYear: number = new Date().getFullYear();
 	private calMonth: number = new Date().getMonth();
+	private calView: 'month' | 'week' = 'month';
+	private calSel: string = '';
 	private sortCol: string = '';
 	private sortDir: 'asc' | 'desc' = 'asc';
 	private taskListFilter: string = 'all';
@@ -77,6 +81,7 @@ export class ProjectBoard {
 	private get createProjectFile() { return this.host.createProjectFile.bind(this.host); }
 	private get openTaskModalWithParent() { return this.host.openTaskModalWithParent.bind(this.host); }
 	private get toggleTask() { return this.host.toggleTask.bind(this.host); }
+	private get setDailyNode() { return this.host.setDailyNode.bind(this.host); }
 
 	constructor(host: ProjectHost) {
 		this.host = host;
@@ -248,7 +253,7 @@ export class ProjectBoard {
 		this.renderPanels();
 		const sidebar = this.boardEl?.querySelector('.po-sidebar') as HTMLElement | undefined;
 		if (sidebar) this.renderSidebar(sidebar);
-		this.showToast(`\u2728 ${proj.name} \u9636\u6BB5\u5DF2\u66F4\u65B0\u4E3A "${this.plugin.settings.npdpStages[stage]}"`);
+		this.showToast(t('modal.poStageUpdated', { name: proj.name, stage: this.plugin.settings.npdpStages[stage] ?? '' }));
 	}
 
 
@@ -264,7 +269,7 @@ export class ProjectBoard {
 
 		const allItem = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === null ? ' is-active' : '') });
 		allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#7BA7FF;color:#7BA7FF' } });
-		allItem.createSpan({ text: '\u5168\u90E8\u9879\u76EE' });
+		allItem.createSpan({ text: t('home.nav.allProjects') });
 		allItem.createSpan({ cls: 'po-count', text: totalActive + '/' + totalTasks });
 		allItem.addEventListener('click', () => {
 			this.selectedProject = null;
@@ -288,12 +293,12 @@ export class ProjectBoard {
 				e.preventDefault();
 				const menu = new Menu();
 				menu.addItem((menuItem) => {
-					menuItem.setTitle('\u7F16\u8F91\u9879\u76EE').setIcon('pencil').onClick(() => {
+					menuItem.setTitle(t('modal.projectCtxEdit')).setIcon('pencil').onClick(() => {
 						void this.editProject(p);
 					});
 				});
 				menu.addItem((menuItem) => {
-					menuItem.setTitle('\u5220\u9664\u9879\u76EE').setIcon('trash').onClick(() => {
+					menuItem.setTitle(t('modal.projectCtxDelete')).setIcon('trash').onClick(() => {
 						void this.deleteProject(p, sidebar);
 					});
 				});
@@ -338,7 +343,7 @@ export class ProjectBoard {
 		});
 
 		// New project button
-		const addBtn = sidebar.createEl('button', { cls: 'po-add-btn', text: '+ \u65B0\u5EFA\u9879\u76EE' });
+		const addBtn = sidebar.createEl('button', { cls: 'po-add-btn', text: UI_TEXT.newProjectBtn });
 		addBtn.addEventListener('click', () => {
 			void this.createProjectFile();
 		});
@@ -356,13 +361,13 @@ export class ProjectBoard {
 		const rootPath = this.plugin.settings.projectsFolder || 'Projects';
 		const parts = taskId.split('/');
 		const curProj = parts.length > 1 ? parts[1] : '';
-		if (curProj === targetProject) { this.showToast('任务已在该项目'); return; }
+		if (curProj === targetProject) { this.showToast(MODAL_TEXT.poAlreadyInProject); return; }
 		const file = this.app.vault.getAbstractFileByPath(taskId);
-		if (!(file instanceof TFile)) { this.showToast('找不到任务文件'); return; }
+		if (!(file instanceof TFile)) { this.showToast(MODAL_TEXT.poTaskFileMissing); return; }
 		const fileName = parts[parts.length - 1] || '';
 		const newPath = `${rootPath}/${targetProject}/${fileName}`;
 		if (this.app.vault.getAbstractFileByPath(newPath)) {
-			this.showToast(`目标项目已存在同名任务「${fileName}」，未移动`);
+			this.showToast(t('modal.poNameExists', { name: fileName }));
 			return;
 		}
 		await this.app.fileManager.renameFile(file, newPath);
@@ -375,7 +380,7 @@ export class ProjectBoard {
 				await this.writeFrontmatter(moved, { '项目': targetProject });
 			}
 		}
-		this.showToast(`已移动到「${targetProject}」`);
+		this.showToast(t('modal.poMoved', { project: targetProject }));
 		// 重新扫描项目与任务，刷新计数与视图
 		this.currentProjects = await this.taskStore.scanAllProjects();
 		this.currentTasks = await this.taskStore.scanAllTasks();
@@ -388,15 +393,23 @@ export class ProjectBoard {
 
 	/** Delete project with confirmation */
 	private async deleteProject(proj: ProjectInfo, sidebar: HTMLElement): Promise<void> {
-		const confirmed = confirm(`\u786E\u5B9A\u5220\u9664\u9879\u76EE "${proj.name}" \u53CA\u5176\u6240\u6709\u4EFB\u52A1\u6587\u4EF6\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002`);
-		if (!confirmed) return;
-
 		const folder = this.app.vault.getAbstractFileByPath(proj.path);
-		if (folder instanceof TFolder) {
-			await this.app.fileManager.trashFile(folder);
-			this.showToast('\u274C \u9879\u76EE\u5DF2\u5220\u9664: ' + proj.name);
-			await this.refresh();
-		}
+		if (!(folder instanceof TFolder)) return;
+		const { ConfirmModal } = await import('./ConfirmModal');
+		new ConfirmModal({
+			app: this.app,
+			title: t('common.delete'),
+			message: t('modal.poDeleteProjectConfirm', { name: proj.name }),
+			confirmLabel: t('common.delete'),
+			cancelLabel: t('common.cancel'),
+			onConfirm: () => {
+				void (async () => {
+					await this.app.fileManager.trashFile(folder);
+					this.showToast(t('modal.poProjectDeleted', { name: proj.name }));
+					await this.refresh();
+				})();
+			},
+		}).open();
 	}
 
 
@@ -445,11 +458,6 @@ export class ProjectBoard {
 
 		// Filter tasks that have at least one date (used only for the timeline range)
 		const tasksWithDates = tasks.filter((t) => t.startDate || t.dueDate);
-
-		if (tasks.length === 0) {
-			panel.createDiv({ cls: 'po-empty', text: UI_TEXT.noTasks });
-			return;
-		}
 
 		// ---------- Build parent/child hierarchy from the FULL task list ----------
 		// Reference obsidian-pm builds the tree from ALL tasks, then renders. A parent
@@ -625,10 +633,10 @@ export class ProjectBoard {
 		// ---------- DOM scaffold ----------
 		const zoomBar = panel.createDiv({ cls: 'po-gantt__zoom' });
 		const zoomLevels: Array<{ key: string; label: string }> = [
-			{ key: 'day', label: '日' },
-			{ key: 'week', label: '周' },
-			{ key: 'month', label: '月' },
-			{ key: 'quarter', label: '季度' },
+			{ key: 'day', label: t('ui.poScaleDay') },
+			{ key: 'week', label: t('ui.poScaleWeek') },
+			{ key: 'month', label: t('ui.poScaleMonth') },
+			{ key: 'quarter', label: t('ui.poScaleQuarter') },
 		];
 		zoomLevels.forEach((z) => {
 			const btn = zoomBar.createEl('button', { cls: 'po-gantt__zoom-btn' + (z.key === granularity ? ' is-active' : ''), text: z.label });
@@ -646,7 +654,7 @@ export class ProjectBoard {
 		zoomBar.createSpan({ cls: 'po-gantt__sep' });
 		const filterBtn = zoomBar.createEl('button', { cls: 'po-gantt__zoom-btn' + (this.ganttStatusFilter.length ? ' is-active' : '') });
 		const updateFilterLabel = (): void => {
-			filterBtn.textContent = this.ganttStatusFilter.length ? `状态: ${this.ganttStatusFilter.length}` : '状态筛选';
+			filterBtn.textContent = this.ganttStatusFilter.length ? (MODAL_TEXT.opStatusPrefix + this.ganttStatusFilter.length) : MODAL_TEXT.poStatusFilter;
 			filterBtn.toggleClass('is-active', this.ganttStatusFilter.length > 0);
 		};
 		updateFilterLabel();
@@ -654,7 +662,7 @@ export class ProjectBoard {
 			const menu = new Menu();
 			for (const st of STATUS_LIST) {
 				menu.addItem((item) => item
-					.setTitle(st)
+					.setTitle(UI_TEXT.statusLabel(st))
 					.setChecked(this.ganttStatusFilter.includes(st))
 					.onClick(() => {
 					const idx = this.ganttStatusFilter.indexOf(st);
@@ -668,7 +676,7 @@ export class ProjectBoard {
 			}
 			if (this.ganttStatusFilter.length) {
 				menu.addSeparator();
-				menu.addItem((item) => item.setTitle('清除筛选').onClick(() => {
+				menu.addItem((item) => item.setTitle(MODAL_TEXT.poClearFilter).onClick(() => {
 				this.ganttStatusFilter.length = 0;
 				updateFilterLabel();
 				this.plugin.settings.poGanttStatusFilter = [];
@@ -676,10 +684,16 @@ export class ProjectBoard {
 				this.renderPanels();
 				}));
 			}
-			menu.showAtMouseEvent(e);
-		});
+		menu.showAtMouseEvent(e);
+	});
 
-		const gantt = panel.createDiv({ cls: 'po-gantt' });
+	// 筛选结果为空时，筛选栏（缩放 + 状态筛选）仍必须渲染，不能整块消失
+	if (tasks.length === 0) {
+		panel.createDiv({ cls: 'po-empty', text: UI_TEXT.noTasks });
+		return;
+	}
+
+	const gantt = panel.createDiv({ cls: 'po-gantt' });
 		const wrapper = gantt.createDiv({ cls: 'po-gantt__wrap' });
 
 		// Left panel: task labels
@@ -688,6 +702,14 @@ export class ProjectBoard {
 		leftHeader.style.height = HEADER_HEIGHT + 'px';
 		leftHeader.createSpan({ text: UI_TEXT.poTaskName, cls: 'po-gantt__left-hd-label' });
 		const leftBody = left.createDiv({ cls: 'po-gantt__left-body' });
+		// 拖动指示线（插入位置）+ 清理函数（拖动结束/放下时复位所有拖动 UI）
+		const dropLine = leftBody.createDiv({ cls: 'po-gantt__drop-line' });
+		const clearDropUI = (): void => {
+			dropLine.style.display = 'none';
+			leftBody.querySelectorAll<HTMLElement>('.is-drop-target').forEach((el) => el.removeClass('is-drop-target'));
+			leftBody.querySelectorAll<HTMLElement>('.po-row--drag-over').forEach((el) => el.removeClass('po-row--drag-over'));
+			leftBody.querySelectorAll<HTMLElement>('.po-gantt__label-row').forEach((el) => delete el.dataset.dropZone);
+		};
 
 		// Right panel: scrollable SVG timeline
 		const right = wrapper.createDiv({ cls: 'po-gantt__right' });
@@ -721,7 +743,7 @@ export class ProjectBoard {
 					x: x1, y, width: Math.max(0, x2 - x1), height: h,
 					class: (m.getMonth() % 2 === 0) ? 'po-gantt__band-even' : 'po-gantt__band-odd',
 				}));
-				headerSvg.appendChild(svgText(x1 + 6, y + h - 7, (m.getMonth() + 1) + '月', 'po-gantt__hdr-month-top'));
+				headerSvg.appendChild(svgText(x1 + 6, y + h - 7, tArr('status.months')[m.getMonth()] ?? '', 'po-gantt__hdr-month-top'));
 				m = nm;
 			}
 		};
@@ -778,7 +800,7 @@ export class ProjectBoard {
 				const nm = new Date(m.getFullYear(), m.getMonth() + 1, 1);
 				const x1 = Math.max(0, dateToX(m));
 				const x2 = Math.min(totalWidth, dateToX(nm));
-				headerSvg.appendChild(svgText(x1 + (x2 - x1) / 2, 44, (m.getMonth() + 1) + '月', 'po-gantt__hdr-month'));
+				headerSvg.appendChild(svgText(x1 + (x2 - x1) / 2, 44, tArr('status.months')[m.getMonth()] ?? '', 'po-gantt__hdr-month'));
 				headerSvg.appendChild(svgEl('line', { x1, y1: 24, x2: x1, y2: HEADER_HEIGHT, class: 'po-gantt__hdr-tick' }));
 				m = nm;
 			}
@@ -836,6 +858,7 @@ export class ProjectBoard {
 		// ---------- Task bars (SVG rects) + left labels ----------
 		const bars: SVGElement[] = [];
 		const labelRows: HTMLElement[] = [];
+		const i18nT = t;   // forEach 参数 t 会 shadow 模块级 t，这里先存别名供 drop 回调使用
 		orderedTasks.forEach((t, idx) => {
 			const level = taskLevels.get(t.id) || 0;
 			const isParent = childrenOf.has(t.content);
@@ -872,32 +895,92 @@ export class ProjectBoard {
 					item.setTitle(UI_TEXT.taskDetail).setIcon('pencil').onClick(() => this.openTaskEditModal(t));
 				});
 				menu.addItem((item) => {
-					item.setTitle('删除任务').setIcon('trash').onClick(() => void this.deleteTask(t));
+					item.setTitle(MODAL_TEXT.poDeleteTask).setIcon('trash').onClick(() => void this.deleteTask(t));
 				});
 				menu.showAtMouseEvent(e);
 			});
 
-			// Drag to reorder task rows (persisted)
+			// Drag: hover row middle = drop as subtask (row highlights); hover near row top/bottom edge
+			// = insert (a drop-line shows the exact insert position). Alt/Shift forces subtask mode.
 			lr.draggable = true;
 			lr.addEventListener('dragstart', (e) => {
 				e.dataTransfer?.setData('text/task-id', t.id);
 				lr.addClass('po-row--dragging');
+				clearDropUI();
 			});
-			lr.addEventListener('dragend', () => lr.removeClass('po-row--dragging'));
-			lr.addEventListener('dragover', (e) => { e.preventDefault(); lr.addClass('po-row--drag-over'); });
-			lr.addEventListener('dragleave', () => lr.removeClass('po-row--drag-over'));
-			lr.addEventListener('drop', (e) => {
+			lr.addEventListener('dragend', () => { lr.removeClass('po-row--dragging'); clearDropUI(); });
+			lr.addEventListener('dragover', (e) => {
 				e.preventDefault();
+				const rect = lr.getBoundingClientRect();
+				const bodyRect = leftBody.getBoundingClientRect();
+				const y = e.clientY - rect.top;
+				const zone = y < rect.height * 0.3 ? 'top' : y > rect.height * 0.7 ? 'bottom' : 'mid';
+				// 只保留当前行的状态，清除其他行残留高亮/指示
+				leftBody.querySelectorAll<HTMLElement>('.is-drop-target').forEach((el) => { if (el !== lr) el.removeClass('is-drop-target'); });
+				leftBody.querySelectorAll<HTMLElement>('.po-row--drag-over').forEach((el) => { if (el !== lr) el.removeClass('po-row--drag-over'); });
+				lr.dataset.dropZone = zone;
+				if (zone === 'mid') {
+					// 行中间：设为子任务 → 高亮目标行，隐藏插入线
+					lr.addClass('is-drop-target');
+					lr.removeClass('po-row--drag-over');
+					dropLine.style.display = 'none';
+				} else {
+					// 上/下边缘：插入排序 → 在对应边缘显示插入横线
+					lr.removeClass('is-drop-target');
+					lr.addClass('po-row--drag-over');
+					const lineTop = rect.top - bodyRect.top + (zone === 'top' ? -1 : rect.height - 1);
+					dropLine.style.top = Math.max(0, lineTop) + 'px';
+					dropLine.style.display = 'block';
+				}
+			});
+			lr.addEventListener('dragleave', () => {
 				lr.removeClass('po-row--drag-over');
+				lr.removeClass('is-drop-target');
+				delete lr.dataset.dropZone;
+				dropLine.style.display = 'none';
+			});
+			lr.addEventListener('drop', async (e) => {
+				e.preventDefault();
 				const draggedId = e.dataTransfer?.getData('text/task-id');
+				const zone = lr.dataset.dropZone || 'top';
+				clearDropUI();
 				if (!draggedId || draggedId === t.id) return;
+				const draggedTask = tasks.find((tt) => tt.id === draggedId);
+				// 行中间（或 Alt/Shift 强制）= 设为该任务的子任务
+				if (zone === 'mid' || e.altKey || e.shiftKey) {
+					if (!draggedTask || !draggedTask.sourceFile) return;
+					if (draggedTask.parent === t.content) { this.showToast(MODAL_TEXT.poAlreadySubtask); return; }
+					// 防环：目标任务的祖先链不能包含被拖任务（否则变成自己后代的子任务）
+					const visited = new Set<string>([t.content]);
+					let cur: string | null = t.parent || null;
+					while (cur && !visited.has(cur)) {
+						if (cur === draggedTask.content) break;
+						visited.add(cur);
+						const pt = tasks.find((tt) => tt.content === cur);
+						cur = pt ? (pt.parent || null) : null;
+					}
+					if (cur === draggedTask.content || visited.has(draggedTask.content)) {
+						this.showToast(MODAL_TEXT.poParentCycle);
+						return;
+					}
+					const file = this.app.vault.getAbstractFileByPath(draggedTask.sourceFile);
+					if (!(file instanceof TFile)) return;
+					await this.host.writeFrontmatter(file, { '\u7236\u4efb\u52a1': t.content });
+					draggedTask.parent = t.content;
+					this.showToast(i18nT('ui.subtaskParentSet', { name: t.content }));
+					this.renderPanels();
+					return;
+				}
+				// 上/下边缘 = 插入排序（top → 目标之前，bottom → 目标之后）
+				if (!draggedTask) return;
 				const rows = Array.from(leftBody.querySelectorAll<HTMLElement>('.po-gantt__label-row'));
 				const ids = rows.map((r) => r.dataset.taskId).filter((id): id is string => !!id);
 				const from = ids.indexOf(draggedId);
 				const to = ids.indexOf(t.id);
 				if (from < 0 || to < 0) return;
-			ids.splice(from, 1);
-			ids.splice(from < to ? to - 1 : to, 0, draggedId);
+				ids.splice(from, 1);
+				const toIdx = ids.indexOf(t.id);
+				ids.splice(zone === 'top' ? toIdx : toIdx + 1, 0, draggedId);
 				this.plugin.settings.poTaskOrder = ids;
 				void this.plugin.saveSettings();
 				this.renderPanels();
@@ -1142,10 +1225,16 @@ export class ProjectBoard {
 		const section = panel.createDiv({ cls: 'po-tasklist' });
 		const toolbar = section.createDiv({ cls: 'po-toolbar' });
 		toolbar.createSpan({ cls: 'po-toolbar__label', text: UI_TEXT.filter });
-		[UI_TEXT.all, '待办', '进行中', '已阻塞', '已完成'].forEach((f, i) => {
-			const key = i === 0 ? 'all' : f;
-			const chip = toolbar.createEl('button', { cls: 'po-chip' + (key === this.taskListFilter ? ' is-active' : ''), text: f });
-			chip.dataset.filter = key;
+		const statusFilters = [
+			{ key: 'all', label: UI_TEXT.all },
+			{ key: '待办', label: MODAL_TEXT.stTodo },
+			{ key: '进行中', label: MODAL_TEXT.stInProgress },
+			{ key: '已阻塞', label: MODAL_TEXT.stBlocked },
+			{ key: '已完成', label: MODAL_TEXT.stDone },
+		];
+		statusFilters.forEach((f) => {
+			const chip = toolbar.createEl('button', { cls: 'po-chip' + (f.key === this.taskListFilter ? ' is-active' : ''), text: f.label });
+			chip.dataset.filter = f.key;
 		});
 
 		const wrap = section.createDiv({ cls: 'po-table-wrap' });
@@ -1314,7 +1403,6 @@ export class ProjectBoard {
 	private buildPoRow(tbody: HTMLElement, t: TaskItem, projects: ProjectInfo[], origIndex: number): HTMLElement {
 		const statusMap: Record<string, string> = { '待办':'po-todo', '进行中':'po-progress', '已阻塞':'po-blocked', '已完成':'po-done', '已取消':'po-cancelled' };
 		const prioMap: Record<string, string> = { '重要且紧急':'po-p-high', '重要不紧急':'po-p-med', '紧急不重要':'po-p-med', '不重要不紧急':'po-p-low' };
-		const prioShort: Record<string, string> = { '重要且紧急':'高', '重要不紧急':'中', '紧急不重要':'中', '不重要不紧急':'低' };
 
 		const colorMap: Record<string, string> = {};
 		projects.forEach((p) => { colorMap[p.name] = p.color; });
@@ -1339,9 +1427,9 @@ export class ProjectBoard {
 			this.openTaskEditModal(t);
 		});
 
-		// Priority
+		// Priority（纯文本无 emoji，与 TODO/本周待办胶囊一致）
 		const tdPrio = tr.createEl('td');
-		if (t.priority) tdPrio.createSpan({ cls: 'po-prio ' + (prioMap[t.priority] || ''), text: prioShort[t.priority] || t.priority });
+		if (t.priority) tdPrio.createSpan({ cls: 'po-prio ' + (prioMap[t.priority] || ''), text: UI_TEXT.prioText(t.priority) });
 
 		// Start date
 		tr.createEl('td', { cls: 'po-mono', text: t.startDate || '-' });
@@ -1351,7 +1439,7 @@ export class ProjectBoard {
 
 		// Status
 		const tdSt = tr.createEl('td');
-		tdSt.createSpan({ cls: 'po-status ' + (statusMap[t.status] || ''), text: t.status });
+		tdSt.createSpan({ cls: 'po-status ' + (statusMap[t.status] || ''), text: UI_TEXT.statusLabel(t.status) });
 
 		// Project
 		const tdProj = tr.createEl('td');
@@ -1384,138 +1472,645 @@ export class ProjectBoard {
 
 	/* ---- Calendar Panel ---- */
 	private renderCalendarPanel(panel: HTMLElement, tasks: TaskItem[], projects: ProjectInfo[]): void {
-		const grid = panel.createDiv({ cls: 'po-cal' });
-
-		// Build project color lookup
+		const root = panel.createDiv({ cls: 'po-cal' });
+		root.tabIndex = 0;
+		const i18nT = t;   // forEach 参数 t 会 shadow 模块级 t，存别名供 renderTaskRow 等闭包使用
 		const colorMap: Record<string, string> = {};
 		projects.forEach((p) => { colorMap[p.name] = p.color; });
 
 		const today = new Date();
 		const todayStr = fmtDate(today);
+		if (!this.calSel) this.calSel = todayStr;
+		/** 月视图横条重定位观察器：窗格调整/打开源文件返回后布局变化时自动纠正横条 top */
+		let calResizeObserver: ResizeObserver | null = null;
 
-		// Use calYear/calMonth state
-		const renderMonth = () => {
-			grid.empty();
-			const y = this.calYear, m = this.calMonth;
-			const dim = new Date(y, m + 1, 0).getDate();
-			const fd = new Date(y, m, 1).getDay();
-			const adj = fd === 0 ? 6 : fd - 1;
+		const effDate = (task: TaskItem): string => task.remindDate || task.dueDate || '';
+		/** 跨天任务：同时有开始/截止日期且不同天（如 8月1日 → 8月20日） */
+		const isRangeTask = (task: TaskItem): boolean =>
+			!!task.startDate && !!task.dueDate && task.startDate !== task.dueDate;
+		/** 重复任务的有效日期：提醒日期已过（错过）→ 归到今天，与 TODO 列表口径一致；未错过 → 提醒日期 */
+		const recEffDate = (task: TaskItem): string | null => {
+			if (task.type !== '重复' || !task.remindDate) return null;
+			return task.remindDate < todayStr ? todayStr : task.remindDate;
+		};
+		/** 按「锚定日」取任务：跨天任务只在开始日出现一次（避免首末双显），普通任务按有效日期 */
+		const tasksOn = (ds: string): TaskItem[] => tasks.filter((task) => {
+			if (isRangeTask(task)) return task.startDate === ds;
+			const rec = recEffDate(task);
+			if (rec) return rec === ds;
+			return effDate(task) === ds || task.startDate === ds;
+		});
+		/** 跨天任务按「活跃日期」取（任务覆盖 ds 的所有任务，含跨天中间日）——详情面板用 */
+		const tasksActiveOn = (ds: string): TaskItem[] => tasks.filter((task) => {
+			if (isRangeTask(task)) return !!task.startDate && !!task.dueDate && task.startDate <= ds && ds <= task.dueDate;
+			const rec = recEffDate(task);
+			if (rec) return rec === ds;
+			return effDate(task) === ds || task.startDate === ds;
+		});
+		const rangeLabel = (task: TaskItem): string => dayFmt(task.startDate!) + ' → ' + dayFmt(task.dueDate!);
+		/** 单日 hover 状态文案（横条按日分段 title 用）：8月17日 · 已完成 · 备注 */
+		const dayStateLabel = (task: TaskItem, ds: string): string => {
+			const node = task.dailyNodes && task.dailyNodes[ds];
+			const st = node && node.s === 'done' ? t('home.calNodeDone') : node && node.s === 'skip' ? t('home.calNodeSkip') : t('home.calNodeTodo');
+			const note = node && node.n ? node.n : '';
+			return dayFmt(ds) + ' · ' + st + (note ? ' · ' + note : '');
+		};
+		/** 指定日期相对某周一（mon）的列索引 0-6 */
+		const dayIndexOf = (mon: string, ds: string): number => {
+			const a = new Date(mon + 'T00:00:00');
+			const b = new Date(ds + 'T00:00:00');
+			return Math.round((b.getTime() - a.getTime()) / 86400000);
+		};
+		const isOverdue = (task: TaskItem): boolean =>
+			task.status !== '已完成' && task.status !== '已取消' && !!task.dueDate && new Date(task.dueDate) < today;
+		const projColor = (task: TaskItem): string => colorMap[task.projectId] || '#3b82f6';
+		const addDays = (ds: string, n: number): string => {
+			const d = new Date(ds + 'T00:00:00');
+			d.setDate(d.getDate() + n);
+			return fmtDate(d);
+		};
+		const mondayOf = (ds: string): string => {
+			const d = new Date(ds + 'T00:00:00');
+			const dow = d.getDay();
+			const diff = dow === 0 ? -6 : 1 - dow;
+			d.setDate(d.getDate() + diff);
+			return fmtDate(d);
+		};
+		const dayFmt = (ds: string): string => {
+			const d = new Date(ds + 'T00:00:00');
+			return t('ui.calDayFmt', { m: String(d.getMonth() + 1), d: String(d.getDate()) });
+		};
+		const rangeTitle = (mon: string): string => dayFmt(mon) + ' – ' + dayFmt(addDays(mon, 6));
+		const MAX_TRACK = 5;           // 单行/单周最多轨道数（月、周视图共用；与「格子最多 5 个任务」一致，超出轨道的跨天任务 → 胶囊 → +N 面板）
 
-			// Header with navigation
-			const header = grid.createDiv({ cls: 'po-cal__header' });
-			header.createSpan({ cls: 'po-cal__title', text: y + '\u5E74' + (m + 1) + '\u6708' });
-			const nav = header.createDiv({ cls: 'po-cal__nav' });
-			const prevBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u2190' });
-			const todayBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u4ECA\u5929' });
-			const nextBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u2192' });
+		/** 渲染单条任务行（详情面板 / 议程共用）：项目色点 + 名称 + 状态 + 逾期标签；多日任务可展开每日记录 */
+		const renderTaskRow = (container: HTMLElement, task: TaskItem): void => {
+			const row = container.createDiv({ cls: 'po-cal__task' });
+			row.draggable = true;
+			row.dataset.taskId = task.id;
+			row.createSpan({ cls: 'po-mini-dot', attr: { style: 'background:' + projColor(task) } });
+			const nameSpan = row.createSpan({ cls: 'po-cal__task-name po-clickable', text: task.content });
+			nameSpan.addEventListener('click', (ev) => {
+				ev.stopPropagation();
+				this.openTaskEditModal(task);
+			});
+			row.createSpan({ cls: 'po-status ' + (task.status === '已完成' ? 'po-done' : 'po-todo'), text: UI_TEXT.statusLabel(task.status) });
+			if (isRangeTask(task)) {
+				row.createSpan({ cls: 'po-cal__range', text: rangeLabel(task) });
+			}
+			if (isOverdue(task)) {
+				const due = new Date(task.dueDate + 'T00:00:00');
+				const days = Math.max(1, Math.round((today.getTime() - due.getTime()) / 86400000));
+				row.createSpan({ cls: 'po-cal__over', text: t('ui.calOverdueDays', { n: String(days) }) });
+			}
+			// 多日任务：点击展开每日执行记录（含总进度）
+			if (isRangeTask(task)) {
+				const toggle = row.createSpan({ cls: 'po-cal__expand', text: '▸' });
+				toggle.addEventListener('click', (ev) => {
+					ev.stopPropagation();
+					const wrap = row.nextElementSibling as HTMLElement | null;
+					if (wrap && wrap.hasClass('po-cal__daily')) {
+						wrap.remove();
+						toggle.setText('▸');
+						return;
+					}
+					const daily = container.createDiv({ cls: 'po-cal__daily' });
+					let d = task.startDate!;
+					let done = 0, total = 0;
+					while (d <= task.dueDate!) {
+						total++;
+						const node = task.dailyNodes && task.dailyNodes[d];
+						const mark = node && node.s === 'done' ? '✓' : node && node.s === 'skip' ? '╌' : '○';
+						if (node && node.s === 'done') done++;
+						const line = daily.createDiv({ cls: 'po-cal__daily-row' });
+						line.createSpan({ cls: 'po-cal__daily-date', text: dayFmt(d) });
+						const st = line.createSpan({ cls: 'po-cal__daily-state ' + (node && node.s === 'done' ? 'is-done' : node && node.s === 'skip' ? 'is-skip' : 'is-todo'), text: mark });
+						st.addEventListener('click', (ev2) => {
+							ev2.stopPropagation();
+							const next = node && node.s === 'done' ? 'todo' : 'done';
+							void this.setDailyNode(task, d, next as 'done' | 'todo');
+						});
+						line.createSpan({ cls: 'po-cal__daily-note', text: node?.n || '' });
+						d = addDays(d, 1);
+					}
+					daily.createDiv({ cls: 'po-cal__daily-sum', text: t('ui.calProgress', { done: String(done), total: String(total) }) });
+					toggle.setText('▾');
+				});
+			}
+			row.addEventListener('dragstart', (ev) => ev.dataTransfer?.setData('text/plain', task.id));
+		};
+
+		/** 任务芯片（月 / 周格子内）：项目色左边条 + 三态配色；跨天任务带延续标记；重复任务绿色 ↻ */
+		const buildChip = (holder: HTMLElement, task: TaskItem): void => {
+			const isRange = isRangeTask(task);
+			const isRecur = task.type === '重复';
+			const cls = isOverdue(task) ? 'is-overdue' : task.status === '已完成' ? 'is-done' : 'is-normal';
+			const chip = holder.createDiv({ cls: 'po-cal__chip ' + cls + (isRange ? ' is-range' : '') + (isRecur ? ' is-recur' : ''), text: (isRecur ? '↻ ' : '') + task.content });
+			chip.setAttr('style', '--chip-color:' + projColor(task));
+			if (isRange) chip.setAttr('title', rangeLabel(task));
+			chip.addEventListener('click', (ev) => {
+				ev.stopPropagation();
+				this.openTaskEditModal(task);
+			});
+			// 右键：重复任务也可快捷标记当日
+			chip.addEventListener('contextmenu', (ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				const menu = new Menu();
+				menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(task)));
+				menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (task.sourceFile) void this.app.workspace.openLinkText(task.sourceFile, '', true); }));
+				menu.showAtMouseEvent(ev);
+			});
+			chip.draggable = true;
+			chip.dataset.taskId = task.id;
+		};
+
+		/** 日期格拖放改期（月 / 周通用） */
+		const bindDrop = (el: HTMLElement): void => {
+			el.addEventListener('dragover', (e) => {
+				if (el.dataset.date) { e.preventDefault(); el.addClass('po-cal__day--drag-over'); }
+			});
+			el.addEventListener('dragleave', () => el.removeClass('po-cal__day--drag-over'));
+			el.addEventListener('drop', (e) => {
+				e.preventDefault();
+				el.removeClass('po-cal__day--drag-over');
+				const taskId = e.dataTransfer?.getData('text/plain');
+				if (!taskId) return;
+				const task = tasks.find((tt) => tt.id === taskId);
+				if (!task) return;
+				this.calSel = el.dataset.date || this.calSel;
+				void this.updateTaskDate(task, this.calSel);
+			});
+		};
+
+		/** 工具栏：视图切换 + 月份标题 + 导航 */
+		const renderToolbar = (): void => {
+			const bar = root.createDiv({ cls: 'po-cal__bar' });
+			const seg = bar.createDiv({ cls: 'po-cal__seg' });
+			const views = [
+				{ key: 'month' as const, label: t('ui.calViewMonth') },
+				{ key: 'week' as const, label: t('ui.calViewWeek') },
+			];
+			views.forEach((v) => {
+				const b = seg.createEl('button', { cls: 'po-cal__seg-btn' + (this.calView === v.key ? ' is-active' : ''), text: v.label });
+				b.addEventListener('click', () => { this.calView = v.key; render(); });
+			});
+			const ttl = bar.createSpan({ cls: 'po-cal__ttl' });
+			ttl.style.marginLeft = 'auto';   // 月份/日期标题推到右上角，紧贴切换月份的 ‹ 今天 › 左边
+			if (this.calView === 'month') {
+				const months = tArr('status.months');
+				ttl.setText(t('ui.calMonthFmt', { y: String(this.calYear), m: months[this.calMonth] ?? String(this.calMonth + 1) }));
+			} else {
+				const mon = mondayOf(this.calSel);
+				ttl.setText(rangeTitle(mon));
+			}
+			const nav = bar.createDiv({ cls: 'po-cal__nav' });
+			const prevBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '‹' });
+			const todayBtn = nav.createEl('button', { cls: 'po-cal__btn', text: UI_TEXT.today });
+			const nextBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '›' });
 
 			prevBtn.addEventListener('click', () => {
-				this.calMonth--;
-				if (this.calMonth < 0) { this.calMonth = 11; this.calYear--; }
-				renderMonth();
+				if (this.calView === 'month') {
+					this.calMonth--;
+					if (this.calMonth < 0) { this.calMonth = 11; this.calYear--; }
+				} else {
+					this.calSel = addDays(this.calSel, -7);
+				}
+				render();
 			});
 			nextBtn.addEventListener('click', () => {
-				this.calMonth++;
-				if (this.calMonth > 11) { this.calMonth = 0; this.calYear++; }
-				renderMonth();
+				if (this.calView === 'month') {
+					this.calMonth++;
+					if (this.calMonth > 11) { this.calMonth = 0; this.calYear++; }
+				} else {
+					this.calSel = addDays(this.calSel, 7);
+				}
+				render();
 			});
 			todayBtn.addEventListener('click', () => {
 				this.calYear = today.getFullYear();
 				this.calMonth = today.getMonth();
-				renderMonth();
-			});
-
-			// Weekdays
-			const weekdays = grid.createDiv({ cls: 'po-cal__weekdays' });
-			['\u4E00', '\u4E8C', '\u4E09', '\u56DB', '\u4E94', '\u516D', '\u65E5'].forEach((d) => weekdays.createSpan({ text: d }));
-
-			// Days
-			const days = grid.createDiv({ cls: 'po-cal__days' });
-			for (let i = 0; i < adj; i++) days.createDiv({ cls: 'po-cal__day' });
-			for (let d = 1; d <= dim; d++) {
-				const ds = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-				const isToday = ds === todayStr;
-				const dayTasks = tasks.filter((t) => {
-					const effectiveDate = t.remindDate || t.dueDate;
-					return effectiveDate === ds || t.startDate === ds;
-				});
-				const hasOverdue = dayTasks.some((t) => t.status !== '\u5DF2\u5B8C\u6210' && t.status !== '\u5DF2\u53D6\u6D88' && t.dueDate && new Date(t.dueDate) < today);
-				const cls = 'po-cal__day' + (isToday ? ' is-today' : '') +
-					(dayTasks.length ? (hasOverdue ? ' has-overdue has-tasks' : ' has-tasks') : '');
-				const dayEl = days.createDiv({ cls, attr: { 'data-date': ds } });
-				dayEl.createSpan({ cls: 'po-cal__day-num', text: String(d) });
-				// Show up to 3 task names inside the cell
-				const shown = dayTasks.slice(0, 3);
-				shown.forEach((t) => {
-					const taskEl = dayEl.createDiv({ cls: 'po-cal__day-task', text: t.content });
-					taskEl.style.color = t.status === '\u5DF2\u5B8C\u6210' ? 'var(--ad-text-dim)' : '';
-				});
-				if (dayTasks.length > 3) {
-					dayEl.createDiv({ cls: 'po-cal__day-more', text: '+' + (dayTasks.length - 3) });
-				}
-			}
-
-			// Preview area
-			const preview = grid.createDiv({ cls: 'po-cal__preview', text: '\u70B9\u51FB\u65E5\u671F\u67E5\u770B\u5F53\u5929\u4EFB\u52A1' });
-
-			// Click date to show tasks
-			grid.addEventListener('click', (e) => {
-				const dayEl = (e.target as HTMLElement).closest('.po-cal__day') as HTMLElement;
-				if (!dayEl || !dayEl.dataset.date) return;
-				const dt = dayEl.dataset.date;
-				const dayTasks = tasks.filter((t) => {
-					const effectiveDate = t.remindDate || t.dueDate;
-					return effectiveDate === dt || t.startDate === dt;
-				});
-				preview.empty();
-				if (dayTasks.length) {
-					dayTasks.forEach((t) => {
-						const row = preview.createDiv({ cls: 'po-cal__task' });
-						row.draggable = true;
-						row.dataset.taskId = t.id;
-						const projColor = colorMap[t.projectId] || '#3b82f6';
-						row.createSpan({ cls: 'po-mini-dot', attr: { style: 'background:' + projColor } });
-						const nameSpan = row.createSpan({ cls: 'po-cal__task-name po-clickable', text: t.content });
-						nameSpan.addEventListener('click', (ev) => {
-							ev.stopPropagation();
-							this.openTaskEditModal(t);
-						});
-						row.createSpan({ cls: 'po-status ' + (t.status === '\u5DF2\u5B8C\u6210' ? 'po-done' : 'po-todo'), text: t.status });
-
-						// Drag to move task to another date
-						row.addEventListener('dragstart', (ev) => {
-							ev.dataTransfer?.setData('text/plain', t.id);
-						});
-					});
-				} else {
-					preview.createSpan({ text: '\u8BE5\u65E5\u671F\u6682\u65E0\u4EFB\u52A1' });
-				}
-			});
-
-			// Drop on calendar days to move task
-			grid.addEventListener('dragover', (e) => {
-				const dayEl = (e.target as HTMLElement).closest('.po-cal__day') as HTMLElement;
-				if (dayEl?.dataset.date) { e.preventDefault(); dayEl.addClass('po-cal__day--drag-over'); }
-			});
-			grid.addEventListener('dragleave', (e) => {
-				const dayEl = (e.target as HTMLElement).closest('.po-cal__day') as HTMLElement;
-				if (dayEl) dayEl.removeClass('po-cal__day--drag-over');
-			});
-			grid.addEventListener('drop', (e) => {
-				e.preventDefault();
-				const dayEl = (e.target as HTMLElement).closest('.po-cal__day') as HTMLElement;
-				if (!dayEl?.dataset.date) return;
-				dayEl.removeClass('po-cal__day--drag-over');
-				const taskId = e.dataTransfer?.getData('text/plain');
-				if (!taskId) return;
-				const task = tasks.find((t) => t.id === taskId);
-				if (!task) return;
-				const newDate = dayEl.dataset.date;
-				void this.updateTaskDate(task, newDate);
+				this.calSel = todayStr;
+				render();
 			});
 		};
 
-		renderMonth();
+		/** 月视图：7 列弹性网格 + 溢出日 + 周末底色 + 今日圆徽 + 芯片 + 跨天横条 */
+		const renderMonth = (): void => {
+			calResizeObserver?.disconnect();
+			calResizeObserver = null;
+			const y = this.calYear, m = this.calMonth;
+			const dim = new Date(y, m + 1, 0).getDate();
+			const fd = new Date(y, m, 1).getDay();
+			const adj = fd === 0 ? 6 : fd - 1;
+			const cells = Math.ceil((adj + dim) / 7) * 7;
+			const prevDim = new Date(y, m, 0).getDate();
+
+			const wd = root.createDiv({ cls: 'po-cal__weekdays' });
+			UI_TEXT.calWeekdays.forEach((d, i) => {
+				const s = wd.createSpan({ text: d });
+				if (i >= 5) s.addClass('is-we');
+			});
+
+			const days = root.createDiv({ cls: 'po-cal__days' });
+			const monthStart = fmtDate(new Date(y, m, 1));
+			const monthEnd = fmtDate(new Date(y, m + 1, 0));
+			const rows = cells / 7;
+			const colW = 100 / 7;          // 每列宽度（百分比）
+			const TRACK_H = 17;            // 轨道高（px）
+			const DATE_OFF = 20;           // 日期号区高度（px）
+			const rangeTasks = tasks.filter(isRangeTask);
+
+			// 第一步：跨天任务拆成「按周分段」，归入对应行
+			type RowSeg = { c1: number; c2: number; task: TaskItem };
+			const rowSegs: RowSeg[][] = Array.from({ length: rows }, () => []);
+			rangeTasks.forEach((task) => {
+				const s = task.startDate! < monthStart ? monthStart : task.startDate!;
+				const e = task.dueDate! > monthEnd ? monthEnd : task.dueDate!;
+				if (s > e) return;
+				const sIdx = adj + (new Date(s + 'T00:00:00').getDate()) - 1;
+				const eIdx = adj + (new Date(e + 'T00:00:00').getDate()) - 1;
+				if (sIdx < 0 || eIdx >= cells) return;
+				const sRow = Math.floor(sIdx / 7), eRow = Math.floor(eIdx / 7);
+				const sCol = sIdx % 7, eCol = eIdx % 7;
+				for (let r = sRow; r <= eRow; r++) {
+					rowSegs[r]?.push({
+						c1: r === sRow ? sCol : 0,
+						c2: r === eRow ? eCol : 6,
+						task,
+					});
+				}
+			});
+
+			// 第二步：全局轨道分配（跨行一致）——每个跨天任务整月只分配一次轨道号，各行的段都画在同一条轨道上，
+			// 保证「第一行排第二，第二行也排第二」；最多 MAX_TRACK 条，放不下的进全局溢出 → 以胶囊锚定显示。
+			const clampedRanges = rangeTasks
+				.map((task) => ({
+					task,
+					s: task.startDate! < monthStart ? monthStart : task.startDate!,
+					e: task.dueDate! > monthEnd ? monthEnd : task.dueDate!,
+				}))
+				.filter(({ s, e }) => s <= e);
+			clampedRanges.sort((a, b) => a.task.startDate!.localeCompare(b.task.startDate!) || a.task.id.localeCompare(b.task.id));
+			const gTracks: string[] = [];               // 每轨道最后占用结束日（YYYY-MM-DD 字典序可比）
+			const gTrackOf = new Map<string, number>();
+			clampedRanges.forEach(({ task, s, e }) => {
+				let ti = gTracks.findIndex((end) => s > end);
+				if (ti === -1) {
+					if (gTracks.length >= MAX_TRACK) return;
+					ti = gTracks.length;
+					gTracks.push('');
+				}
+				gTracks[ti] = e;
+				gTrackOf.set(task.id, ti);
+			});
+			const rowPlaced: { seg: RowSeg; track: number }[][] = Array.from({ length: rows }, () => []);
+			const rowOverflowTasks: TaskItem[][] = Array.from({ length: rows }, () => []);
+			rowSegs.forEach((segs, r) => {
+				segs.forEach((seg) => {
+					const t = gTrackOf.get(seg.task.id);
+					if (t === undefined) { rowOverflowTasks[r]?.push(seg.task); return; }
+					rowPlaced[r]?.push({ seg, track: t });
+				});
+			});
+
+			// 横条片段改为在单元格循环内按本格实际经过数渲染（见下方第三步），不再预统计。
+
+			// 第三步：渲染日期格 + 横条覆盖层。
+			// 横条：跨列连续（每行一个定位锚点，见第四步）→ 保持原横条样式、不浮动；
+			// 胶囊：填进横条未占用的轨道槽位，空槽再溢出到横条带下方；横条 + 胶囊合计最多 6 个。
+			const SLOT_MAX = 5;             // 每格最多显示任务数（横条 + 胶囊合计）
+			// 当日被隐藏的真实任务（当日口径）：key = 日期，value = 覆盖该日的溢出任务 + 该日超预算的重复/单日胶囊。
+			// 点 +N 面板只列出「这一天」的任务，数字与徽标完全一致。
+			const dayHidden = new Map<string, TaskItem[]>();
+			let overflowKey: string | null = null;    // 当前展开的「当日溢出面板」定位（r|ds），点同一处收起
+			for (let i = 0; i < cells; i++) {
+				let ds = '';
+				let isOut = false;
+				if (i < adj) {
+					ds = fmtDate(new Date(y, m - 1, prevDim - adj + 1 + i));
+					isOut = true;
+				} else if (i < adj + dim) {
+					ds = fmtDate(new Date(y, m, i - adj + 1));
+				} else {
+					ds = fmtDate(new Date(y, m + 1, i - adj - dim + 1));
+					isOut = true;
+				}
+				const dObj = new Date(ds + 'T00:00:00');
+				const isToday = ds === todayStr;
+				const isSel = ds === this.calSel;
+				const isWe = dObj.getDay() === 6 || dObj.getDay() === 0;
+				const dayTasks = tasksOn(ds);
+
+				let cls = 'po-cal__day';
+				if (isOut) cls += ' is-out';
+				if (isWe) cls += ' is-weekend';
+				if (isToday) cls += ' is-today';
+				if (isSel) cls += ' is-sel';
+
+				const dayEl = days.createDiv({ cls, attr: { 'data-date': ds } });
+				dayEl.createSpan({ cls: 'po-cal__day-num' + (isToday ? ' is-today' : ''), text: String(dObj.getDate()) });
+
+				const r = Math.floor(i / 7);
+				const c = i % 7;
+				// 本格被横条占用的轨道号（全局轨道，横条连续不浮动）
+				const occupied = new Set((rowPlaced[r] || []).filter(({ seg }) => c >= seg.c1 && c <= seg.c2).map(({ track }) => track));
+
+				// 胶囊列表（显示优先级：重复任务 > 单日任务）；预算 = 5 − 本格横条数。
+				// 溢出任务（没拿到全局轨道的跨天任务）不再锚定显示胶囊，统一收进 +N。
+				const singleHere = dayTasks.filter((task) => !isRangeTask(task));
+				const recurHere = singleHere.filter((task) => task.type === '重复');
+				const singleOnly = singleHere.filter((task) => task.type !== '重复');
+				const chipList = [...recurHere, ...singleOnly];
+				const chipBudget = Math.max(0, SLOT_MAX - occupied.size);
+				const chipsToShow = chipList.slice(0, chipBudget);
+				const chipHidden = Math.max(0, chipList.length - chipBudget);
+				// 被本行溢出任务覆盖但未显示的格子：计入 +N（点开可见真实任务）
+				const overflowCovered = (rowOverflowTasks[r] || []).filter((task) =>
+					!!task.startDate && !!task.dueDate && task.startDate <= ds && ds <= task.dueDate);
+				const hidden = chipHidden + overflowCovered.length;
+				// 当日口径：徽标数字 = 面板列出的任务数（溢出覆盖 + 超预算胶囊），点 +N 只显示这一天
+				if (hidden > 0) dayHidden.set(ds, [...overflowCovered, ...chipList.slice(chipBudget)]);
+
+				// 轨道交错（grid 与覆盖层横条严格对齐）：空轨道用胶囊填上（从 track 0 往上），
+				// 横条轨道留空槽（被覆盖层覆盖），剩余胶囊堆在 1fr 区域；这样重复/单日任务
+				// 会优先填进横条区上方的空槽，而不是全堆在横条下面。
+				const body = dayEl.createDiv({ cls: 'po-cal__day-body' });
+				const maxBarTrack = occupied.size > 0 ? Math.max(...occupied) : -1;
+				const trackCount = maxBarTrack >= 0 ? maxBarTrack + 1 : 0;
+				body.style.gridTemplateRows = trackCount > 0
+					? `repeat(${trackCount}, 17px) auto`
+					: 'auto';
+				let ci = 0;
+				const placeNext = (): boolean => {
+					if (ci < chipsToShow.length) {
+						const t = chipsToShow[ci++];
+						if (t) { buildChip(body, t); return true; }
+					}
+					return false;
+				};
+				for (let t = 0; t < trackCount; t++) {
+					if (occupied.has(t)) {
+						body.createDiv({ cls: 'po-cal__slot' });   // 横条覆盖此槽
+					} else if (!placeNext()) {
+						body.createDiv({ cls: 'po-cal__slot' });
+					}
+				}
+				while (ci < chipsToShow.length) {
+					const t = chipsToShow[ci++];
+					if (t) buildChip(body, t);
+				}
+
+				if (hidden > 0) {
+					dayEl.style.paddingBottom = '18px';   // 给 +N (15px) + 底部 2px + 1px 间隙留出独立空间
+					const more = dayEl.createDiv({ cls: 'po-cal__day-more', text: '+' + hidden });
+					more.addEventListener('click', (ev) => { ev.stopPropagation(); openRowOverflow(r, ds); });
+				}
+
+				// 仅预留日期号区；横条带由 slot 撑开，空轨道被胶囊/空槽填满 → 不再有中段空位
+				dayEl.style.paddingTop = DATE_OFF + 'px';
+
+				dayEl.addEventListener('click', () => {
+					if (isOut) {
+						const d = new Date(ds + 'T00:00:00');
+						this.calYear = d.getFullYear();
+						this.calMonth = d.getMonth();
+					}
+					this.calSel = ds;
+					render();
+				});
+				dayEl.addEventListener('dblclick', (ev) => {
+					ev.stopPropagation();
+					this.calSel = ds;
+					// 默认带当前侧栏项目，避免保存时找不到项目文件夹
+					void this.openTaskModalWithParent('', this.selectedProject ?? '');
+				});
+				bindDrop(dayEl);
+			}
+
+			// 第四步：读取每行真实顶部 offsetTop，再渲染横条覆盖层（绝对定位铺满，跨列连续）。
+			// 这样做既不占 grid 行（避免把日期格挤到下方产生「两个月视图」），又能在行高不均时与槽位严格对齐。
+			const rowTops: number[] = [];
+			for (let r = 0; r < rows; r++) {
+				const firstCell = days.children[r * 7] as HTMLElement | undefined;
+				rowTops.push(firstCell ? firstCell.offsetTop : 0);
+			}
+			/** 当日溢出面板：点 +N 从该行下方铺开全宽面板，只列出覆盖「这一天」的被隐藏任务（数字与徽标一致） */
+			function openRowOverflow(r: number, ds: string): void {
+				const key = r + '|' + ds;
+				const existing = days.querySelector('.po-cal__rowover') as HTMLElement | null;
+				if (existing) {
+					existing.remove();
+					if (overflowKey === key) { overflowKey = null; return; }
+				}
+				overflowKey = key;
+				const list = dayHidden.get(ds) || [];
+				if (!list.length) { overflowKey = null; return; }
+				const panel = days.createDiv({ cls: 'po-cal__rowover' });
+				panel.style.top = ((rowTops[r + 1] ?? days.offsetHeight) + 2) + 'px';
+				panel.createDiv({ cls: 'po-cal__rowover-hd', text: t('ui.calOverflowRow') + '（' + String(list.length) + '）' });
+				list.forEach((task) => renderTaskRow(panel, task));
+				panel.addEventListener('click', () => { overflowKey = null; panel.remove(); });
+			}
+			const barLayer = days.createDiv({ cls: 'po-cal__mbars' });
+			const barRefs: { el: HTMLElement; r: number; topPx: number }[] = [];
+			rowPlaced.forEach((placed, r) => {
+				if (!placed.length) return;
+				placed.forEach(({ seg, track }) => {
+					const topPx = DATE_OFF + track * TRACK_H;
+					const segCount = seg.c2 - seg.c1 + 1;
+					const bar = barLayer.createDiv({ cls: 'po-cal__mbar' + (seg.task.status === '已完成' ? ' is-done' : ''), text: '' });
+					bar.setAttr('style', '--chip-color:' + projColor(seg.task) + '; top:' + ((rowTops[r] ?? 0) + topPx) + 'px; left:calc(' + (seg.c1 * colW).toFixed(4) + '% + 4px); width:calc(' + (segCount * colW).toFixed(4) + '% - 8px);');
+					// 按日分段：当天 done → 深色实心、skip → 灰色虚线、无 → 浅色（每段都贴左显示任务名）
+					// 每段 hover 显示该日状态 + 备注（不再整条显示所有日期）
+					for (let c = seg.c1; c <= seg.c2; c++) {
+						const gi = r * 7 + c;
+						const segDate = fmtDate(new Date(y, m, gi - adj + 1));
+						const node = seg.task.dailyNodes && seg.task.dailyNodes[segDate];
+						let st = 'is-empty';
+						if (node && node.s === 'done') st = 'is-done';
+						else if (node && node.s === 'skip') st = 'is-skip';
+						const piece = bar.createDiv({ cls: 'po-cal__mbar-seg ' + st, text: c === seg.c1 ? seg.task.content : '' });
+						piece.setAttr('title', dayStateLabel(seg.task, segDate));
+						piece.style.width = 'calc(' + (100 / segCount).toFixed(4) + '% - 1px)';
+						// 右键：删除任务 / 打开源文件
+						piece.addEventListener('contextmenu', (ev) => {
+							ev.preventDefault();
+							ev.stopPropagation();
+							const menu = new Menu();
+							menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(seg.task)));
+							menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (seg.task.sourceFile) void this.app.workspace.openLinkText(seg.task.sourceFile, '', true); }));
+							menu.showAtMouseEvent(ev);
+						});
+					}
+					bar.setAttr('title', rangeLabel(seg.task));
+					bar.addEventListener('click', (ev) => {
+						ev.stopPropagation();
+						this.openTaskEditModal(seg.task);
+					});
+					bar.draggable = false;
+					bar.dataset.taskId = seg.task.id;
+					barRefs.push({ el: bar, r, topPx });
+				});
+			});
+			// 布局变化后重测行顶：解决「打开源文件后返回日历、窗格调整」时横条错位
+			// （offsetTop 在布局未稳定时测出错误值且不会自动纠正，这里用 rAF 稳定后重测 + ResizeObserver 监听尺寸变化）
+			const repositionBars = (): void => {
+				const tops: number[] = [];
+				for (let rr = 0; rr < rows; rr++) {
+					const fc = days.children[rr * 7] as HTMLElement | undefined;
+					tops.push(fc ? fc.offsetTop : 0);
+				}
+				barRefs.forEach(({ el, r, topPx }) => {
+					el.style.top = ((tops[r] ?? 0) + topPx) + 'px';
+				});
+			};
+			requestAnimationFrame(() => repositionBars());
+			calResizeObserver = new ResizeObserver(() => repositionBars());
+			calResizeObserver.observe(days);
+		};
+
+		/** 周视图：7 列日柱，今日列高亮；跨天任务渲染为跨列横条 */
+		const renderWeek = (): void => {
+			const mon = mondayOf(this.calSel);
+			const weekEnd = addDays(mon, 6);
+			const wd = root.createDiv({ cls: 'po-cal__weekdays' });
+			UI_TEXT.calWeekdays.forEach((d, i) => {
+				const s = wd.createSpan({ text: d });
+				if (i >= 5) s.addClass('is-we');
+			});
+			const cols = root.createDiv({ cls: 'po-cal__week' });
+			cols.style.gridTemplateRows = 'repeat(' + MAX_TRACK + ', auto) 1fr';
+
+			// 跨天任务 → 跨列横条（只渲染与本周相交的部分；贪心分配轨道避免重叠，最多 MAX_TRACK 条）
+			type WSeg = { si: number; ei: number; task: TaskItem };
+			const wSegs: WSeg[] = [];
+			tasks.filter(isRangeTask).forEach((task) => {
+				const s = task.startDate! < mon ? mon : task.startDate!;
+				const e = task.dueDate! > weekEnd ? weekEnd : task.dueDate!;
+				if (s > e) return;
+				wSegs.push({ si: dayIndexOf(mon, s), ei: dayIndexOf(mon, e), task });
+			});
+			wSegs.sort((a, b) => (a.task.startDate || '').localeCompare(b.task.startDate || '') || a.task.id.localeCompare(b.task.id) || a.si - b.si);
+			const wTracks: number[] = [];
+			const wPlaced: { seg: WSeg; track: number }[] = [];
+			wSegs.forEach((seg) => {
+				let ti = wTracks.findIndex((end) => seg.si > end);
+				if (ti === -1) {
+					if (wTracks.length >= MAX_TRACK) return; // 罕见超限：跳过（详情面板仍可见）
+					ti = wTracks.length;
+					wTracks.push(-1);
+				}
+				wTracks[ti] = seg.ei;
+				wPlaced.push({ seg, track: ti });
+			});
+			wPlaced.forEach(({ seg, track }) => {
+				const { si, ei, task } = seg;
+				const segCount = ei - si + 1;
+				const bar = cols.createDiv({ cls: 'po-cal__wbar' + (task.status === '已完成' ? ' is-done' : '') , text: '' });
+				bar.setAttr('style', '--chip-color:' + projColor(task));
+				bar.style.gridRow = (track + 1) + ' / ' + (track + 2);
+				bar.style.gridColumn = (si + 1) + ' / ' + (ei + 2);
+				// 按日分段：当天 done → 深色实心、skip → 灰色虚线、无 → 浅色（仅首段显示任务名）
+				// 每段 hover 显示该日状态 + 备注（不再整条显示所有日期）
+				for (let c = si; c <= ei; c++) {
+					const ds = addDays(mon, c);
+					const node = task.dailyNodes && task.dailyNodes[ds];
+					let st = 'is-empty';
+					if (node && node.s === 'done') st = 'is-done';
+					else if (node && node.s === 'skip') st = 'is-skip';
+					const piece = bar.createDiv({ cls: 'po-cal__mbar-seg ' + st, text: c === si ? task.content : '' });
+					piece.setAttr('title', dayStateLabel(task, ds));
+					piece.style.width = 'calc(' + (100 / segCount).toFixed(4) + '% - 1px)';
+					// 右键：删除任务 / 打开源文件
+					piece.addEventListener('contextmenu', (ev) => {
+						ev.preventDefault();
+						ev.stopPropagation();
+						const menu = new Menu();
+						menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(task)));
+						menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (task.sourceFile) void this.app.workspace.openLinkText(task.sourceFile, '', true); }));
+						menu.showAtMouseEvent(ev);
+					});
+				}
+				bar.setAttr('title', rangeLabel(task));
+				bar.addEventListener('click', (ev) => {
+					ev.stopPropagation();
+					this.openTaskEditModal(task);
+				});
+				bar.draggable = false;
+				bar.dataset.taskId = task.id;
+			});
+
+			for (let i = 0; i < 7; i++) {
+				const ds = addDays(mon, i);
+				const dObj = new Date(ds + 'T00:00:00');
+				const isToday = ds === todayStr;
+				const isSel = ds === this.calSel;
+				const dayTasks = tasksOn(ds);
+				const col = cols.createDiv({ cls: 'po-cal__wcol' + (isToday ? ' is-today' : '') + (isSel ? ' is-sel' : ''), attr: { 'data-date': ds } });
+				col.style.gridRow = String(MAX_TRACK + 1);
+				const hd = col.createDiv({ cls: 'po-cal__wcol-hd' });
+				hd.createSpan({ cls: 'po-cal__wcol-day', text: String(dObj.getDate()) });
+				hd.createSpan({ cls: 'po-cal__wcol-name', text: UI_TEXT.calWeekdays[i] });
+				// 日柱内只放锚定在当天的普通任务（跨天任务已在横条中，不再重复）
+				dayTasks.filter((task) => !isRangeTask(task)).forEach((task) => buildChip(col, task));
+				col.addEventListener('click', () => { this.calSel = ds; render(); });
+				col.addEventListener('dblclick', (ev) => {
+					ev.stopPropagation();
+					this.calSel = ds;
+					void this.openTaskModalWithParent('', this.selectedProject ?? '');
+				});
+				bindDrop(col);
+			}
+		};
+
+		/** 常驻详情面板：默认选中今天，点击日期刷新 */
+		const renderDetail = (): void => {
+			const dt = this.calSel;
+			// 详情面板用「活跃日期」：跨天任务的中间日也能看到对应任务
+			const dayTasks = tasksActiveOn(dt);
+			const dObj = new Date(dt + 'T00:00:00');
+			const det = root.createDiv({ cls: 'po-cal__det' });
+			const hd = det.createDiv({ cls: 'po-cal__det-hd' });
+			hd.createSpan({ cls: 'po-cal__det-ttl', text: dayFmt(dt) + ' · ' + (dt === todayStr ? t('ui.calAgendaToday') : UI_TEXT.calWeekdays[(dObj.getDay() + 6) % 7]) + ' · ' + t('ui.calTaskCount', { n: String(dayTasks.length) }) });
+			if (!dayTasks.length) det.createSpan({ cls: 'po-cal__det-empty', text: t('ui.noTaskOnDay') });
+			dayTasks.forEach((task) => renderTaskRow(det, task));
+			const newBtn = det.createDiv({ cls: 'po-cal__new', text: t('ui.calNewTask') });
+			newBtn.addEventListener('click', () => { void this.openTaskModalWithParent('', this.selectedProject ?? ''); });
+		};
+
+		/** 组装 + 键盘导航（← / → 切月或周，T 回今天） */
+		const render = (): void => {
+			root.empty();
+			renderToolbar();
+			if (this.calView === 'month') renderMonth();
+			else renderWeek();
+			renderDetail();
+		};
+
+		root.addEventListener('keydown', (e) => {
+			if (e.key === 'ArrowLeft') {
+				e.preventDefault();
+				if (this.calView === 'month') {
+					this.calMonth--; if (this.calMonth < 0) { this.calMonth = 11; this.calYear--; }
+				} else { this.calSel = addDays(this.calSel, -7); }
+				render();
+			} else if (e.key === 'ArrowRight') {
+				e.preventDefault();
+				if (this.calView === 'month') {
+					this.calMonth++; if (this.calMonth > 11) { this.calMonth = 0; this.calYear++; }
+				} else { this.calSel = addDays(this.calSel, 7); }
+				render();
+			} else if (e.key === 't' || e.key === 'T') {
+				e.preventDefault();
+				this.calYear = today.getFullYear();
+				this.calMonth = today.getMonth();
+				this.calSel = todayStr;
+				render();
+			}
+		});
+
+		render();
 	}
 
 
@@ -1536,7 +2131,7 @@ export class ProjectBoard {
 
 		task.dueDate = newDate;
 		if (task.remindDate) task.remindDate = newDate;
-		this.showToast('\u2728 \u4EFB\u52A1\u65E5\u671F\u5DF2\u66F4\u65B0');
+		this.showToast(t('modal.poDateUpdated'));
 		await this.refresh();
 	}
 
@@ -1546,11 +2141,11 @@ export class ProjectBoard {
 	private renderKanbanPanel(panel: HTMLElement, tasks: TaskItem[], projects: ProjectInfo[]): void {
 		const board = panel.createDiv({ cls: 'po-kanban' });
 		const cols = [
-			{ key: '\u5F85\u529E', label: '\u5F85\u529E' },
-			{ key: '\u8FDB\u884C\u4E2D', label: '\u8FDB\u884C\u4E2D' },
-			{ key: '\u5DF2\u963B\u585E', label: '\u5DF2\u963B\u585E' },
-			{ key: '\u5DF2\u5B8C\u6210', label: '\u5DF2\u5B8C\u6210' },
-			{ key: '\u5DF2\u53D6\u6D88', label: '\u5DF2\u53D6\u6D88' },
+			{ key: '\u5F85\u529E', label: UI_TEXT.statusLabel('\u5F85\u529E') },
+			{ key: '\u8FDB\u884C\u4E2D', label: UI_TEXT.statusLabel('\u8FDB\u884C\u4E2D') },
+			{ key: '\u5DF2\u963B\u585E', label: UI_TEXT.statusLabel('\u5DF2\u963B\u585E') },
+			{ key: '\u5DF2\u5B8C\u6210', label: UI_TEXT.statusLabel('\u5DF2\u5B8C\u6210') },
+			{ key: '\u5DF2\u53D6\u6D88', label: UI_TEXT.statusLabel('\u5DF2\u53D6\u6D88') },
 		];
 
 		// Build project color lookup
@@ -1649,7 +2244,7 @@ export class ProjectBoard {
 
 		await this.writeFrontmatter(file, { '\u72B6\u6001': newStatus });
 		task.status = newStatus;
-		this.showToast('\u2728 \u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0: ' + newStatus);
+		this.showToast(t('modal.poStatusUpdated', { status: newStatus }));
 		await this.refresh();
 	}
 
@@ -1663,7 +2258,7 @@ export class ProjectBoard {
 
 		await this.writeFrontmatter(file, { '\u4F18\u5148\u7EA7': newPriority });
 		task.priority = newPriority as TaskItem['priority'];
-		this.showToast('\u2728 \u4F18\u5148\u7EA7\u5DF2\u66F4\u65B0: ' + newPriority);
+		this.showToast(t('modal.poPriorityUpdated', { priority: newPriority }));
 		await this.refresh();
 	}
 

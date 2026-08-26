@@ -8,7 +8,8 @@ import {
 	createOpportunity, updateOpportunity, updateBoardItemStatus, toggleBoardItemStarred, deleteOpportunity,
 	DEFAULT_BOARD_FILE,
 } from '../data/opportunityParser';
-import { UI_TEXT } from '../constants';
+import { UI_TEXT, MODAL_TEXT } from '../constants';
+import { t } from '../i18n';
 
 /** Host surface the OpportunityBoard needs from its owner view. */
 export interface OpportunityHost {
@@ -58,11 +59,12 @@ export class OpportunityBoard {
 	}
 
 	private boardTitle(): string {
-		return this.host.plugin.settings.boardTitle || '看板';
+		return this.host.plugin.settings.boardTitle || t('settings.boardNamePlaceholder');
 	}
 
 	private boardPath(): string {
-		return this.host.plugin.settings.opportunityFile || DEFAULT_BOARD_FILE;
+		const raw = (this.host.plugin.settings.opportunityFile || DEFAULT_BOARD_FILE).trim();
+		return raw.toLowerCase().endsWith('.md') ? raw : raw + '.md';
 	}
 
 	/** 配置的阶段 label 列表（排序用） */
@@ -85,7 +87,7 @@ export class OpportunityBoard {
 		const path = this.boardPath();
 		const title = this.boardTitle();
 		await ensureOpportunityFile(this.host.app, path, title);
-		const items = await parseOpportunitiesFile(this.host.app, path, title);
+		const items = await parseOpportunitiesFile(this.host.app, path, title, this.stageLabels());
 		const sorted = sortBoardItems(items, this.stageLabels());
 		this.cache = { at: now, items: sorted };
 		return sorted;
@@ -171,8 +173,8 @@ export class OpportunityBoard {
 		const items = this.filteredItems();
 		const tabs = this.mainEl.createDiv({ cls: 'po-tabs' });
 		const tabDefs = [
-			{ key: 'kanban', label: '▦ 看板' },
-			{ key: 'list', label: '☰ 列表' },
+			{ key: 'kanban', label: t('modal.opKanban') },
+			{ key: 'list', label: t('modal.opList') },
 		];
 		const content = this.mainEl.createDiv({ cls: 'po-content' });
 		const panels: Record<string, HTMLElement> = {};
@@ -182,7 +184,7 @@ export class OpportunityBoard {
 			btn.dataset.view = td.key;
 			panels[td.key] = content.createDiv({ cls: 'po-panel' + (td.key === cur ? ' is-active' : ''), attr: { 'data-view': td.key } });
 		}
-		const newBtn = tabs.createEl('button', { cls: 'po-add-btn op-new-btn', text: '+ 新建' + this.boardTitle() });
+		const newBtn = tabs.createEl('button', { cls: 'po-add-btn op-new-btn', text: t('modal.opNew', { title: this.boardTitle() }) });
 		newBtn.addEventListener('click', (e) => { e.stopPropagation(); void this.createItem(); });
 		this.renderPanel(cur, panels[cur]!, items);
 		tabs.addEventListener('click', (e) => {
@@ -272,20 +274,20 @@ export class OpportunityBoard {
 					e.preventDefault();
 					const menu = new Menu();
 					menu.addItem((m) => m.setTitle(UI_TEXT.edit).setIcon('pencil').onClick(() => this.openModal(it)));
-					if (singleMode) menu.addItem((m) => m.setTitle('在右侧查看').setIcon('eye').onClick(() => {
+					if (singleMode) menu.addItem((m) => m.setTitle(MODAL_TEXT.opViewRight).setIcon('eye').onClick(() => {
 						this.selectedDetailId = it.id;
 						board.querySelectorAll('.op-card').forEach((c) => c.removeClass('is-selected'));
 						card.addClass('is-selected');
 						const detail = board.querySelector('.op-detail');
 						if (detail instanceof HTMLElement) this.renderDetail(detail, it);
 					}));
-					menu.addItem((m) => m.setTitle('打开链接').setIcon('file-text').onClick(() => void this.openLink(it)));
+					menu.addItem((m) => m.setTitle(MODAL_TEXT.opOpenLink).setIcon('file-text').onClick(() => void this.openLink(it)));
 					menu.addSeparator();
 					for (const s of this.host.plugin.settings.boardStages) {
-						menu.addItem((m) => m.setTitle('状态: ' + s.label).onClick(() => void this.setItemStatus(it, s.label)));
+						menu.addItem((m) => m.setTitle(MODAL_TEXT.opStatusPrefix + s.label).onClick(() => void this.setItemStatus(it, s.label)));
 					}
 					menu.addSeparator();
-					menu.addItem((m) => m.setTitle(it.starred ? '取消星标' : '标记为星标').setIcon('flag').onClick(() => void this.setItemStarred(it, !it.starred)));
+					menu.addItem((m) => m.setTitle(it.starred ? MODAL_TEXT.opUnstar : MODAL_TEXT.opStar).setIcon('flag').onClick(() => void this.setItemStarred(it, !it.starred)));
 					menu.addItem((m) => m.setTitle(UI_TEXT.delete).setIcon('trash').onClick(() => void this.deleteItem(it)));
 					menu.showAtMouseEvent(e);
 				});
@@ -325,7 +327,7 @@ export class OpportunityBoard {
 			const detail = board.createDiv({ cls: 'op-detail' });
 			const sel = items.find((i) => i.id === this.selectedDetailId) || sortBoardItems(items, this.stageLabels())[0];
 			if (sel) this.renderDetail(detail, sel);
-			else detail.createSpan({ text: '（该状态暂无条目）' });
+			else detail.createSpan({ text: t('modal.opEmptyStage') });
 		}
 	}
 
@@ -360,10 +362,10 @@ export class OpportunityBoard {
 	private renderDetail(container: HTMLElement, item: BoardItem): void {
 		container.empty();
 		const wrap = container.createDiv({ cls: 'op-detail__inner' });
-		wrap.createDiv({ cls: 'op-detail__hd', text: this.boardTitle() + '详情' });
+		wrap.createDiv({ cls: 'op-detail__hd', text: t('modal.opDetail', { title: this.boardTitle() }) });
 
 		const titleInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
-		titleInput.value = item.title; titleInput.placeholder = this.boardTitle() + '名称';
+		titleInput.value = item.title; titleInput.placeholder = t('modal.opNamePh', { title: this.boardTitle() });
 
 		const statusSel = wrap.createEl('select', { cls: 'ad-modal-input' });
 		for (const s of this.host.plugin.settings.boardStages) {
@@ -372,30 +374,30 @@ export class OpportunityBoard {
 		}
 
 		const tagInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
-		tagInput.value = (item.tags || []).join('、'); tagInput.placeholder = '标签，顿号/逗号分隔';
+		tagInput.value = (item.tags || []).join('、'); tagInput.placeholder = MODAL_TEXT.opTagPh;
 
 		const notes = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '3' } });
-		notes.value = item.notes || ''; notes.placeholder = '背景 / 备注';
+		notes.value = item.notes || ''; notes.placeholder = MODAL_TEXT.opNotesPh;
 
 		// 阶段输入框：仅渲染「启用输入框」的阶段，标题与阶段名一致联动
 		const stageInputs: Array<{ label: string; area: HTMLTextAreaElement }> = [];
 		for (const s of this.host.plugin.settings.boardStages) {
 			if (!s.hasInput) continue;
 			wrap.createDiv({ cls: 'op-detail__stage-label', text: s.label });
-			const area = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '2', placeholder: '填写该阶段相关记录…' } });
+			const area = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '2', placeholder: MODAL_TEXT.opStagePh } });
 			area.value = (item.stageNotes || {})[s.label] || '';
 			stageInputs.push({ label: s.label, area });
 		}
 
 		const linkInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
-		linkInput.value = item.link || ''; linkInput.placeholder = '链接双链，如 [[xxx-详情]]';
+		linkInput.value = item.link || ''; linkInput.placeholder = MODAL_TEXT.opLinkPh;
 
 		const rmRow = wrap.createDiv({ cls: 'op-detail__row' });
 		const rmChk = rmRow.createEl('input', { attr: { type: 'checkbox' } });
 		rmChk.checked = item.starred;
-		rmRow.createSpan({ text: ' 星标（重要/待跟进）' });
+		rmRow.createSpan({ text: MODAL_TEXT.opStarHint });
 
-		const openBtn = wrap.createEl('button', { cls: 'op-detail__btn op-detail__btn--ghost', text: '打开链接' });
+		const openBtn = wrap.createEl('button', { cls: 'op-detail__btn op-detail__btn--ghost', text: MODAL_TEXT.opOpenLink });
 		openBtn.addEventListener('click', () => void this.openLink({ ...item, link: linkInput.value }));
 
 		const btnRow = wrap.createDiv({ cls: 'op-detail__actions' });
@@ -430,7 +432,7 @@ export class OpportunityBoard {
 		const path = this.boardPath();
 		await updateOpportunity(this.host.app, path, item.id, {
 			title: f.title, status: f.status, tags: f.tags, notes: f.notes, stageNotes: f.stageNotes, link: f.link, starred: f.starred,
-		}, this.boardTitle());
+		}, this.boardTitle(), this.stageLabels());
 		const idx = this.currentItems.findIndex((i) => i.id === item.id);
 		if (idx >= 0) {
 			const cur = this.currentItems[idx];
@@ -438,7 +440,7 @@ export class OpportunityBoard {
 		}
 		this.currentItems = sortBoardItems(this.currentItems, this.stageLabels());
 		this.cache = { at: Date.now(), items: this.currentItems };
-		this.host.showToast('已保存');
+		this.host.showToast(MODAL_TEXT.opSaved);
 		void this.refreshBoard();
 	}
 
@@ -448,7 +450,7 @@ export class OpportunityBoard {
 			const c = chips.createEl('button', { cls: 'op-chip' + (active ? ' is-active' : ''), text: label });
 			c.addEventListener('click', onClick);
 		};
-		mkChip('全部', this.selectedStatus === 'all' && !this.showStarredOnly, () => {
+		mkChip(UI_TEXT.all, this.selectedStatus === 'all' && !this.showStarredOnly, () => {
 			this.selectedStatus = 'all'; this.showStarredOnly = false; this.rerenderSidebarAndPanels();
 		});
 		for (const st of this.host.plugin.settings.boardStages) {
@@ -461,10 +463,10 @@ export class OpportunityBoard {
 		const thead = table.createEl('thead');
 		const headRow = thead.createEl('tr');
 		const cols: { key: string; label: string }[] = [
-			{ key: 'title', label: '名称' },
-			{ key: 'status', label: '状态' },
-			{ key: 'createDate', label: '创建时间' },
-			{ key: 'starred', label: '星标' },
+			{ key: 'title', label: MODAL_TEXT.opName },
+			{ key: 'status', label: MODAL_TEXT.oppStatus },
+			{ key: 'createDate', label: MODAL_TEXT.opCreated },
+			{ key: 'starred', label: MODAL_TEXT.opStarCol },
 		];
 		for (const c of cols) {
 			const th = headRow.createEl('th', { text: c.label });
@@ -527,7 +529,7 @@ export class OpportunityBoard {
 
 	private async openLink(it: BoardItem): Promise<void> {
 		const link = (it.link || '').trim();
-		if (!link) { this.host.showToast('该条目暂无链接'); return; }
+		if (!link) { this.host.showToast(MODAL_TEXT.opNoLink); return; }
 		await this.host.app.workspace.openLinkText(link.replace(/^\[\[/, '').replace(/\]\]$/, ''), '', true);
 	}
 
@@ -538,19 +540,19 @@ export class OpportunityBoard {
 			const patch: Partial<BoardItem> = {
 				title: data.title, status: data.status, tags: data.tags, notes: data.notes, stageNotes: data.stageNotes, link: data.link, starred: data.starred,
 			};
-			await updateOpportunity(this.host.app, path, item.id, patch, title);
+			await updateOpportunity(this.host.app, path, item.id, patch, title, this.stageLabels());
 			const idx = this.currentItems.findIndex((i) => i.id === item.id);
 			if (idx >= 0) {
 				const cur = this.currentItems[idx];
 				if (cur) this.currentItems[idx] = { ...cur, ...patch };
 			}
 		} else {
-			const created = await createOpportunity(this.host.app, path, data, title);
+			const created = await createOpportunity(this.host.app, path, data, title, this.stageLabels());
 			this.currentItems.push(created);
 		}
 		this.currentItems = sortBoardItems(this.currentItems, this.stageLabels());
 		this.cache = { at: Date.now(), items: this.currentItems };
-		this.host.showToast(item ? (this.boardTitle() + '已更新') : (this.boardTitle() + '已创建'));
+		this.host.showToast(item ? MODAL_TEXT.opUpdated : MODAL_TEXT.opCreatedToast);
 		void this.refreshBoard();
 	}
 
@@ -560,7 +562,7 @@ export class OpportunityBoard {
 
 	private async setItemStatus(item: BoardItem, status: string): Promise<void> {
 		const path = this.boardPath();
-		await updateBoardItemStatus(this.host.app, path, item.id, status, this.boardTitle());
+		await updateBoardItemStatus(this.host.app, path, item.id, status, this.boardTitle(), this.stageLabels());
 		const idx = this.currentItems.findIndex((i) => i.id === item.id);
 		if (idx >= 0) {
 			const cur = this.currentItems[idx];
@@ -570,13 +572,13 @@ export class OpportunityBoard {
 			}
 		}
 		this.cache = { at: Date.now(), items: this.currentItems };
-		this.host.showToast('状态已更新为「' + status + '」');
+		this.host.showToast(t('modal.opStatusUpdated', { s: status }));
 		void this.refreshBoard();
 	}
 
 	private async setItemStarred(item: BoardItem, val: boolean): Promise<void> {
 		const path = this.boardPath();
-		await toggleBoardItemStarred(this.host.app, path, item.id, val, this.boardTitle());
+		await toggleBoardItemStarred(this.host.app, path, item.id, val, this.boardTitle(), this.stageLabels());
 		const idx = this.currentItems.findIndex((i) => i.id === item.id);
 		if (idx >= 0) {
 			const cur = this.currentItems[idx];
@@ -588,10 +590,10 @@ export class OpportunityBoard {
 
 	private async deleteItem(item: BoardItem): Promise<void> {
 		const path = this.boardPath();
-		await deleteOpportunity(this.host.app, path, item.id, this.boardTitle());
+		await deleteOpportunity(this.host.app, path, item.id, this.boardTitle(), this.stageLabels());
 		this.currentItems = this.currentItems.filter((i) => i.id !== item.id);
 		this.cache = { at: Date.now(), items: this.currentItems };
-		this.host.showToast(this.boardTitle() + '已删除');
+		this.host.showToast(MODAL_TEXT.opDeleted);
 		void this.refreshBoard();
 	}
 

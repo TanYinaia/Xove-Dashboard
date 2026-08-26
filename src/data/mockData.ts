@@ -92,8 +92,8 @@ export const MOCK_DATA: DashboardData = {
 	lunar: '农历 五月十五',
 	header: {
 		eyebrow: 'SECOND BRAIN',
-		title: 'MY DASHBOARD',
-		subtitle: 'Obsidian · Personal Dashboard · v0.2.3',
+		title: 'XOVE DASHBOARD',
+		subtitle: 'Obsidian · Xove Dashboard · v0.2.3',
 	},
 	pulse: {
 		notes: 156,

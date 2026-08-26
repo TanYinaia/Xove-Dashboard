@@ -160,6 +160,23 @@ test('today tasks hide completed, done/skipped daily nodes', () => {
 	assert.equal(getTodayTasks(tasks, '2026-08-08').length, 2);
 });
 
+test('keepDone keeps ordinary done tasks AND a just-advanced recurring task', () => {
+	const today = '2026-08-08';
+	const tasks = [
+		// 普通任务今天完成 → 保留（变灰）
+		makeTask({ status: '已完成', completeTime: '2026-08-08 09:00', dueDate: '2026-08-08' }),
+		// 重复任务完成 = 推进 remindDate 到未来 + completeTime 置为今天 → 保留（变灰）
+		makeTask({ type: '重复', completeTime: '2026-08-08 09:00', remindDate: '2026-08-09' }),
+		// 逾期完成的普通任务 → 保留
+		makeTask({ status: '已完成', completeTime: '2026-08-08 09:00', dueDate: '2026-08-06' }),
+		// 未完成普通任务 → 保留
+		makeTask({ dueDate: '2026-08-08' }),
+	];
+	const result = getTodayTasks(tasks, today, true);
+	assert.equal(result.length, 4, 'all four should stay when keepDone is on');
+	assert.ok(result.some((t) => t.type === '重复'), 'advanced recurring task must stay (greyed)');
+});
+
 /* ---- isDoneToday / isSkipToday ---- */
 
 test('isDoneToday checks status, completeTime and daily node', () => {

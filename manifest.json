@@ -1,9 +1,9 @@
 {
-	"id": "dashboard",
-	"name": "Dashboard",
-	"version": "0.2.9",
+	"id": "xove-dashboard",
+	"name": "Xove Dashboard",
+	"version": "0.3.0",
 	"minAppVersion": "1.8.0",
-	"description": "Turn your Obsidian home into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
+	"description": "Turn your home tab into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
 	"author": "xw",
 	"isDesktopOnly": true
 }

@@ -7,6 +7,572 @@ if you want to view the source, please visit the github repository of this plugi
 
 var obsidian = require('obsidian');
 
+/** 中文（现状中英结合，默认）。值需与插件当前显示完全一致。 */
+const zh = {
+    common: {
+        save: '保存', cancel: '取消', edit: '编辑', delete: '删除',
+        openSource: '打开源文件', taskDetail: '任务详情', notSet: '未设置',
+        open: '打开', close: '关闭', confirm: '确认', reset: '重置',
+        add: '添加', expand: '展开', collapse: '收起',
+    },
+    // 原 constants.ts UI_TEXT 的镜像
+    ui: {
+        save: '保存', cancel: '取消', edit: '编辑', delete: '删除',
+        openSource: '打开源文件', taskDetail: '任务详情', notSet: '未设置', all: '全部',
+        filter: '筛选', noTasks: '暂无任务数据',
+        poGantt: '甘特图', poList: '列表', poCalendar: '日历', poKanban: '看板',
+        poTaskName: '任务名称', poPriority: '优先级', poStart: '开始', poDue: '截止',
+        poStatus: '状态', poProject: '项目',
+        opAll: '全部', opRoadmap: '★ 星标',
+        poScaleDay: '日', poScaleWeek: '周', poScaleMonth: '月', poScaleQuarter: '季度',
+        today: '今天',
+        clickDayHint: '点击日期查看当天任务',
+        noTaskOnDay: '该日期暂无任务',
+        newProjectBtn: '+ 新建项目',
+        calMonthFmt: '{y}年{m}月',
+        calWeekdays: ['一', '二', '三', '四', '五', '六', '日'],
+        calViewMonth: '月', calViewWeek: '周',
+        calAgendaToday: '今天',
+        calOverdueDays: '逾期 {n} 天',
+        calNewTask: '+ 新建任务',
+        calDayFmt: '{m}月{d}日',
+        calTaskCount: '{n} 项任务',
+        calQuickDone: '✓ 完成今日',
+        calQuickTodo: '○ 标记未做',
+        calQuickSkip: '╌ 跳过今日',
+        calCtxDelete: '删除',
+        calCtxOpenSource: '打开源文件',
+        calProgress: '总进度：{done} / {total}',
+        calOverflowRow: '当日溢出任务',
+        subtaskParentSet: '✨ 已设为「{name}」的子任务',
+    },
+    home: {
+        modules: {
+            quickCapture: '快速捕捉', progress: '工作进度',
+            weekly: '本周待办 & 逾期', projects: '项目情况',
+            heatmap: '笔记统计', countdown: '倒计时',
+        },
+        bannerPlaceholder: '[ banner ]  ·  点击右上角按钮插入封面图片',
+        changeImage: '更换图片',
+        renderError: 'Dashboard 渲染出错',
+        settingsBtn: '设置',
+        quickCapturePlaceholder: '记录一闪而过的想法…',
+        editTask: '编辑任务', postponeDay: '延后一天', deleteTask: '删除任务',
+        todoSummary: '{done} / {total} done · 按优先级',
+        noTodayTasks: '暂无今日任务',
+        todayStat: '今日已完成 {done} / 今日总任务 {total}',
+        allStat: '已完成 {done} / 总任务 {total}',
+        weeksLeft: '剩余周数 ', donePct: '已完成 ',
+        countdownArrived: '🎉 此时此刻', countdownReached: '🏁 旅程已然到达',
+        cdAddCard: '添加倒计时卡片', cdDeleteCard: '删除此卡片',
+        weeklyFoot: '本周共 {n} 个任务，逾期 {m} 个',
+        overdueTooltip: '{n} 个逾期任务',
+        loadFailed: '加载失败',
+        overdueDays: '逾期 {n} 天',
+        projectsCount: '{n} / {m} 个项目',
+        themeToLight: '切换到浅色（同时切换 Obsidian 外观）',
+        themeToDark: '切换到深色（同时切换 Obsidian 外观）',
+        lunarPrefix: '农历 ',
+        captureBtn: '捕捉',
+        capturedToast: '✨ 想法已捕捉！',
+        fileExists: '❌ {name} 已存在',
+        diaryCreated: '✨ 日记已创建：{name}',
+        repeatNext: '✨ 重复任务，下次提醒: {date}',
+        taskPostponed: '✨ 任务已延后一天',
+        nodeDone: '✅ {date} 已完成',
+        nodeSkipped: '⏭️ {date} 已跳过',
+        nodeTodo: '📝 {date} 标记未做',
+        calNodeDone: '已完成',
+        calNodeSkip: '已跳过',
+        calNodeTodo: '未完成',
+        projectUpdated: '✨ 项目已更新',
+        taskDeleted: '❌ 任务已删除: {name}',
+        deleteTaskConfirm: '确定删除任务「{name}」？',
+        projectFolderMissing: '❌ 找不到项目文件夹: {name}',
+        taskExistsInProject: '❌ {name} 已存在于该项目中',
+        taskCreated: '✨ 任务已创建',
+        taskCreateFailed: '❌ 任务创建失败: {name} ({error})',
+        projectCreated: '✨ 项目已创建：{name}',
+        projectCreateFailed: '❌ 项目创建失败: {name} ({error})',
+        weekEmpty: '🎉 本周暂无待办任务',
+        markDone: '标记完成', postponeToday: '延后到今天',
+        taskDone: '✅ 任务已完成', postponedToday: '✨ 已延后到今天',
+        projectsEmptyTitle: '还没有任何项目',
+        projectsEmptyHint: '点工具栏「＋ 新建项目」创建第一个项目，进度管道就会显示在这里。',
+        projectsEmptyAction: '＋ 新建项目',
+        projectMeta: '{tasks} 任务 · {active} 活跃 · {pct}%',
+        editProject: '编辑项目', viewGantt: '查看甘特图',
+        activeCount: '{n} 进行中 · {filter}',
+        daysActive: '{n} 天活跃',
+        streakPrefix: '当前连续 ', daysSuffix: ' 天',
+        heatDow: ['', '一', '', '三', '', '五', ''],
+        cellFuture: '{m}-{d} · 未来',
+        cellNotes: '{m}-{d} · {n} 篇笔记',
+        legendFew: '少', legendMany: '多',
+        nav: {
+            home: '主页', allProjects: '全部项目', board: '看板',
+            newDiary: '新建日记', newTask: '新建任务', newProject: '新建项目',
+        },
+        openFailed: '打开失败：',
+        fileNotFound: '文件不存在：',
+        parseIssues: '{n} 个文件解析异常（数据可能不完整），点击查看',
+        parseOpen: '在 Obsidian 打开',
+        guideTitle: '欢迎使用 Dashboard',
+        guideBody: '检测到你的知识库还没有任何项目或任务。从下面任意一个开始，几秒即可上手：',
+        guideNewProject: '＋ 新建项目', guideNewTask: '＋ 新建任务', guideNewDiary: '＋ 新建日记',
+        captureFailed: '⚠️ 捕捉失败，请检查「存储路径」设置',
+        todoEmptyTitle: '还没有任何任务',
+        todoEmptyHint: '在下方「快速捕捉」里随手记一条，或点工具栏「＋ 新建任务」开始。',
+        todoEmptyAction: '＋ 新建任务',
+        overdue: '逾期提醒', thisWeek: '本周待办',
+        todayDone: '今日完成', todaySkip: '今日不做',
+        editbar: {
+            trash: '🗑 拖到此处删除', add: '＋ 添加卡片',
+            reset: '↺ 重置布局', done: '完成',
+        },
+        ratioMenuTitle: '调整卡片比例（宽 1-4 格，高 1-4 格；如 1×2 竖卡）{hint}',
+        ratioHint: '（本卡最低宽高比 {ratio}:1）',
+        ratioAria: '调整卡片比例（拖动缩放，点击精确设置）',
+        addMenuTitle: '添加卡片到首页',
+        addMenuEmpty: '所有模块均已显示在首页',
+        emptyTitle: '首页暂无卡片',
+        emptyHint: '长按此处或点「＋ 添加卡片」把模块加回来',
+        countdownSubtitle: '距离 {event}',
+        heatmapAllYear: '{year} 全年',
+        heatmapRecent: '近 {n} 周',
+        restoreLayout: '↺ 已恢复默认布局',
+    },
+    modal: {
+        taskTitle: '新建任务', taskName: '任务名称 *', taskNamePlaceholder: '输入任务名称', project: '所属项目 *', parent: '父任务',
+        noParent: '无（顶级任务）', startDate: '开始日期 *', endDate: '结束日期',
+        noEndDate: '无结束日期（无限重复）', priority: '优先级', status: '状态 *',
+        type: '类型 *', repeatFreq: '重复频率', everyNDays: '每 N 天',
+        workdaysOnly: '仅工作日', repeatWeekdays: '重复星期（可多选）', monthDay: '每月几号',
+        reminder: '提醒', tags: '标签', tagPlaceholder: '输入后回车添加', notes: '备注',
+        notesPlaceholder: '补充说明…', createTask: '创建任务', firstDate: '首次发生日期 *',
+        endDateBound: '结束日期（界限）', projectEdit: '编辑项目', projectNew: '新建项目',
+        projectName: '项目名称 *', projectNamePlaceholder: '输入项目名称', projectType: '项目类型', projectColor: '项目颜色（用于甘特图）',
+        projectTypeStage: '阶段项目', projectTypeNoStage: '非阶段项目',
+        projectDesc: '项目描述', projectDescPlaceholder: '简要描述项目目标和范围…',
+        projectStage: '项目阶段', createProject: '创建项目',
+        stagesDefault: ['立项', '规划', '开发', '测试', '上线'],
+        oppName: '{title} 名称 *', oppNamePlaceholder: '输入{title}名称', oppStatus: '状态', oppTags: '标签（逗号分隔）',
+        oppTagsPlaceholder: '如：增长, 渠道', oppNotes: '背景 / 备注',
+        oppNotesPlaceholder: '这个想法是怎么来的、要解决什么…', oppLink: '链接（展开内容用）',
+        oppLinkPlaceholder: '[[xxx-详情]] 或留空（输入 [ 自动搜索笔记）', oppGenLink: '生成并打开链接笔记',
+        oppStar: '星标（重要 / 待跟进）', oppCreate: '创建{title}', oppEdit: '编辑{title}',
+        bannerTitle: '调整封面图片位置', bannerHint: '上下拖拽图片调整显示区域，图片宽度自动铺满',
+        bannerConfirm: '确认',
+        weekdays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+        weekdayShort: ['一', '二', '三', '四', '五', '六', '日'],
+        weekdayLabel: ['日', '一', '二', '三', '四', '五', '六'],
+        prioUrgentImp: '🔴 重要且紧急', prioImpNotUrgent: '🟡 重要不紧急',
+        prioUrgentNotImp: '🔵 紧急不重要', prioNotImpNotUrgent: '⚪ 不重要不紧急',
+        // 无 emoji 纯文本优先级（TODO 卡片标签用，样式参考本周待办的紧急标签）
+        prioUrgentImpText: '重要且紧急', prioImpNotUrgentText: '重要不紧急',
+        prioUrgentNotImpText: '紧急不重要', prioNotImpNotUrgentText: '不重要不紧急',
+        prioUrgentImpShort: '高', prioImpNotUrgentShort: '中', prioUrgentNotImpShort: '中', prioNotImpNotUrgentShort: '低',
+        urgHigh: '紧急', urgMid: '较急', urgLow: '一般', urgNone: '不急',
+        stTodo: '待办', stInProgress: '进行中', stBlocked: '已阻塞', stDone: '已完成', stCancelled: '已取消',
+        projectCtxEdit: '编辑项目', projectCtxDelete: '删除项目',
+        typeNormal: '普通', typeRecurring: '重复',
+        freqChoose: '选择频率', freqDaily: '每天', freqWeekly: '每周', freqMonthly: '每月',
+        remOnDay: '任务当天', rem1Day: '提前 1 天', rem3Day: '提前 3 天', rem1Week: '提前 1 周',
+        editStatus: '状态', editPriority: '优先级', editStart: '开始日期', editDue: '截止日期',
+        editNotes: '备注', dailyNode: '每日节点', todayDone: '今日完成', todaySkip: '今日不做',
+        todayNote: '今日备注（{date}）', noNote: '（无备注）', overdueTag: '（延期）',
+        cdTitle: '倒计时事件', cdTitleSingle: '编辑倒计时', cdEventName: '事件名称', cdTargetDate: '目标日期',
+        cdEventPlaceholder: '如：高考', cdHint: '卡片显示「距离 {event} 还有」及剩余天数，进度条随目标日期动态变化。',
+        cdAdd: '＋ 添加倒计时', cdMax: '最多 5 个倒计时', cdEmpty: '暂无倒计时，点击下方添加',
+        cdDelete: '删除', cdDone: '完成',
+        opKanban: '▦ 看板', opList: '☰ 列表', opNew: '＋ 新建{title}',
+        opViewRight: '在右侧查看', opOpenLink: '打开链接', opStatusPrefix: '状态: ',
+        opUnstar: '取消星标', opStar: '标记为星标', opEmptyStage: '（该状态暂无条目）',
+        opName: '名称', opCreated: '创建时间', opStarCol: '星标', opNoLink: '该条目暂无链接',
+        opSaved: '已保存', opUpdated: '已更新', opCreatedToast: '已创建', opDeleted: '已删除',
+        opStatusUpdated: '状态已更新为「{s}」', opDetail: '{title}详情', opNamePh: '{title}名称',
+        opTagPh: '标签，顿号/逗号分隔', opNotesPh: '背景 / 备注', opStagePh: '填写该阶段相关记录…',
+        opLinkPh: '链接双链，如 [[xxx-详情]]', opStarHint: ' 星标（重要/待跟进）',
+        poTaskMoved: '任务已在该项目', poTaskFileMissing: '找不到任务文件',
+        poStatusFilter: '状态筛选', poClearFilter: '清除筛选',
+        poAlreadyInProject: '任务已在该项目', poDeleteTask: '删除任务',
+        poAlreadySubtask: '已经是该任务的子任务', poParentCycle: '❌ 不能设为自身子任务的父任务（会形成循环）',
+        poStageUpdated: '✨ {name} 阶段已更新为 "{stage}"', poNameExists: '❌ 目标项目已存在同名任务「{name}」，未移动',
+        poMoved: '已移动到「{project}」', poProjectDeleted: '❌ 项目已删除: {name}', poDeleteProjectConfirm: '确定删除项目「{name}」及其所有任务文件？此操作不可撤销。',
+        poDateUpdated: '✨ 任务日期已更新', poStatusUpdated: '✨ 任务状态已更新: {status}',
+        poPriorityUpdated: '✨ 优先级已更新: {priority}',
+    },
+    settings: {
+        languageName: '界面语言',
+        languageDesc: '中文为默认（中英结合排版）；英文为纯英文模式。',
+        langZh: '中文', langEn: 'English',
+        secGeneral: '通用', secStorage: '存储与模板', secTasksProjects: '任务与项目',
+        secBoard: '看板', secPipeline: '阶段管道',
+        secAbout: '关于', aboutVersion: '插件版本',
+        boardStageGroup: '看板', pipelineStageGroup: '项目管道',
+        bannerEnable: '启用横幅', bannerEnableDesc: '关闭后，顶部的横幅区域（封面图）将被隐藏。',
+        todoShowCompleted: '完成后不消失',
+        todoShowCompletedDesc: '开启后，已完成任务保留在 TODO 与本周待办（变灰+删除线），含逾期任务',
+        taskDetailMode: '任务详情显示',
+        taskDetailModeDesc: '简洁模式隐藏所属项目、任务类型与父任务',
+        taskDetailDetailed: '详细（显示全部字段）',
+        taskDetailCompact: '简洁（隐藏项目/类型/父任务）',
+        captureStoragePath: '捕捉存储路径', storagePathDesc: '捕捉笔记的存放位置',
+        captureNamingRule: '捕捉命名规则',
+        namingRuleDesc: '支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午',
+        namingPlaceholder: 'YYYY-MM-DD HH-mm 捕捉',
+        captureTemplateFile: '捕捉模板文件', captureTemplateFileDesc: '快速捕捉笔记使用的模板文件路径，不使用则为空',
+        captureTemplatePlaceholder: 'Templates/速记.md',
+        diaryTemplateFile: '日记模板文件', diaryTemplateFileDesc: '新日记使用的模板文件路径，不使用则为空',
+        diaryTemplatePlaceholder: 'Templates/日记.md',
+        dataSource: '数据来源文件夹', dataSourceDesc: '扫描该文件夹下的 Markdown 文件解析任务。留空则扫描整个知识库',
+        projectFolder: '项目文件夹', projectFolderDesc: '存放项目文件的文件夹路径',
+        ganttGranularity: '甘特图默认时间粒度',
+        ganttGranularityDesc: '项目总览的甘特图默认以该粒度展示。重新打开项目总览或重载插件后生效；也可在甘特图界面直接点击缩放按钮临时切换（会自动记住）',
+        optWeek: '周（默认）', optDay: '日', optMonth: '月', optQuarter: '季度',
+        boardEnable: '启用看板', boardEnableDesc: '关闭后，顶部导航的看板入口与对应页面都会被隐藏；下方看板设置项同步折叠',
+        boardName: '看板名称', boardNameDesc: '导航与页面上显示的板块名称，可自定义（如 机会点 / 灵感收集 / 管道）',
+        boardNamePlaceholder: '看板',
+        boardFile: '看板数据文件', boardFileDesc: '所有看板条目统一存于此 Markdown 文件（frontmatter 数组）。填写库内相对路径，可含子文件夹，如 看板.md。留空或文件不存在时会自动在该路径新建。',
+        boardFilePlaceholder: '看板.md',
+        stageCount: '阶段数量', stageCountDesc: '看板列的数量（4-6 个）',
+        stageCountOption: '{n} 个阶段',
+        stageLabel: '阶段 {n}',
+        stageName: '阶段 {n} 名称', stageNameDesc: '自定义第 {n} 个阶段的名称',
+        stageNameDescFull: '自定义第 {n} 个阶段的名称、颜色，以及是否在该阶段启用输入框',
+        stageNamePlaceholder: '阶段 {n}',
+        stageHasInputTooltip: '启用后，处于该阶段的条目在编辑时会出现一个标题与该阶段名一致的输入框',
+        diaryPath: '日记存储路径', diaryPathDesc: '日记笔记的存放位置',
+        diaryNaming: '日记命名规则',
+        theme: '主题', themeDesc: '跟随 Obsidian 外观，或手动指定深色/浅色。手动选择会同时切换 Obsidian 整体外观，仪表盘自动跟随',
+        themeAuto: '跟随 Obsidian', themeDark: '深色', themeLight: '浅色',
+        pluginTitle: '插件标题', pluginTitleDesc: '自定义仪表盘主标题（即"XOVE DASHBOARD"那一行）。留空则使用默认标题 "XOVE DASHBOARD"，修改后立即生效，无需重载',
+        pipelineCount: '阶段数量', pipelineCountDesc: '设置项目阶段的数量（4-6个）',
+        pipelineShowAll: '显示全部',
+        progressFilter: '项目进度卡片筛选', progressFilterDesc: '主页"项目进度"卡片显示不超过所选阶段的项目',
+    },
+    status: {
+        weekShort: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'],
+        weekLong: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
+        months: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+        amPm: ['上午', '下午'],
+        freqWorkday: '工作日', freqDay: '每天', freqWeek: '每周', freqMonth: '每月',
+        intervalDays: '间隔天数', everyWeek: '每周几', everyMonth: '每月几号',
+        completed: '已完成', cancelled: '已取消',
+        done: '已完成', skip: '不做',
+    },
+};
+
+/** 英文（纯英文模式）。 */
+const en = {
+    common: {
+        save: 'Save', cancel: 'Cancel', edit: 'Edit', delete: 'Delete',
+        openSource: 'Open source file', taskDetail: 'Task detail', notSet: 'Not set',
+        open: 'Open', close: 'Close', confirm: 'Confirm', reset: 'Reset',
+        add: 'Add', expand: 'Expand', collapse: 'Collapse',
+    },
+    ui: {
+        save: 'Save', cancel: 'Cancel', edit: 'Edit', delete: 'Delete',
+        openSource: 'Open source file', taskDetail: 'Task detail', notSet: 'Not set', all: 'All',
+        filter: 'Filter', noTasks: 'No task data',
+        poGantt: 'Gantt', poList: 'List', poCalendar: 'Calendar', poKanban: 'Board',
+        poTaskName: 'Task name', poPriority: 'Priority', poStart: 'Start', poDue: 'Due',
+        poStatus: 'Status', poProject: 'Project',
+        opAll: 'All', opRoadmap: '★ Starred',
+        poScaleDay: 'Day', poScaleWeek: 'Week', poScaleMonth: 'Month', poScaleQuarter: 'Quarter',
+        today: 'Today',
+        clickDayHint: 'Click a date to view that day\'s tasks',
+        noTaskOnDay: 'No tasks on this day',
+        newProjectBtn: '+ New project',
+        calMonthFmt: '{m} {y}', // 占位 {y}=年 {m}=月（英文显示 "Aug 2026"，中文 "2026年8月"）
+        calWeekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        calViewMonth: 'Month', calViewWeek: 'Week',
+        calAgendaToday: 'Today',
+        calOverdueDays: '{n} day(s) overdue',
+        calNewTask: '+ New task',
+        calDayFmt: '{m}/{d}',
+        calTaskCount: '{n} task(s)',
+        calQuickDone: '✓ Done today',
+        calQuickTodo: '○ Mark todo',
+        calQuickSkip: '╌ Skip today',
+        calCtxDelete: 'Delete',
+        calCtxOpenSource: 'Open source file',
+        calProgress: 'Progress: {done} / {total}',
+        calOverflowRow: 'Overflow tasks on this day',
+        subtaskParentSet: '✨ Set as subtask of "{name}"',
+    },
+    home: {
+        modules: {
+            quickCapture: 'Quick capture', progress: 'Progress',
+            weekly: 'This week & overdue', projects: 'Projects',
+            heatmap: 'Note stats', countdown: 'Countdown',
+        },
+        bannerPlaceholder: '[ banner ]  ·  Click the top-right button to insert a cover image',
+        changeImage: 'Change image',
+        renderError: 'Dashboard render error',
+        settingsBtn: 'Settings',
+        quickCapturePlaceholder: 'Jot down a fleeting thought…',
+        editTask: 'Edit task', postponeDay: 'Postpone one day', deleteTask: 'Delete task',
+        todoSummary: '{done} / {total} done · by priority',
+        noTodayTasks: 'No tasks today',
+        todayStat: 'Done today: {done} / {total}',
+        allStat: 'Done: {done} / {total}',
+        weeksLeft: 'Weeks left: ', donePct: 'Done ',
+        countdownArrived: '🎉 Right now', countdownReached: '🏁 Journey complete',
+        cdAddCard: 'Add countdown card', cdDeleteCard: 'Delete this card',
+        weeklyFoot: '{n} tasks this week, {m} overdue',
+        overdueTooltip: '{n} overdue',
+        loadFailed: 'Load failed',
+        overdueDays: 'Overdue {n}d',
+        projectsCount: '{n} / {m} projects',
+        themeToLight: 'Switch to light (also changes Obsidian appearance)',
+        themeToDark: 'Switch to dark (also changes Obsidian appearance)',
+        lunarPrefix: 'Lunar ',
+        captureBtn: 'Capture',
+        capturedToast: '✨ Captured!',
+        fileExists: '❌ {name} already exists',
+        diaryCreated: '✨ Diary created: {name}',
+        repeatNext: '✨ Recurring task, next reminder: {date}',
+        taskPostponed: '✨ Task postponed one day',
+        nodeDone: '✅ {date} done',
+        nodeSkipped: '⏭️ {date} skipped',
+        nodeTodo: '📝 {date} marked todo',
+        calNodeDone: 'Done',
+        calNodeSkip: 'Skipped',
+        calNodeTodo: 'Not done',
+        projectUpdated: '✨ Project updated',
+        taskDeleted: '❌ Task deleted: {name}',
+        deleteTaskConfirm: 'Delete task "{name}"?',
+        projectFolderMissing: '❌ Project folder not found: {name}',
+        taskExistsInProject: '❌ {name} already exists in this project',
+        taskCreated: '✨ Task created',
+        taskCreateFailed: '❌ Failed to create task: {name} ({error})',
+        projectCreated: '✨ Project created: {name}',
+        projectCreateFailed: '❌ Failed to create project: {name} ({error})',
+        weekEmpty: '🎉 No to-dos this week',
+        markDone: 'Mark done', postponeToday: 'Postpone to today',
+        taskDone: '✅ Task completed', postponedToday: '✨ Postponed to today',
+        projectsEmptyTitle: 'No projects yet',
+        projectsEmptyHint: 'Click "＋ New project" in the toolbar to create your first project; the stage pipeline will appear here.',
+        projectsEmptyAction: '＋ New project',
+        projectMeta: '{tasks} tasks · {active} active · {pct}%',
+        editProject: 'Edit project', viewGantt: 'View Gantt chart',
+        activeCount: '{n} in progress · {filter}',
+        daysActive: '{n}d active',
+        streakPrefix: 'Streak: ', daysSuffix: 'd',
+        heatDow: ['', 'M', '', 'W', '', 'F', ''],
+        cellFuture: '{m}-{d} · upcoming',
+        cellNotes: '{m}-{d} · {n} notes',
+        legendFew: 'Less', legendMany: 'More',
+        nav: {
+            home: 'Home', allProjects: 'All projects', board: 'Board',
+            newDiary: 'New note', newTask: 'New task', newProject: 'New project',
+        },
+        openFailed: 'Open failed: ',
+        fileNotFound: 'File not found: ',
+        parseIssues: '{n} files failed to parse (data may be incomplete). Click to view',
+        parseOpen: 'Open in Obsidian',
+        guideTitle: 'Welcome to Dashboard',
+        guideBody: "Your vault doesn't have any projects or tasks yet. Start with any of these — ready in seconds:",
+        guideNewProject: '＋ New project', guideNewTask: '＋ New task', guideNewDiary: '＋ New note',
+        captureFailed: '⚠️ Capture failed. Check the "Storage path" setting',
+        todoEmptyTitle: 'No tasks yet',
+        todoEmptyHint: 'Jot one down in "Quick capture" below, or click "＋ New task" in the toolbar to start.',
+        todoEmptyAction: '＋ New task',
+        overdue: 'Overdue', thisWeek: 'This week',
+        todayDone: 'Done today', todaySkip: 'Skip today',
+        editbar: {
+            trash: '🗑 Drag here to delete', add: '＋ Add card',
+            reset: '↺ Reset layout', done: 'Done',
+        },
+        ratioMenuTitle: 'Adjust card ratio (width 1-4 cols, height 1-4 rows; e.g. 1×2 tall card){hint}',
+        ratioHint: ' (min aspect ratio {ratio}:1)',
+        ratioAria: 'Adjust card ratio (drag to resize, click for fine-tuning)',
+        addMenuTitle: 'Add cards to home',
+        addMenuEmpty: 'All modules are shown on home',
+        emptyTitle: 'No cards on home',
+        emptyHint: 'Long-press here or click "＋ Add card" to bring modules back',
+        countdownSubtitle: 'until {event}',
+        heatmapAllYear: '{year} full year',
+        heatmapRecent: 'Recent {n} weeks',
+        restoreLayout: '↺ Layout reset',
+    },
+    modal: {
+        taskTitle: 'New task', taskName: 'Task name *', taskNamePlaceholder: 'Enter task name', project: 'Project *', parent: 'Parent task',
+        noParent: 'None (top-level)', startDate: 'Start date *', endDate: 'End date',
+        noEndDate: 'No end date (infinite repeat)', priority: 'Priority', status: 'Status *',
+        type: 'Type *', repeatFreq: 'Repeat frequency', everyNDays: 'Every N days',
+        workdaysOnly: 'Workdays only', repeatWeekdays: 'Repeat on weekdays (multi-select)', monthDay: 'Day of month',
+        reminder: 'Reminder', tags: 'Tags', tagPlaceholder: 'Type and press Enter to add', notes: 'Notes',
+        notesPlaceholder: 'Additional notes…', createTask: 'Create task', firstDate: 'First occurrence *',
+        endDateBound: 'End date (limit)', projectEdit: 'Edit project', projectNew: 'New project',
+        projectName: 'Project name *', projectNamePlaceholder: 'Enter project name', projectType: 'Project type', projectColor: 'Project color (for Gantt)',
+        projectTypeStage: 'Stage project', projectTypeNoStage: 'Non-stage project',
+        projectDesc: 'Project description', projectDescPlaceholder: 'Briefly describe the project goal and scope…',
+        projectStage: 'Project stage', createProject: 'Create project',
+        stagesDefault: ['Initiate', 'Plan', 'Develop', 'Test', 'Launch'],
+        oppName: '{title} name *', oppNamePlaceholder: 'Enter {title} name', oppStatus: 'Status', oppTags: 'Tags (comma-separated)',
+        oppTagsPlaceholder: 'e.g. growth, channel', oppNotes: 'Background / notes',
+        oppNotesPlaceholder: 'Where this idea came from, what it solves…', oppLink: 'Link (for expanded content)',
+        oppLinkPlaceholder: '[[xxx-details]] or leave empty (type [ to search notes)', oppGenLink: 'Generate & open link note',
+        oppStar: 'Star (important / to follow up)', oppCreate: 'Create {title}', oppEdit: 'Edit {title}',
+        bannerTitle: 'Adjust cover image position', bannerHint: 'Drag up/down to adjust the visible area; width auto-fills',
+        bannerConfirm: 'Confirm',
+        weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        weekdayShort: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+        weekdayLabel: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+        prioUrgentImp: '🔴 Urgent & important', prioImpNotUrgent: '🟡 Important, not urgent',
+        prioUrgentNotImp: '🔵 Urgent, not important', prioNotImpNotUrgent: '⚪ Neither',
+        // emoji-free priority text (TODO card tag; styled like the weekly urgency tag)
+        prioUrgentImpText: 'Urgent & important', prioImpNotUrgentText: 'Important, not urgent',
+        prioUrgentNotImpText: 'Urgent, not important', prioNotImpNotUrgentText: 'Neither',
+        prioUrgentImpShort: 'High', prioImpNotUrgentShort: 'Med', prioUrgentNotImpShort: 'Med', prioNotImpNotUrgentShort: 'Low',
+        urgHigh: 'Urgent', urgMid: 'Somewhat urgent', urgLow: 'Normal', urgNone: 'Not urgent',
+        stTodo: 'To-do', stInProgress: 'In progress', stBlocked: 'Blocked', stDone: 'Done', stCancelled: 'Cancelled',
+        projectCtxEdit: 'Edit project', projectCtxDelete: 'Delete project',
+        typeNormal: 'Normal', typeRecurring: 'Recurring',
+        freqChoose: 'Select frequency', freqDaily: 'Daily', freqWeekly: 'Weekly', freqMonthly: 'Monthly',
+        remOnDay: 'On the day', rem1Day: '1 day before', rem3Day: '3 days before', rem1Week: '1 week before',
+        editStatus: 'Status', editPriority: 'Priority', editStart: 'Start date', editDue: 'Due date',
+        editNotes: 'Notes', dailyNode: 'Daily nodes', todayDone: 'Done today', todaySkip: 'Skip today',
+        todayNote: "Today's note ({date})", noNote: '(no note)', overdueTag: '(overdue)',
+        cdTitle: 'Countdown events', cdTitleSingle: 'Edit countdown', cdEventName: 'Event name', cdTargetDate: 'Target date',
+        cdEventPlaceholder: 'e.g. Gaokao', cdHint: 'The card shows "until {event}" and the remaining days; the progress bar reflects the target date.',
+        cdAdd: '＋ Add countdown', cdMax: 'Up to 5 countdowns', cdEmpty: 'No countdowns yet; click below to add',
+        cdDelete: 'Delete', cdDone: 'Done',
+        opKanban: '▦ Board', opList: '☰ List', opNew: '＋ New {title}',
+        opViewRight: 'View on the right', opOpenLink: 'Open link', opStatusPrefix: 'Status: ',
+        opUnstar: 'Unstar', opStar: 'Mark as starred', opEmptyStage: '(no items in this status)',
+        opName: 'Name', opCreated: 'Created', opStarCol: 'Star', opNoLink: 'No link for this item',
+        opSaved: 'Saved', opUpdated: 'Updated', opCreatedToast: 'Created', opDeleted: 'Deleted',
+        opStatusUpdated: 'Status updated to "{s}"', opDetail: '{title} details', opNamePh: '{title} name',
+        opTagPh: 'Tags, comma-separated', opNotesPh: 'Background / notes', opStagePh: 'Notes for this stage…',
+        opLinkPh: 'Wiki link, e.g. [[xxx-details]]', opStarHint: ' Star (important/to follow up)',
+        poTaskMoved: 'Task already in this project', poTaskFileMissing: 'Task file not found',
+        poStatusFilter: 'Status filter', poClearFilter: 'Clear filter',
+        poAlreadyInProject: 'Task already in this project', poDeleteTask: 'Delete task',
+        poAlreadySubtask: 'Already a subtask of this task', poParentCycle: '❌ Cannot make it the parent of its own descendant (would create a cycle)',
+        poStageUpdated: '✨ {name} stage updated to "{stage}"', poNameExists: '❌ "{name}" already exists in the target project, not moved',
+        poMoved: 'Moved to "{project}"', poProjectDeleted: '❌ Project deleted: {name}', poDeleteProjectConfirm: 'Delete project "{name}" and all its task files? This cannot be undone.',
+        poDateUpdated: '✨ Task date updated', poStatusUpdated: '✨ Task status updated: {status}',
+        poPriorityUpdated: '✨ Priority updated: {priority}',
+    },
+    settings: {
+        languageName: 'Interface language',
+        languageDesc: 'Chinese is the default (mixed CN/EN layout); English is the pure-English mode.',
+        langZh: '中文', langEn: 'English',
+        secGeneral: 'General', secStorage: 'Storage & templates', secTasksProjects: 'Tasks & projects',
+        secBoard: 'Board', secPipeline: 'Stage pipeline',
+        secAbout: 'About', aboutVersion: 'Plugin version',
+        boardStageGroup: 'Board', pipelineStageGroup: 'Project pipeline',
+        bannerEnable: 'Enable banner', bannerEnableDesc: 'When off, the top banner area (cover image) is hidden.',
+        todoShowCompleted: 'Keep completed tasks',
+        todoShowCompletedDesc: 'When on, completed tasks stay in the TODO and weekly lists (greyed + strikethrough), including overdue ones',
+        taskDetailMode: 'Task detail display',
+        taskDetailModeDesc: 'Compact mode hides project, type and parent task',
+        taskDetailDetailed: 'Detailed (all fields)',
+        taskDetailCompact: 'Compact (hide project/type/parent)',
+        captureStoragePath: 'Capture storage path', storagePathDesc: 'Where captured notes are stored',
+        captureNamingRule: 'Capture naming rule',
+        namingRuleDesc: 'Variables: YYYY year, MM month (2-digit), MMM month abbr (e.g. Aug), DD day; ddd Sun, dddd Sunday; HH 24h, hh 12h, mm min, ss/SS sec, A AM/PM',
+        namingPlaceholder: 'YYYY-MM-DD HH-mm capture',
+        captureTemplateFile: 'Capture template', captureTemplateFileDesc: 'Template used for captured notes; empty = none',
+        captureTemplatePlaceholder: 'Templates/Quick note.md',
+        diaryTemplateFile: 'Diary template', diaryTemplateFileDesc: 'Template used for new diary notes; empty = none',
+        diaryTemplatePlaceholder: 'Templates/Diary.md',
+        dataSource: 'Data source folder', dataSourceDesc: 'Scans Markdown files under this folder to parse tasks. Leave empty to scan the whole vault',
+        projectFolder: 'Project folder', projectFolderDesc: 'Folder path where project files are stored',
+        ganttGranularity: 'Default Gantt granularity',
+        ganttGranularityDesc: 'The Gantt chart on the project overview defaults to this granularity. Applies after reopening the overview or reloading; you can also switch temporarily via the zoom button (remembered).',
+        optWeek: 'Week (default)', optDay: 'Day', optMonth: 'Month', optQuarter: 'Quarter',
+        boardEnable: 'Enable board', boardEnableDesc: 'When off, the board entry in the top nav and its page are hidden; the board settings below collapse too',
+        boardName: 'Board name', boardNameDesc: 'The section name shown in nav and on the page; customizable (e.g. Opportunities / Idea inbox / Pipeline)',
+        boardNamePlaceholder: 'Board',
+        boardFile: 'Board data file', boardFileDesc: 'All board items are stored in this Markdown file (frontmatter array). Vault-relative path, subfolders allowed, e.g. board.md. Auto-created at this path if empty or missing.',
+        boardFilePlaceholder: 'board.md',
+        stageCount: 'Stage count', stageCountDesc: 'Number of board columns (4-6)',
+        stageCountOption: '{n} stages',
+        stageLabel: 'Stage {n}',
+        stageName: 'Stage {n} name', stageNameDesc: 'Customize the name of stage {n}',
+        stageNameDescFull: 'Customize the name, color, and whether to enable an input box for stage {n}',
+        stageNamePlaceholder: 'Stage {n}',
+        stageHasInputTooltip: 'When enabled, items in this stage show an input box titled with the stage name while editing',
+        diaryPath: 'Diary storage path', diaryPathDesc: 'Where diary notes are stored',
+        diaryNaming: 'Diary naming rule',
+        theme: 'Theme', themeDesc: 'Follow Obsidian appearance, or set dark/light manually. Manual choice also switches Obsidian\'s overall appearance; the dashboard follows automatically',
+        themeAuto: 'Follow Obsidian', themeDark: 'Dark', themeLight: 'Light',
+        pluginTitle: 'Plugin title', pluginTitleDesc: 'Custom dashboard title (the "XOVE DASHBOARD" line). Leave empty to use the default "XOVE DASHBOARD"; applies immediately, no reload needed',
+        pipelineCount: 'Stage count', pipelineCountDesc: 'Set the number of project stages (4-6)',
+        pipelineShowAll: 'Show all',
+        progressFilter: 'Progress card filter', progressFilterDesc: 'The home "Progress" card shows projects up to the selected stage',
+    },
+    status: {
+        weekShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+        weekLong: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+        amPm: ['AM', 'PM'],
+        freqWorkday: 'Weekdays', freqDay: 'Every day', freqWeek: 'Weekly', freqMonth: 'Monthly',
+        intervalDays: 'Interval (days)', everyWeek: 'Days of week', everyMonth: 'Day of month',
+        completed: 'Completed', cancelled: 'Cancelled',
+        done: 'Done', skip: 'Skip',
+    },
+};
+
+/**
+ * 极简 i18n 基础设施（无第三方依赖，全量内置、无需网络）。
+ *
+ * 设计要点：
+ * - 仅两种模式：'zh'（现状中英结合 mix，默认）、'en'（纯英文）。
+ * - 品牌锚点词（SECOND BRAIN / XOVE DASHBOARD）按产品决策恒定英文，不进字典。
+ * - t(path, params?) 按点路径取词；当前语言缺失时回退 zh；zh 也缺失时返回 key（永不空白）。
+ * - 农历在英文模式下由调用方主动隐藏（决策2），字典只负责文案本身。
+ */
+const dicts = { zh, en };
+let current = 'zh';
+function getLang() {
+    return current;
+}
+function setLang(l) {
+    current = l;
+}
+/** 当前语言是否英文模式（供"隐藏农历"等条件分支使用） */
+function isEnglish() {
+    return current === 'en';
+}
+function walk(dict, path) {
+    let v = dict;
+    for (const k of path.split('.')) {
+        if (v === undefined || typeof v === 'string' || Array.isArray(v))
+            return undefined;
+        v = v[k];
+    }
+    return typeof v === 'string' || Array.isArray(v) ? v : undefined;
+}
+/**
+ * 取词。params 用于 {name} 占位替换。
+ * 回退链：当前语言 → zh → 返回 key。
+ */
+function t(path, params) {
+    let v = walk(dicts[current], path);
+    if (typeof v !== 'string')
+        v = walk(dicts.zh, path);
+    if (typeof v !== 'string')
+        return path;
+    if (params) {
+        for (const [k, val] of Object.entries(params)) {
+            v = v.replace(new RegExp('\\{' + k + '\\}', 'g'), String(val));
+        }
+    }
+    return v;
+}
+/** 取字符串数组（星期名/月份名等）。回退链：当前语言 → zh → 空数组。 */
+function tArr(path) {
+    let v = walk(dicts[current], path);
+    if (!Array.isArray(v))
+        v = walk(dicts.zh, path);
+    return Array.isArray(v) ? v : [];
+}
+
 /**
  * 首页布局数据版本。
  * 每当「默认比例」发生变更、且需要覆盖用户 data.json 中的旧值时递增。
@@ -15,7 +581,7 @@ var obsidian = require('obsidian');
  */
 const HOME_LAYOUT_VERSION = 3;
 const DEFAULT_SETTINGS = {
-    banner: { imageDataUrl: null, offsetY: 0 },
+    banner: { imageDataUrl: null, offsetY: 0, enabled: true },
     quickCapture: {
         storagePath: '00 inbox/速记',
         namingPattern: 'YYYY-MM-DD HH-mm 捕捉',
@@ -27,6 +593,8 @@ const DEFAULT_SETTINGS = {
         templateFile: '',
     },
     todoSourceFolder: '',
+    todoShowCompleted: false,
+    taskDetailMode: 'detail',
     projectsFolder: 'Projects',
     currentPoView: 'gantt',
     poProjectOrder: [],
@@ -50,7 +618,8 @@ const DEFAULT_SETTINGS = {
     opportunityFile: '看板.md',
     currentOppView: 'kanban',
     homeLayoutVersion: HOME_LAYOUT_VERSION,
-    countdown: { eventName: '2027', targetDate: '2027-01-01' },
+    countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
+    language: 'zh',
     homeModules: [
         { id: 'quick-capture', enabled: true, order: 0, cols: 1, rows: 1 },
         { id: 'todo', enabled: true, order: 1, cols: 1, rows: 1 },
@@ -112,51 +681,163 @@ class DashboardSettingTab extends obsidian.PluginSettingTab {
     display() {
         const { containerEl } = this;
         containerEl.empty();
-        /* ---- 快速捕捉 ---- */
-        new obsidian.Setting(containerEl).setName('快速捕捉').setHeading();
-        addFolderDropdown(new obsidian.Setting(containerEl).setName('存储路径').setDesc('捕捉笔记的存放位置'), this.app, this.plugin.settings.quickCapture.storagePath, async (v) => { this.plugin.settings.quickCapture.storagePath = v; await this.plugin.saveSettings(); });
+        /* ============ 通用 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secGeneral')).setHeading();
         new obsidian.Setting(containerEl)
-            .setName('文件命名规则')
-            .setDesc('支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午')
-            .addText((t) => t
-            .setPlaceholder('YYYY-MM-DD HH-mm 捕捉')
+            .setName(t('settings.languageName'))
+            .setDesc(t('settings.languageDesc'))
+            .addDropdown((dropdown) => {
+            dropdown.addOption('zh', t('settings.langZh'));
+            dropdown.addOption('en', t('settings.langEn'));
+            dropdown.setValue(this.plugin.settings.language);
+            dropdown.onChange(async (v) => {
+                const lang = v;
+                this.plugin.settings.language = lang;
+                setLang(lang);
+                // 看板默认名随语言：未自定义（空或中文默认）时切换为对应语言默认名
+                if (!this.plugin.settings.boardTitle || this.plugin.settings.boardTitle === '灵感收集') {
+                    this.plugin.settings.boardTitle = lang === 'en' ? 'Inspirations' : '灵感收集';
+                }
+                // 看板文件路径默认名同样随语言：未自定义（仍是内置 zh 默认）时切换
+                if (!this.plugin.settings.opportunityFile || this.plugin.settings.opportunityFile === '看板.md') {
+                    this.plugin.settings.opportunityFile = lang === 'en' ? 'Kanban.md' : '看板.md';
+                }
+                await this.plugin.saveSettings();
+                // 立即重绘设置面板文案 + 重建所有已打开的仪表盘视图
+                this.display();
+                this.plugin.refreshLanguage();
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.theme'))
+            .setDesc(t('settings.themeDesc'))
+            .addDropdown((dropdown) => {
+            dropdown.addOption('auto', t('settings.themeAuto'));
+            dropdown.addOption('dark', t('settings.themeDark'));
+            dropdown.addOption('light', t('settings.themeLight'));
+            dropdown.setValue(this.plugin.settings.theme);
+            dropdown.onChange(async (v) => {
+                const mode = v;
+                if (mode !== 'auto') {
+                    // 手动选择深色/浅色时，直接切换 Obsidian 整体外观，仪表盘通过 'auto' 跟随。
+                    this.plugin.setObsidianTheme(mode);
+                    this.plugin.settings.theme = 'auto';
+                    dropdown.setValue('auto');
+                }
+                else {
+                    this.plugin.settings.theme = 'auto';
+                }
+                await this.plugin.saveSettings();
+                this.applyTheme();
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.pluginTitle'))
+            .setDesc(t('settings.pluginTitleDesc'))
+            .addText((tc) => tc
+            .setPlaceholder('XOVE DASHBOARD')
+            .setValue(this.plugin.settings.dashboardTitle)
+            .onChange(async (v) => { this.plugin.settings.dashboardTitle = v; await this.plugin.saveSettings(); this.plugin.refreshDashboardTitle(); }));
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.bannerEnable'))
+            .setDesc(t('settings.bannerEnableDesc'))
+            .addToggle((tg) => tg
+            .setValue(this.plugin.settings.banner.enabled)
+            .onChange(async (v) => {
+            this.plugin.settings.banner.enabled = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshBanner();
+            this.display();
+        }));
+        /* ============ 存储与模板 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secStorage')).setHeading();
+        // 快速捕捉
+        addFolderDropdown(new obsidian.Setting(containerEl).setName(t('settings.captureStoragePath')).setDesc(t('settings.storagePathDesc')), this.app, this.plugin.settings.quickCapture.storagePath, async (v) => { this.plugin.settings.quickCapture.storagePath = v; await this.plugin.saveSettings(); });
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.captureNamingRule'))
+            .setDesc(t('settings.namingRuleDesc'))
+            .addText((tc) => tc
+            .setPlaceholder(t('settings.namingPlaceholder'))
             .setValue(this.plugin.settings.quickCapture.namingPattern)
             .onChange(async (v) => { this.plugin.settings.quickCapture.namingPattern = v; await this.plugin.saveSettings(); }));
         new obsidian.Setting(containerEl)
-            .setName('模板文件')
-            .setDesc('输入模板路径，不使用模板则为空')
-            .addText((t) => t
-            .setPlaceholder('Templates/速记.md')
+            .setName(t('settings.captureTemplateFile'))
+            .setDesc(t('settings.captureTemplateFileDesc'))
+            .addText((tc) => tc
+            .setPlaceholder(t('settings.captureTemplatePlaceholder'))
             .setValue(this.plugin.settings.quickCapture.templateFile)
             .onChange(async (v) => {
             this.plugin.settings.quickCapture.templateFile = v.trim();
             await this.plugin.saveSettings();
         }));
-        /* ---- TODO ---- */
-        new obsidian.Setting(containerEl).setName('TODO 待办').setHeading();
-        addFolderDropdown(new obsidian.Setting(containerEl).setName('数据来源文件夹').setDesc('扫描该文件夹下的 Markdown 文件解析任务。留空则扫描整个知识库'), this.app, this.plugin.settings.todoSourceFolder, async (v) => { this.plugin.settings.todoSourceFolder = v; await this.plugin.saveSettings(); });
-        /* ---- 项目 ---- */
-        new obsidian.Setting(containerEl).setName('项目').setHeading();
-        addFolderDropdown(new obsidian.Setting(containerEl).setName('项目文件夹').setDesc('存放项目文件的文件夹路径'), this.app, this.plugin.settings.projectsFolder, async (v) => { this.plugin.settings.projectsFolder = v; await this.plugin.saveSettings(); });
+        // 新日记
+        addFolderDropdown(new obsidian.Setting(containerEl).setName(t('settings.diaryPath')).setDesc(t('settings.diaryPathDesc')), this.app, this.plugin.settings.diary.storagePath, async (v) => { this.plugin.settings.diary.storagePath = v; await this.plugin.saveSettings(); });
         new obsidian.Setting(containerEl)
-            .setName('甘特图默认时间粒度')
-            .setDesc('项目总览的甘特图默认以该粒度展示。重新打开项目总览或重载插件后生效；也可在甘特图界面直接点击缩放按钮临时切换（会自动记住）')
+            .setName(t('settings.diaryNaming'))
+            .setDesc(t('settings.namingRuleDesc'))
+            .addText((tc) => tc
+            .setPlaceholder('YYYY-MM-DD')
+            .setValue(this.plugin.settings.diary.namingPattern)
+            .onChange(async (v) => { this.plugin.settings.diary.namingPattern = v; await this.plugin.saveSettings(); }));
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.diaryTemplateFile'))
+            .setDesc(t('settings.diaryTemplateFileDesc'))
+            .addText((tc) => tc
+            .setPlaceholder(t('settings.diaryTemplatePlaceholder'))
+            .setValue(this.plugin.settings.diary.templateFile)
+            .onChange(async (v) => {
+            this.plugin.settings.diary.templateFile = v.trim();
+            await this.plugin.saveSettings();
+        }));
+        /* ============ 任务与项目 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secTasksProjects')).setHeading();
+        // TODO 待办
+        addFolderDropdown(new obsidian.Setting(containerEl).setName(t('settings.dataSource')).setDesc(t('settings.dataSourceDesc')), this.app, this.plugin.settings.todoSourceFolder, async (v) => { this.plugin.settings.todoSourceFolder = v; await this.plugin.saveSettings(); });
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.todoShowCompleted'))
+            .setDesc(t('settings.todoShowCompletedDesc'))
+            .addToggle((toggle) => {
+            toggle.setValue(this.plugin.settings.todoShowCompleted).onChange(async (v) => {
+                this.plugin.settings.todoShowCompleted = v;
+                await this.plugin.saveSettings();
+                // 立即刷新 TODO 卡片，无需切页
+                this.plugin.refreshTodoHome();
+            });
+        });
+        // 任务详情
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.taskDetailMode'))
+            .setDesc(t('settings.taskDetailModeDesc'))
             .addDropdown((dropdown) => {
-            dropdown.addOption('week', '周（默认）');
-            dropdown.addOption('day', '日');
-            dropdown.addOption('month', '月');
-            dropdown.addOption('quarter', '季度');
+            dropdown.addOption('detail', t('settings.taskDetailDetailed'));
+            dropdown.addOption('compact', t('settings.taskDetailCompact'));
+            dropdown.setValue(this.plugin.settings.taskDetailMode);
+            dropdown.onChange(async (v) => {
+                this.plugin.settings.taskDetailMode = v;
+                await this.plugin.saveSettings();
+            });
+        });
+        // 项目
+        addFolderDropdown(new obsidian.Setting(containerEl).setName(t('settings.projectFolder')).setDesc(t('settings.projectFolderDesc')), this.app, this.plugin.settings.projectsFolder, async (v) => { this.plugin.settings.projectsFolder = v; await this.plugin.saveSettings(); });
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.ganttGranularity'))
+            .setDesc(t('settings.ganttGranularityDesc'))
+            .addDropdown((dropdown) => {
+            dropdown.addOption('week', t('settings.optWeek'));
+            dropdown.addOption('day', t('settings.optDay'));
+            dropdown.addOption('month', t('settings.optMonth'));
+            dropdown.addOption('quarter', t('settings.optQuarter'));
             dropdown.setValue(this.plugin.settings.poGanttScale || 'week');
             dropdown.onChange(async (v) => {
                 this.plugin.settings.poGanttScale = v;
                 await this.plugin.saveSettings();
             });
         });
-        /* ---- 看板 ---- */
-        new obsidian.Setting(containerEl).setName('看板').setHeading();
+        /* ============ 看板 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secBoard')).setHeading();
         new obsidian.Setting(containerEl)
-            .setName('启用看板')
-            .setDesc('关闭后，顶部导航的看板入口与对应页面都会被隐藏；下方看板设置项同步折叠')
+            .setName(t('settings.boardEnable'))
+            .setDesc(t('settings.boardEnableDesc'))
             .addToggle((t) => t
             .setValue(this.plugin.settings.boardEnabled)
             .onChange(async (v) => {
@@ -171,32 +852,46 @@ class DashboardSettingTab extends obsidian.PluginSettingTab {
         if (!this.plugin.settings.boardEnabled)
             boardOptions.hide();
         new obsidian.Setting(boardOptions)
-            .setName('看板名称')
-            .setDesc('导航与页面上显示的板块名称，可自定义（如 机会点 / 灵感收集 / 管道）')
-            .addText((t) => t
-            .setPlaceholder('看板')
+            .setName(t('settings.boardName'))
+            .setDesc(t('settings.boardNameDesc'))
+            .addText((tc) => tc
+            .setPlaceholder(t('settings.boardNamePlaceholder'))
             .setValue(this.plugin.settings.boardTitle)
             .onChange(async (v) => {
-            this.plugin.settings.boardTitle = v.trim() || '看板';
+            this.plugin.settings.boardTitle = v.trim() || t('settings.boardNamePlaceholder');
             await this.plugin.saveSettings();
             this.plugin.refreshNav();
         }));
         new obsidian.Setting(boardOptions)
-            .setName('看板数据文件')
-            .setDesc('所有看板条目统一存于此 Markdown 文件（frontmatter 数组）。填写库内相对路径，可含子文件夹，如 看板.md。留空或文件不存在时会自动在该路径新建。')
-            .addText((t) => t
-            .setPlaceholder('看板.md')
+            .setName(t('settings.boardFile'))
+            .setDesc(t('settings.boardFileDesc'))
+            .addText((tc) => tc
+            .setPlaceholder(t('settings.boardFilePlaceholder'))
             .setValue(this.plugin.settings.opportunityFile)
             .onChange(async (v) => {
-            this.plugin.settings.opportunityFile = v.trim() || '看板.md';
+            // 适配用户输入：不带 .md 后缀时自动补，已带则原样保留（兼容旧数据）
+            const raw = v.trim();
+            if (!raw) {
+                this.plugin.settings.opportunityFile = getLang() === 'en' ? 'Kanban.md' : '看板.md';
+            }
+            else {
+                this.plugin.settings.opportunityFile = raw.toLowerCase().endsWith('.md') ? raw : raw + '.md';
+            }
             await this.plugin.saveSettings();
         }));
-        new obsidian.Setting(boardOptions)
-            .setName('阶段数量')
-            .setDesc('看板列的数量（4-6 个）')
+        /* ============ 阶段管道 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secPipeline')).setHeading();
+        // 看板阶段（折叠组）：看板关闭时整体折叠隐藏（联动）
+        const boardStagesWrap = containerEl.createEl('details', { cls: 'dashboard-collapse dashboard-collapse--board' });
+        if (!this.plugin.settings.boardEnabled)
+            boardStagesWrap.hide();
+        boardStagesWrap.createEl('summary', { text: t('settings.boardStageGroup') });
+        new obsidian.Setting(boardStagesWrap)
+            .setName(t('settings.stageCount'))
+            .setDesc(t('settings.stageCountDesc'))
             .addDropdown((dropdown) => {
             for (const n of [4, 5, 6])
-                dropdown.addOption(String(n), `${n} 个阶段`);
+                dropdown.addOption(String(n), t('settings.stageCountOption', { n }));
             dropdown.setValue(String(this.plugin.settings.boardStages.length));
             dropdown.onChange(async (v) => {
                 const newCount = parseInt(v);
@@ -215,87 +910,38 @@ class DashboardSettingTab extends obsidian.PluginSettingTab {
                 // 让已打开的机会页阶段列立即同步（无需切页）
                 this.plugin.refreshNav();
                 this.display();
+                // 改动数量后展开折叠组，便于继续编辑新阶段
+                this.containerEl.querySelector('.dashboard-collapse--board')?.setAttribute('open', '');
             });
         });
         for (let i = 0; i < this.plugin.settings.boardStages.length; i++) {
             const idx = i;
             const st = this.plugin.settings.boardStages[idx];
-            new obsidian.Setting(boardOptions)
-                .setName(`阶段 ${idx + 1}`)
-                .setDesc(`自定义第 ${idx + 1} 个阶段的名称、颜色，以及是否在该阶段启用输入框`)
-                .addText((t) => t
-                .setPlaceholder(`阶段 ${idx + 1}`)
+            new obsidian.Setting(boardStagesWrap)
+                .setName(t('settings.stageLabel', { n: idx + 1 }))
+                .setDesc(t('settings.stageNameDescFull', { n: idx + 1 }))
+                .addText((tc) => tc
+                .setPlaceholder(t('settings.stageNamePlaceholder', { n: idx + 1 }))
                 .setValue(st?.label ?? '')
                 .onChange(async (v) => { this.plugin.settings.boardStages[idx].label = v; await this.plugin.saveSettings(); this.plugin.refreshNav(); }))
-                .addText((t) => t
+                .addText((tc) => tc
                 .setPlaceholder('#888780')
                 .setValue(st?.color ?? '')
                 .onChange(async (v) => { this.plugin.settings.boardStages[idx].color = v.trim() || '#888780'; await this.plugin.saveSettings(); this.plugin.refreshNav(); }))
                 .addToggle((tg) => tg
-                .setTooltip('启用后，处于该阶段的条目在编辑时会出现一个标题与该阶段名一致的输入框')
+                .setTooltip(t('settings.stageHasInputTooltip'))
                 .setValue(st?.hasInput ?? false)
                 .onChange(async (v) => { this.plugin.settings.boardStages[idx].hasInput = v; await this.plugin.saveSettings(); }));
         }
-        /* ---- 新日记 ---- */
-        new obsidian.Setting(containerEl).setName('新日记').setHeading();
-        addFolderDropdown(new obsidian.Setting(containerEl).setName('日记存储路径').setDesc('日记笔记的存放位置'), this.app, this.plugin.settings.diary.storagePath, async (v) => { this.plugin.settings.diary.storagePath = v; await this.plugin.saveSettings(); });
-        new obsidian.Setting(containerEl)
-            .setName('日记命名规则')
-            .setDesc('支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午')
-            .addText((t) => t
-            .setPlaceholder('YYYY-MM-DD')
-            .setValue(this.plugin.settings.diary.namingPattern)
-            .onChange(async (v) => { this.plugin.settings.diary.namingPattern = v; await this.plugin.saveSettings(); }));
-        new obsidian.Setting(containerEl)
-            .setName('模板文件')
-            .setDesc('输入模板路径，不使用模板则为空')
-            .addText((t) => t
-            .setPlaceholder('Templates/日记.md')
-            .setValue(this.plugin.settings.diary.templateFile)
-            .onChange(async (v) => {
-            this.plugin.settings.diary.templateFile = v.trim();
-            await this.plugin.saveSettings();
-        }));
-        /* ---- 外观 ---- */
-        new obsidian.Setting(containerEl).setName('外观').setHeading();
-        new obsidian.Setting(containerEl)
-            .setName('主题')
-            .setDesc('跟随 Obsidian 外观，或手动指定深色/浅色。手动选择会同时切换 Obsidian 整体外观，仪表盘自动跟随')
-            .addDropdown((dropdown) => {
-            dropdown.addOption('auto', '跟随 Obsidian');
-            dropdown.addOption('dark', '深色');
-            dropdown.addOption('light', '浅色');
-            dropdown.setValue(this.plugin.settings.theme);
-            dropdown.onChange(async (v) => {
-                const mode = v;
-                if (mode !== 'auto') {
-                    // 手动选择深色/浅色时，直接切换 Obsidian 整体外观，仪表盘通过 'auto' 跟随。
-                    this.plugin.setObsidianTheme(mode);
-                    this.plugin.settings.theme = 'auto';
-                    dropdown.setValue('auto');
-                }
-                else {
-                    this.plugin.settings.theme = 'auto';
-                }
-                await this.plugin.saveSettings();
-                this.applyTheme();
-            });
-        });
-        new obsidian.Setting(containerEl)
-            .setName('插件标题')
-            .setDesc('自定义仪表盘主标题（即“MY DASHBOARD”那一行）。留空则使用默认标题 “MY DASHBOARD”，修改后立即生效，无需重载')
-            .addText((t) => t
-            .setPlaceholder('MY DASHBOARD')
-            .setValue(this.plugin.settings.dashboardTitle)
-            .onChange(async (v) => { this.plugin.settings.dashboardTitle = v; await this.plugin.saveSettings(); this.plugin.refreshDashboardTitle(); }));
-        /* ---- 阶段管道 ---- */
-        new obsidian.Setting(containerEl).setName('阶段管道').setHeading();
-        new obsidian.Setting(containerEl)
-            .setName('阶段数量')
-            .setDesc('设置项目阶段的数量（4-6个）')
+        // 项目管道阶段（折叠组）
+        const pipelineWrap = containerEl.createEl('details', { cls: 'dashboard-collapse dashboard-collapse--pipeline' });
+        pipelineWrap.createEl('summary', { text: t('settings.pipelineStageGroup') });
+        new obsidian.Setting(pipelineWrap)
+            .setName(t('settings.pipelineCount'))
+            .setDesc(t('settings.pipelineCountDesc'))
             .addDropdown((dropdown) => {
             for (const n of [4, 5, 6]) {
-                dropdown.addOption(String(n), `${n} 个阶段`);
+                dropdown.addOption(String(n), t('settings.stageCountOption', { n }));
             }
             dropdown.setValue(String(this.plugin.settings.npdpMaxStage));
             dropdown.onChange(async (v) => {
@@ -312,35 +958,42 @@ class DashboardSettingTab extends obsidian.PluginSettingTab {
                 this.plugin.settings.npdpMaxStage = newCount;
                 await this.plugin.saveSettings();
                 this.display();
+                // 改动数量后展开折叠组，便于继续编辑新阶段
+                this.containerEl.querySelector('.dashboard-collapse--pipeline')?.setAttribute('open', '');
             });
         });
         for (let i = 0; i < this.plugin.settings.npdpStages.length; i++) {
             const idx = i;
-            new obsidian.Setting(containerEl)
-                .setName(`阶段 ${idx + 1} 名称`)
-                .setDesc(`自定义第 ${idx + 1} 个阶段的名称`)
-                .addText((t) => t
-                .setPlaceholder(`阶段 ${idx + 1}`)
+            new obsidian.Setting(pipelineWrap)
+                .setName(t('settings.stageName', { n: idx + 1 }))
+                .setDesc(t('settings.stageNameDesc', { n: idx + 1 }))
+                .addText((tc) => tc
+                .setPlaceholder(t('settings.stageNamePlaceholder', { n: idx + 1 }))
                 .setValue(this.plugin.settings.npdpStages[idx] ?? '')
                 .onChange(async (v) => {
                 this.plugin.settings.npdpStages[idx] = v;
                 await this.plugin.saveSettings();
             }));
         }
-        new obsidian.Setting(containerEl)
-            .setName('项目进度卡片筛选')
-            .setDesc('主页"项目进度"卡片显示不超过所选阶段的项目')
+        new obsidian.Setting(pipelineWrap)
+            .setName(t('settings.progressFilter'))
+            .setDesc(t('settings.progressFilterDesc'))
             .addDropdown((dropdown) => {
             for (let i = 0; i < this.plugin.settings.npdpStages.length; i++) {
                 dropdown.addOption(String(i), `≤ ${this.plugin.settings.npdpStages[i]}`);
             }
-            dropdown.addOption(String(this.plugin.settings.npdpStages.length), '显示全部');
+            dropdown.addOption(String(this.plugin.settings.npdpStages.length), t('settings.pipelineShowAll'));
             dropdown.setValue(String(this.plugin.settings.npdpProgressFilter ?? this.plugin.settings.npdpStages.length));
             dropdown.onChange(async (v) => {
                 this.plugin.settings.npdpProgressFilter = parseInt(v);
                 await this.plugin.saveSettings();
             });
         });
+        /* ============ 关于 ============ */
+        new obsidian.Setting(containerEl).setName(t('settings.secAbout')).setHeading();
+        new obsidian.Setting(containerEl)
+            .setName(t('settings.aboutVersion'))
+            .setDesc(this.plugin.manifest?.version ? 'v' + this.plugin.manifest.version : '');
     }
     applyTheme() {
         const t = this.plugin.settings.theme;
@@ -368,8 +1021,8 @@ const MOCK_DATA = {
     lunar: '农历 五月十五',
     header: {
         eyebrow: 'SECOND BRAIN',
-        title: 'MY DASHBOARD',
-        subtitle: 'Obsidian · Personal Dashboard · v0.2.3',
+        title: 'XOVE DASHBOARD',
+        subtitle: 'Obsidian · Xove Dashboard · v0.2.3',
     },
     pulse: {
         notes: 156,
@@ -435,33 +1088,220 @@ const MOCK_DATA = {
     },
 };
 
-/** 视图通用中文文案常量 —— 统一维护入口，避免中文 UI 文案散落在各视图里的硬编码。 */
+/** 视图通用文案常量 —— 统一维护入口，避免中文 UI 文案散落在各视图里的硬编码。
+ *  UI_TEXT / MODAL_TEXT 的取值均来自 i18n 字典，切换语言时自动返回对应文案。 */
 const UI_TEXT = {
-    // 通用动作
-    save: '保存',
-    cancel: '取消',
-    edit: '编辑',
-    delete: '删除',
-    openSource: '打开源文件',
-    taskDetail: '任务详情',
-    notSet: '未设置',
-    all: '全部',
+    // 通用动作（映射到 common.*）
+    get save() { return t('common.save'); },
+    get cancel() { return t('common.cancel'); },
+    get edit() { return t('common.edit'); },
+    get delete() { return t('common.delete'); },
+    get openSource() { return t('common.openSource'); },
+    get taskDetail() { return t('common.taskDetail'); },
+    get notSet() { return t('common.notSet'); },
+    get all() { return t('ui.all'); },
+    get today() { return t('ui.today'); },
+    get clickDayHint() { return t('ui.clickDayHint'); },
+    get noTaskOnDay() { return t('ui.noTaskOnDay'); },
+    get newProjectBtn() { return t('ui.newProjectBtn'); },
+    get calMonthFmt() { return t('ui.calMonthFmt'); },
+    get calWeekdays() { return tArr('ui.calWeekdays'); },
+    // 优先级短标签（卡片/列表/看板里的小徽章用）。fallback 在显示层做。
+    prioShort(storage) {
+        const map = {
+            '重要且紧急': t('modal.prioUrgentImpShort'),
+            '重要不紧急': t('modal.prioImpNotUrgentShort'),
+            '紧急不重要': t('modal.prioUrgentNotImpShort'),
+            '不重要不紧急': t('modal.prioNotImpNotUrgentShort'),
+        };
+        return map[storage] ?? storage;
+    },
+    // 状态短标签（用同一份 modal.st* 翻译；fallback 用 storage value）
+    statusLabel(storage) {
+        const map = {
+            '待办': t('modal.stTodo'),
+            '进行中': t('modal.stInProgress'),
+            '已阻塞': t('modal.stBlocked'),
+            '已完成': t('modal.stDone'),
+            '已取消': t('modal.stCancelled'),
+        };
+        return map[storage] ?? storage;
+    },
+    // 优先级选项长标签（任务编辑弹窗里用，带 emoji）
+    prioLong(storage) {
+        const map = {
+            '重要且紧急': t('modal.prioUrgentImp'),
+            '重要不紧急': t('modal.prioImpNotUrgent'),
+            '紧急不重要': t('modal.prioUrgentNotImp'),
+            '不重要不紧急': t('modal.prioNotImpNotUrgent'),
+        };
+        return map[storage] ?? storage;
+    },
+    // 优先级纯文本标签（TODO 卡片用，无 emoji；样式参考本周待办的紧急标签 ad-wo__urg）
+    prioText(storage) {
+        const map = {
+            '重要且紧急': t('modal.prioUrgentImpText'),
+            '重要不紧急': t('modal.prioImpNotUrgentText'),
+            '紧急不重要': t('modal.prioUrgentNotImpText'),
+            '不重要不紧急': t('modal.prioNotImpNotUrgentText'),
+        };
+        return map[storage] ?? storage;
+    },
     // 项目总览（第二页）
-    filter: '筛选',
-    noTasks: '暂无任务数据',
-    poGantt: '甘特图',
-    poList: '列表',
-    poCalendar: '日历',
-    poKanban: '看板',
-    poTaskName: '任务名称',
-    poPriority: '优先级',
-    poStart: '开始',
-    poDue: '截止',
-    poStatus: '状态',
-    poProject: '项目',
+    get filter() { return t('ui.filter'); },
+    get noTasks() { return t('ui.noTasks'); },
+    get poGantt() { return t('ui.poGantt'); },
+    get poList() { return t('ui.poList'); },
+    get poCalendar() { return t('ui.poCalendar'); },
+    get poKanban() { return t('ui.poKanban'); },
+    get poTaskName() { return t('ui.poTaskName'); },
+    get poPriority() { return t('ui.poPriority'); },
+    get poStart() { return t('ui.poStart'); },
+    get poDue() { return t('ui.poDue'); },
+    get poStatus() { return t('ui.poStatus'); },
+    get poProject() { return t('ui.poProject'); },
     // 看板（第三页）
-    opAll: '全部',
-    opRoadmap: '★ 星标',
+    get opAll() { return t('ui.opAll'); },
+    get opRoadmap() { return t('ui.opRoadmap'); },
+};
+/** 弹窗专属文案（映射到 modal.*），切换语言时自动翻译。 */
+const MODAL_TEXT = {
+    get taskTitle() { return t('modal.taskTitle'); },
+    get taskName() { return t('modal.taskName'); },
+    get project() { return t('modal.project'); },
+    get parent() { return t('modal.parent'); },
+    get noParent() { return t('modal.noParent'); },
+    get startDate() { return t('modal.startDate'); },
+    get endDate() { return t('modal.endDate'); },
+    get noEndDate() { return t('modal.noEndDate'); },
+    get priority() { return t('modal.priority'); },
+    get status() { return t('modal.status'); },
+    get type() { return t('modal.type'); },
+    get repeatFreq() { return t('modal.repeatFreq'); },
+    get everyNDays() { return t('modal.everyNDays'); },
+    get workdaysOnly() { return t('modal.workdaysOnly'); },
+    get repeatWeekdays() { return t('modal.repeatWeekdays'); },
+    get monthDay() { return t('modal.monthDay'); },
+    get reminder() { return t('modal.reminder'); },
+    get tags() { return t('modal.tags'); },
+    get tagPlaceholder() { return t('modal.tagPlaceholder'); },
+    get notes() { return t('modal.notes'); },
+    get notesPlaceholder() { return t('modal.notesPlaceholder'); },
+    get createTask() { return t('modal.createTask'); },
+    get firstDate() { return t('modal.firstDate'); },
+    get endDateBound() { return t('modal.endDateBound'); },
+    get projectEdit() { return t('modal.projectEdit'); },
+    get projectNew() { return t('modal.projectNew'); },
+    get projectName() { return t('modal.projectName'); },
+    get projectType() { return t('modal.projectType'); },
+    get projectColor() { return t('modal.projectColor'); },
+    get projectDesc() { return t('modal.projectDesc'); },
+    get projectDescPlaceholder() { return t('modal.projectDescPlaceholder'); },
+    get projectStage() { return t('modal.projectStage'); },
+    get createProject() { return t('modal.createProject'); },
+    get oppName() { return t('modal.oppName'); },
+    get oppStatus() { return t('modal.oppStatus'); },
+    get oppTags() { return t('modal.oppTags'); },
+    get oppTagsPlaceholder() { return t('modal.oppTagsPlaceholder'); },
+    get oppNotes() { return t('modal.oppNotes'); },
+    get oppNotesPlaceholder() { return t('modal.oppNotesPlaceholder'); },
+    get oppLink() { return t('modal.oppLink'); },
+    get oppLinkPlaceholder() { return t('modal.oppLinkPlaceholder'); },
+    get oppGenLink() { return t('modal.oppGenLink'); },
+    get oppStar() { return t('modal.oppStar'); },
+    get oppCreate() { return t('modal.oppCreate'); },
+    get oppEdit() { return t('modal.oppEdit'); },
+    get bannerTitle() { return t('modal.bannerTitle'); },
+    get bannerHint() { return t('modal.bannerHint'); },
+    get bannerConfirm() { return t('modal.bannerConfirm'); },
+    get weekdays() { return tArr('modal.weekdays'); },
+    get weekdayShort() { return tArr('modal.weekdayShort'); },
+    get weekdayLabel() { return tArr('modal.weekdayLabel'); },
+    get prioUrgentImp() { return t('modal.prioUrgentImp'); },
+    get prioImpNotUrgent() { return t('modal.prioImpNotUrgent'); },
+    get prioUrgentNotImp() { return t('modal.prioUrgentNotImp'); },
+    get prioNotImpNotUrgent() { return t('modal.prioNotImpNotUrgent'); },
+    get stTodo() { return t('modal.stTodo'); },
+    get stInProgress() { return t('modal.stInProgress'); },
+    get stBlocked() { return t('modal.stBlocked'); },
+    get stDone() { return t('modal.stDone'); },
+    get stCancelled() { return t('modal.stCancelled'); },
+    get typeNormal() { return t('modal.typeNormal'); },
+    get typeRecurring() { return t('modal.typeRecurring'); },
+    get freqChoose() { return t('modal.freqChoose'); },
+    get freqDaily() { return t('modal.freqDaily'); },
+    get freqWeekly() { return t('modal.freqWeekly'); },
+    get freqMonthly() { return t('modal.freqMonthly'); },
+    get remOnDay() { return t('modal.remOnDay'); },
+    get rem1Day() { return t('modal.rem1Day'); },
+    get rem3Day() { return t('modal.rem3Day'); },
+    get rem1Week() { return t('modal.rem1Week'); },
+    get editStatus() { return t('modal.editStatus'); },
+    get editPriority() { return t('modal.editPriority'); },
+    get editStart() { return t('modal.editStart'); },
+    get editDue() { return t('modal.editDue'); },
+    get editNotes() { return t('modal.editNotes'); },
+    get dailyNode() { return t('modal.dailyNode'); },
+    get todayDone() { return t('modal.todayDone'); },
+    get todaySkip() { return t('modal.todaySkip'); },
+    get todayNote() { return t('modal.todayNote'); },
+    get noNote() { return t('modal.noNote'); },
+    get overdueTag() { return t('modal.overdueTag'); },
+    get cdTitle() { return t('modal.cdTitle'); },
+    get cdEventName() { return t('modal.cdEventName'); },
+    get cdTargetDate() { return t('modal.cdTargetDate'); },
+    get cdEventPlaceholder() { return t('modal.cdEventPlaceholder'); },
+    get cdHint() { return t('modal.cdHint'); },
+    get cdAdd() { return t('modal.cdAdd'); },
+    get cdMax() { return t('modal.cdMax'); },
+    get cdEmpty() { return t('modal.cdEmpty'); },
+    get cdDelete() { return t('modal.cdDelete'); },
+    get cdDone() { return t('modal.cdDone'); },
+    get opKanban() { return t('modal.opKanban'); },
+    get opList() { return t('modal.opList'); },
+    get opNew() { return t('modal.opNew'); },
+    get opViewRight() { return t('modal.opViewRight'); },
+    get opOpenLink() { return t('modal.opOpenLink'); },
+    get opStatusPrefix() { return t('modal.opStatusPrefix'); },
+    get opUnstar() { return t('modal.opUnstar'); },
+    get opStar() { return t('modal.opStar'); },
+    get opEmptyStage() { return t('modal.opEmptyStage'); },
+    get opName() { return t('modal.opName'); },
+    get opCreated() { return t('modal.opCreated'); },
+    get opStarCol() { return t('modal.opStarCol'); },
+    get opNoLink() { return t('modal.opNoLink'); },
+    get opSaved() { return t('modal.opSaved'); },
+    get opUpdated() { return t('modal.opUpdated'); },
+    get opCreatedToast() { return t('modal.opCreatedToast'); },
+    get opDeleted() { return t('modal.opDeleted'); },
+    get opStatusUpdated() { return t('modal.opStatusUpdated'); },
+    get opDetail() { return t('modal.opDetail'); },
+    get opNamePh() { return t('modal.opNamePh'); },
+    get opTagPh() { return t('modal.opTagPh'); },
+    get opNotesPh() { return t('modal.opNotesPh'); },
+    get opStagePh() { return t('modal.opStagePh'); },
+    get opLinkPh() { return t('modal.opLinkPh'); },
+    get opStarHint() { return t('modal.opStarHint'); },
+    get poTaskMoved() { return t('modal.poTaskMoved'); },
+    get poTaskFileMissing() { return t('modal.poTaskFileMissing'); },
+    get poStatusFilter() { return t('modal.poStatusFilter'); },
+    get poClearFilter() { return t('modal.poClearFilter'); },
+    get poAlreadyInProject() { return t('modal.poAlreadyInProject'); },
+    get poAlreadySubtask() { return t('modal.poAlreadySubtask'); },
+    get poParentCycle() { return t('modal.poParentCycle'); },
+    // 补齐 ProjectModal / TaskModal 残留硬编码
+    get taskNamePlaceholder() { return t('modal.taskNamePlaceholder'); },
+    get projectNamePlaceholder() { return t('modal.projectNamePlaceholder'); },
+    get projectTypeStage() { return t('modal.projectTypeStage'); },
+    get projectTypeNoStage() { return t('modal.projectTypeNoStage'); },
+    get stagesDefault() { return tArr('modal.stagesDefault'); },
+    // 补齐 OpportunityModal / ProjectBoard 残留硬编码
+    get oppNamePlaceholder() { return t('modal.oppNamePlaceholder'); },
+    get poScaleDay() { return t('ui.poScaleDay'); },
+    get poScaleWeek() { return t('ui.poScaleWeek'); },
+    get poScaleMonth() { return t('ui.poScaleMonth'); },
+    get poScaleQuarter() { return t('ui.poScaleQuarter'); },
+    get poDeleteTask() { return t('modal.poDeleteTask'); },
 };
 
 /**
@@ -479,18 +1319,18 @@ class BannerModal extends obsidian.Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.addClass('ad-modal');
-        contentEl.createEl('h3', { cls: 'ad-modal__title', text: '调整封面图片位置' });
+        contentEl.createEl('h3', { cls: 'ad-modal__title', text: t('modal.bannerTitle') });
         // ---- preview container (16:3) ----
         const preview = contentEl.createDiv({ cls: 'ad-modal__preview' });
         const img = preview.createEl('img', { cls: 'ad-modal__img' });
         img.src = this.imageDataUrl;
-        img.alt = 'Banner preview';
+        img.alt = t('modal.bannerTitle');
         // ---- hint ----
-        contentEl.createDiv({ cls: 'ad-modal__hint', text: '上下拖拽图片调整显示区域，图片宽度自动铺满' });
+        contentEl.createDiv({ cls: 'ad-modal__hint', text: t('modal.bannerHint') });
         // ---- buttons ----
         const btns = contentEl.createDiv({ cls: 'ad-modal__btns' });
         const cancelBtn = btns.createEl('button', { cls: 'ad-modal__btn', text: UI_TEXT.cancel });
-        const confirmBtn = btns.createEl('button', { cls: 'ad-modal__btn ad-modal__btn--primary', text: '确认' });
+        const confirmBtn = btns.createEl('button', { cls: 'ad-modal__btn ad-modal__btn--primary', text: t('modal.bannerConfirm') });
         cancelBtn.addEventListener('click', () => this.close());
         confirmBtn.addEventListener('click', () => {
             this.onConfirm(this.offsetY);
@@ -575,55 +1415,81 @@ function applyY(img, y) {
     img.style.transform = `translateY(${y}px)`;
 }
 
+const MAX_COUNTDOWNS = 5;
+/** 新事件的默认名称（随语言，属数据默认值而非 UI 文案） */
+function defaultEventName() {
+    return getLang() === 'en' ? 'New Year' : '新年';
+}
 /**
- * CountdownModal — 编辑主页「倒计时」卡片的自定义事件：
- * 事件名称 + 目标日期。保存后回写 settings 并刷新卡片。
+ * CountdownModal — 管理主页「倒计时」卡片的多个自定义事件（最多 5 个）。
+ * 每个事件含事件名称 + 目标日期；可增 / 删 / 改，保存后回写 settings 并刷新卡片。
+ * `opts.single=true` 时仅编辑传入的那一项（隐藏「添加」按钮、不可删/减），用于右键单卡编辑。
  */
 class CountdownModal extends obsidian.Modal {
-    constructor(app, current, onConfirm) {
+    constructor(app, current, onConfirm, opts) {
         super(app);
-        this.eventName = current.eventName;
-        this.targetDate = current.targetDate;
+        this.single = !!opts?.single;
+        const initial = this.single
+            ? (current.slice(0, 1).map((c) => ({ ...c })) || [{ eventName: defaultEventName(), targetDate: '2027-01-01' }])
+            : (current && current.length ? current : [{ eventName: defaultEventName(), targetDate: '2027-01-01' }]).map((c) => ({ ...c }));
+        this.list = initial;
         this.onConfirm = onConfirm;
     }
     onOpen() {
         const { contentEl } = this;
         contentEl.addClass('ad-modal');
-        contentEl.createEl('h3', { cls: 'ad-modal-title', text: '编辑倒计时事件' });
-        // 事件名称
-        const nameField = contentEl.createDiv({ cls: 'ad-modal-field' });
-        nameField.createEl('label', { cls: 'ad-modal-label', text: '事件名称' });
-        const nameInput = nameField.createEl('input', {
-            cls: 'ad-modal-input',
-            type: 'text',
-            value: this.eventName,
-        });
-        nameInput.placeholder = '如：高考';
-        // 目标日期
-        const dateField = contentEl.createDiv({ cls: 'ad-modal-field' });
-        dateField.createEl('label', { cls: 'ad-modal-label', text: '目标日期' });
-        const dateInput = dateField.createEl('input', {
-            cls: 'ad-modal-input',
-            type: 'date',
-            value: this.targetDate,
-        });
-        contentEl.createDiv({
-            cls: 'ad-modal-hint',
-            text: '卡片显示「距离 {名称} 还有」及剩余天数，进度条随目标日期动态变化。',
-        });
+        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.single ? t('modal.cdTitleSingle') : t('modal.cdTitle') });
+        this.listEl = contentEl.createDiv({ cls: 'ad-cd-list' });
+        this.rebuild();
         const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
-        const cancelBtn = btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel });
-        const confirmBtn = btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: '保存' });
-        cancelBtn.addEventListener('click', () => this.close());
-        confirmBtn.addEventListener('click', () => {
-            const name = nameInput.value.trim() || '新年';
-            const date = dateInput.value || '2027-01-01';
-            this.onConfirm({ eventName: name, targetDate: date });
-            this.close();
-        });
+        btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
+            .addEventListener('click', () => this.close());
+        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: MODAL_TEXT.cdDone })
+            .addEventListener('click', () => { this.onConfirm(this.list); this.close(); });
     }
-    onClose() {
-        this.contentEl.empty();
+    rebuild() {
+        const el = this.listEl;
+        el.empty();
+        if (!this.single && this.list.length === 0) {
+            el.createDiv({ cls: 'ad-cd-empty', text: t('modal.cdEmpty') });
+        }
+        this.list.forEach((cfg, i) => {
+            const row = el.createDiv({ cls: 'ad-cd-row' });
+            const name = row.createEl('input', { cls: 'ad-modal-input', type: 'text' });
+            name.value = cfg.eventName;
+            name.placeholder = t('modal.cdEventPlaceholder');
+            name.addEventListener('input', () => {
+                const cur = this.list[i];
+                this.list[i] = { ...cur, eventName: name.value.trim() || defaultEventName() };
+            });
+            const date = row.createEl('input', { cls: 'ad-modal-input ad-cd-date', type: 'date' });
+            date.value = cfg.targetDate;
+            date.addEventListener('input', () => {
+                const cur = this.list[i];
+                this.list[i] = { ...cur, targetDate: date.value || '2027-01-01' };
+            });
+            // 单卡编辑模式：禁止删除（右键「删除此卡片」入口已独立提供）
+            if (!this.single) {
+                const del = row.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--danger ad-cd-del' });
+                del.textContent = '✕';
+                del.title = MODAL_TEXT.cdDelete;
+                del.addEventListener('click', () => { this.list.splice(i, 1); this.rebuild(); });
+            }
+        });
+        // 单卡编辑模式：不允许再加更多卡；右键右键「删除此卡片」是删除入口
+        if (this.single)
+            return;
+        const addBtn = el.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--ghost ad-cd-add', text: MODAL_TEXT.cdAdd });
+        if (this.list.length >= MAX_COUNTDOWNS) {
+            addBtn.disabled = true;
+            addBtn.title = MODAL_TEXT.cdMax;
+        }
+        else {
+            addBtn.addEventListener('click', () => {
+                this.list.push({ eventName: defaultEventName(), targetDate: '2027-01-01' });
+                this.rebuild();
+            });
+        }
     }
 }
 
@@ -688,8 +1554,8 @@ function parseDailyNodesFromBody(content) {
     const out = {};
     const lines = bodyOf(content).split(/\r?\n/);
     let inBlock = false;
-    for (const raw of lines) {
-        const line = raw ?? '';
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] ?? '';
         const h = line.match(/^#{1,6}\s+(.+?)\s*$/);
         if (h) {
             inBlock = (h[1] ?? '').trim() === '每日节点';
@@ -708,6 +1574,16 @@ function parseDailyNodesFromBody(content) {
         const nm = rest.match(/(?:——|—|--)\s*(.+?)\s*$/);
         if (nm)
             n = (nm[1] ?? '').trim();
+        // 续行：缩进的非空行视为同一条目的多行备注（前端 .po-cal__daily-note 用 white-space:pre-wrap 渲染换行）
+        while (i + 1 < lines.length) {
+            const next = lines[i + 1] ?? '';
+            if (/^\s+\S/.test(next)) {
+                n += '\n' + next.trim();
+                i++;
+            }
+            else
+                break;
+        }
         out[date] = { s, n };
     }
     return out;
@@ -723,8 +1599,14 @@ function serializeDailyNodesBlock(nodes) {
         if (!node)
             continue;
         const mark = node.s === 'skip' ? '⏭️ 未做' : node.s === 'todo' ? '📝 待办' : '✅ 完成';
-        const note = node.n ? ` —— ${node.n}` : '';
+        // 多行备注：第一行写在 "- date —" 之后，后续行用 2 空格缩进作为 markdown 列表项续行
+        const noteLines = node.n ? node.n.split('\n') : [];
+        const first = noteLines.shift() ?? '';
+        const note = first ? ` —— ${first}` : '';
         lines.push(`- ${d} ${mark}${note}`);
+        for (const cont of noteLines) {
+            lines.push(`  ${cont}`);
+        }
     }
     return lines.join('\n');
 }
@@ -976,42 +1858,80 @@ class TaskEditModal extends obsidian.Modal {
         contentEl.addClass('ad-task-modal');
         contentEl.createEl('h3', { cls: 'ad-modal-title', text: UI_TEXT.taskDetail });
         // ---- Title (editable name) ----
-        this.field('任务名称 *', (wrap) => {
+        this.field(MODAL_TEXT.taskName, (wrap) => {
             wrap.createEl('input', { cls: 'ad-modal-input ad-edit-title', attr: { type: 'text', value: task.content } });
         });
+        // ---- 归属（可编辑，与新建任务弹窗一致）：项目 / 类型 一行，父任务一行 ----
+        const row0 = contentEl.createDiv({ cls: 'ad-modal-row' });
+        const projCol = row0.createDiv({ cls: 'ad-modal-col' });
+        this.label(projCol, MODAL_TEXT.project);
+        const projSel = projCol.createEl('select', { cls: 'ad-modal-input' });
+        for (const p of this.opts.projects) {
+            projSel.createEl('option', { text: p.name, attr: { value: p.name } });
+        }
+        if (task.projectId)
+            projSel.value = task.projectId;
+        const typeCol = row0.createDiv({ cls: 'ad-modal-col' });
+        this.label(typeCol, MODAL_TEXT.type);
+        const typeSel = typeCol.createEl('select', { cls: 'ad-modal-input' });
+        typeSel.createEl('option', { text: MODAL_TEXT.typeNormal, attr: { value: '普通' } });
+        typeSel.createEl('option', { text: MODAL_TEXT.typeRecurring, attr: { value: '重复' } });
+        typeSel.value = task.type === '重复' ? '重复' : '普通';
+        const parentLabel = this.label(contentEl, MODAL_TEXT.parent);
+        const parentSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
+        parentSel.createEl('option', { text: MODAL_TEXT.noParent, attr: { value: '' } });
+        const populateParents = (projectName) => {
+            // 父任务只能是同一项目下的其他任务（排除自身）
+            const filtered = (this.opts.allTasks || []).filter((t) => t.projectId === projectName && t.id !== task.id);
+            while (parentSel.options.length > 1)
+                parentSel.remove(1);
+            for (const t of filtered) {
+                parentSel.createEl('option', { text: t.content, attr: { value: t.content } });
+            }
+        };
+        populateParents(projSel.value);
+        if (task.parent)
+            parentSel.value = task.parent;
+        projSel.addEventListener('change', () => { populateParents(projSel.value); });
+        // ---- 简洁模式：隐藏所属项目 / 任务类型 / 父任务（仍保留编辑能力，仅不展示） ----
+        if (this.opts.taskDetailMode === 'compact') {
+            row0.hide();
+            parentLabel.hide();
+            parentSel.hide();
+        }
         // ---- Status ----
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '状态' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editStatus });
         const statusSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
         for (const s of STATUS_LIST) {
-            const opt = statusSel.createEl('option', { text: s, attr: { value: s } });
+            const opt = statusSel.createEl('option', { text: UI_TEXT.statusLabel(s), attr: { value: s } });
             if (s === task.status)
                 opt.selected = true;
         }
         // ---- Priority ----
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '优先级' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editPriority });
         const prioSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
         prioSel.createEl('option', { text: UI_TEXT.notSet, attr: { value: '' } });
         for (const p of PRIORITY_LIST) {
             if (!p)
                 continue;
-            const opt = prioSel.createEl('option', { text: p, attr: { value: p } });
+            const opt = prioSel.createEl('option', { text: UI_TEXT.prioText(p), attr: { value: p } });
             if (p === task.priority)
                 opt.selected = true;
         }
         // ---- Dates ----
         const row = contentEl.createDiv({ cls: 'ad-modal-row' });
         const startCol = row.createDiv({ cls: 'ad-modal-col' });
-        startCol.createEl('label', { cls: 'ad-modal-label', text: '开始日期' });
+        startCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editStart });
         const startInput = startCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         if (task.startDate)
             startInput.value = task.startDate;
         const endCol = row.createDiv({ cls: 'ad-modal-col' });
-        endCol.createEl('label', { cls: 'ad-modal-label', text: '截止日期' });
+        endCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editDue });
         const endInput = endCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         if (task.dueDate)
             endInput.value = task.dueDate;
         // ---- Notes ----
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '备注' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editNotes });
         const notesArea = contentEl.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '3' } });
         if (task.notes)
             notesArea.value = task.notes;
@@ -1027,10 +1947,10 @@ class TaskEditModal extends obsidian.Modal {
             .addEventListener('click', () => {
             const titleEl = contentEl.querySelector('.ad-edit-title');
             const nodeNoteEl = contentEl.querySelector('.ad-node-note');
-            void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, nodeNoteEl?.value ?? '');
+            void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteEl?.value ?? '');
         });
     }
-    async saveTask(title, status, priority, startDate, endDate, notes, nodeNote) {
+    async saveTask(title, status, priority, startDate, endDate, notes, project, parent, type, nodeNote) {
         const task = this.opts.task;
         const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
         if (!(file instanceof obsidian.TFile))
@@ -1047,6 +1967,37 @@ class TaskEditModal extends obsidian.Modal {
                 task.sourceFile = newPath;
             }
         }
+        // ---- Move to another project folder if changed ----
+        const rootPath = this.opts.projectsFolder || 'Projects';
+        const curFileName = file.path.split('/').pop() || '';
+        if (project && project !== task.projectId) {
+            const newPath = `${rootPath}/${project}/${curFileName}`;
+            if (!this.app.vault.getAbstractFileByPath(newPath)) {
+                await this.app.fileManager.renameFile(file, newPath);
+                task.projectId = project;
+                task.id = newPath;
+                task.sourceFile = newPath;
+            }
+            else {
+                new obsidian.Notice(t('modal.poNameExists', { name: curFileName }));
+                return;
+            }
+        }
+        // ---- 父任务防环：新父任务的祖先链不能包含本任务 ----
+        if (parent && parent !== task.content) {
+            let cur = parent;
+            let guard = 0;
+            while (cur) {
+                if (cur === task.content) {
+                    new obsidian.Notice(t('modal.poParentCycle'));
+                    return;
+                }
+                const p = this.opts.allTasks.find((tt) => tt.content === cur);
+                cur = p ? (p.parent || '') : '';
+                if (++guard > 100)
+                    break;
+            }
+        }
         const content = await this.app.vault.read(file);
         const eol = content.includes('\r\n') ? '\r\n' : '\n';
         const lines = content.split(/\r?\n/);
@@ -1054,6 +2005,8 @@ class TaskEditModal extends obsidian.Modal {
         // Track whether priority already exists in frontmatter (frontmatter-scoped,
         // avoids false positives from body content containing "优先级:").
         let hasPriority = false;
+        let hasType = false;
+        let hasParent = false;
         let statusLineIdx = -1;
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -1073,6 +2026,17 @@ class TaskEditModal extends obsidian.Modal {
                 lines[i] = `优先级: ${yamlScalar(priority)}`;
                 hasPriority = true;
             }
+            else if (line.startsWith('类型:')) {
+                lines[i] = `类型: ${type}`;
+                hasType = true;
+            }
+            else if (line.startsWith('父任务:')) {
+                lines[i] = parent ? `父任务: ${yamlScalar(parent)}` : '';
+                hasParent = true;
+            }
+            else if (line.startsWith('项目:')) {
+                lines[i] = project ? `项目: ${yamlScalar(project)}` : '';
+            }
             else if (line.startsWith('开始日期:')) {
                 lines[i] = `开始日期: ${startDate}`;
             }
@@ -1087,6 +2051,15 @@ class TaskEditModal extends obsidian.Modal {
         // (statusLineIdx is frontmatter-scoped, so we never insert into the body.)
         if (priority && !hasPriority && statusLineIdx >= 0) {
             lines.splice(statusLineIdx + 1, 0, `优先级: ${yamlScalar(priority)}`);
+            statusLineIdx++;
+        }
+        if (type && !hasType && statusLineIdx >= 0) {
+            lines.splice(statusLineIdx + 1, 0, `类型: ${type}`);
+            statusLineIdx++;
+        }
+        if (parent && !hasParent && statusLineIdx >= 0) {
+            lines.splice(statusLineIdx + 1, 0, `父任务: ${yamlScalar(parent)}`);
+            statusLineIdx++;
         }
         // ---- Daily nodes (multi-day check-in) ----
         const today = todayStr$2();
@@ -1210,11 +2183,11 @@ class TaskEditModal extends obsidian.Modal {
         const row = parent.createDiv({ cls: 'ad-node-row' });
         const left = row.createDiv({ cls: 'ad-node-col' });
         const right = row.createDiv({ cls: 'ad-node-col' });
-        left.createEl('label', { cls: 'ad-modal-label', text: '每日节点' });
+        left.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.dailyNode });
         const axis = left.createDiv({ cls: 'ad-node-axis' });
         // Weekday header (Mon=一 .. Sun=日)
         const head = axis.createDiv({ cls: 'ad-node-axis__head' });
-        for (const w of ['一', '二', '三', '四', '五', '六', '日'])
+        for (const w of MODAL_TEXT.weekdayShort)
             head.createSpan({ text: w });
         // Cells aligned to weekday columns
         const grid = axis.createDiv({ cls: 'ad-node-axis__grid' });
@@ -1232,16 +2205,16 @@ class TaskEditModal extends obsidian.Modal {
             const isCompleteDay = isDone && date === completeDate;
             const cell = grid.createSpan({ cls: 'ad-node-cell' + this.cellClass(date, today, node, isOverdue, isCompleteDay) });
             cell.setAttribute('data-date', date);
-            const note = node?.n ? node.n : '（无备注）';
-            const tag = isOverdue ? '（延期）' : '';
+            const note = node?.n ? node.n : MODAL_TEXT.noNote;
+            const tag = isOverdue ? MODAL_TEXT.overdueTag : '';
             cell.setAttribute('title', `${date} ${weekdayLabel(date)}${tag}\n${note}`);
         }
         // Today controls (left column, under the axis)
         const ctrl = left.createDiv({ cls: 'ad-node-ctrl' });
-        const doneBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: '今日完成' });
-        const skipBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: '今日不做' });
+        const doneBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todayDone });
+        const skipBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todaySkip });
         // Today's note (right column)
-        right.createEl('label', { cls: 'ad-modal-label', text: `今日备注（${fmtMD(today)}）` });
+        right.createEl('label', { cls: 'ad-modal-label', text: t('modal.todayNote', { date: fmtMD(today) }) });
         const noteArea = right.createEl('textarea', { cls: 'ad-modal-input ad-node-note', attr: { rows: '4' } });
         const existing = task.dailyNodes[today];
         this.activeState = this.presetTodayNode ?? (existing ? existing.s : undefined);
@@ -1256,8 +2229,8 @@ class TaskEditModal extends obsidian.Modal {
             if (todayCell) {
                 const synth = this.activeState ? { s: this.activeState, n: noteArea.value } : undefined;
                 todayCell.className = 'ad-node-cell' + this.cellClass(today, today, synth, today > due, isDone && today === completeDate);
-                const tag = today > due ? '（延期）' : '';
-                todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${noteArea.value ? noteArea.value : '（无备注）'}`);
+                const tag = today > due ? MODAL_TEXT.overdueTag : '';
+                todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${noteArea.value ? noteArea.value : MODAL_TEXT.noNote}`);
             }
         };
         doneBtn.addEventListener('click', () => { this.activeState = this.activeState === 'done' ? undefined : 'done'; refresh(); });
@@ -1289,7 +2262,7 @@ class TaskEditModal extends obsidian.Modal {
         build(wrap);
     }
     label(parent, text) {
-        parent.createEl('label', { cls: 'ad-modal-label', text });
+        return parent.createEl('label', { cls: 'ad-modal-label', text });
     }
     onClose() {
         this.contentEl.empty();
@@ -1324,7 +2297,7 @@ function eachDate(start, end) {
 }
 function weekdayLabel(date) {
     const d = new Date(date + 'T00:00:00').getDay();
-    return ['日', '一', '二', '三', '四', '五', '六'][d] ?? '日';
+    return MODAL_TEXT.weekdayLabel[d] ?? '';
 }
 
 /** Vault-based scan logic (previously inlined in DashboardView).
@@ -1595,17 +2568,17 @@ class OpportunityModal extends obsidian.Modal {
         const ed = this.opts.editData;
         const title = this.opts.title;
         contentEl.addClass('ad-task-modal');
-        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? ('编辑' + title) : ('新建' + title) });
+        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? t('modal.oppEdit', { title }) : t('modal.opNew', { title }) });
         // 名称
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: title + '名称 *' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: t('modal.oppName', { title }) });
         const nameInput = contentEl.createEl('input', {
-            cls: 'ad-modal-input', attr: { type: 'text', placeholder: '输入' + title + '名称' },
+            cls: 'ad-modal-input', attr: { type: 'text', placeholder: t('modal.oppNamePlaceholder', { title }) },
         });
         if (ed)
             nameInput.value = ed.title;
         nameInput.focus?.();
         // 状态
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '状态' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppStatus });
         const statusSelect = contentEl.createEl('select', { cls: 'ad-modal-input' });
         for (const s of this.opts.stages)
             statusSelect.createEl('option', { value: s.label, text: s.label });
@@ -1614,16 +2587,16 @@ class OpportunityModal extends obsidian.Modal {
             this.selectedStatus = statusSelect.value;
         });
         // 标签
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '标签（逗号分隔）' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppTags });
         const tagInput = contentEl.createEl('input', {
-            cls: 'ad-modal-input', attr: { type: 'text', placeholder: '如：增长, 渠道' },
+            cls: 'ad-modal-input', attr: { type: 'text', placeholder: MODAL_TEXT.oppTagsPlaceholder },
         });
         if (ed)
             tagInput.value = (ed.tags || []).join(', ');
         // 背景 / 备注（机会级，始终显示）
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '背景 / 备注' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppNotes });
         const notesArea = contentEl.createEl('textarea', {
-            cls: 'ad-modal-input', attr: { rows: '3', placeholder: '这个想法是怎么来的、要解决什么…' },
+            cls: 'ad-modal-input', attr: { rows: '3', placeholder: MODAL_TEXT.oppNotesPlaceholder },
         });
         if (ed)
             notesArea.value = ed.notes;
@@ -1634,15 +2607,15 @@ class OpportunityModal extends obsidian.Modal {
                 continue;
             contentEl.createEl('label', { cls: 'ad-modal-label', text: s.label });
             const area = contentEl.createEl('textarea', {
-                cls: 'ad-modal-input', attr: { rows: '2', placeholder: '填写该阶段相关记录…' },
+                cls: 'ad-modal-input', attr: { rows: '2', placeholder: MODAL_TEXT.opStagePh },
             });
             area.value = this.stageNotes[s.label] || '';
             stageInputs.push({ label: s.label, area });
         }
         // 链接
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '链接（展开内容用）' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.oppLink });
         const linkInput = contentEl.createEl('input', {
-            cls: 'ad-modal-input', attr: { type: 'text', placeholder: '[[xxx-详情]] 或留空（输入 [ 自动搜索笔记）' },
+            cls: 'ad-modal-input', attr: { type: 'text', placeholder: MODAL_TEXT.oppLinkPlaceholder },
         });
         if (ed)
             linkInput.value = ed.link;
@@ -1650,7 +2623,7 @@ class OpportunityModal extends obsidian.Modal {
         this.linkSuggest?.close();
         this.linkSuggest = new FileSuggest(this.app, linkInput);
         const linkBtn = contentEl.createEl('button', {
-            cls: 'ad-modal-btn ad-modal-btn--ghost', text: '生成并打开链接笔记',
+            cls: 'ad-modal-btn ad-modal-btn--ghost', text: MODAL_TEXT.oppGenLink,
         });
         linkBtn.addEventListener('click', () => {
             void (async () => {
@@ -1669,14 +2642,14 @@ class OpportunityModal extends obsidian.Modal {
         // 星标（重要 / 待跟进）：独立标记，与阶段终态解耦，任何时候都可勾选
         const starRow = contentEl.createDiv({ cls: 'ad-modal-check' });
         const starCheck = starRow.createEl('input', { cls: 'ad-modal-checkbox', attr: { type: 'checkbox' } });
-        starRow.createEl('label', { cls: 'ad-modal-check-label', text: '星标（重要 / 待跟进）' });
+        starRow.createEl('label', { cls: 'ad-modal-check-label', text: MODAL_TEXT.oppStar });
         starCheck.checked = this.starred;
         starCheck.addEventListener('change', () => { this.starred = starCheck.checked; });
         // 按钮
         const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
         btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
             .addEventListener('click', () => this.close());
-        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : ('创建' + title) })
+        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : t('modal.oppCreate', { title }) })
             .addEventListener('click', () => {
             const t = String(nameInput.value || '').trim();
             if (!t) {
@@ -1801,7 +2774,7 @@ function toFmObject(it) {
 function coerceBool(v) {
     return v === true || v === 'true' || v === '是' || v === 'yes' || v === '1';
 }
-function fromFmObject(raw, fallbackId) {
+function fromFmObject(raw, fallbackId, configuredLabels = []) {
     // 旧键别名（兼容历史「机会点」数据）
     const title = typeof raw['标题'] === 'string' ? raw['标题']
         : (typeof raw['机会点名称'] === 'string' ? raw['机会点名称'] : '');
@@ -1829,7 +2802,13 @@ function fromFmObject(raw, fallbackId) {
         }
     }
     const rawStatus = typeof raw['状态'] === 'string' ? raw['状态'] : '';
-    const status = rawStatus ? migrateStatus(rawStatus) : '收集箱';
+    // 旧「机会点」条目用旧字段判断（机会点名称/沟通结论/调研结论/上会结论/转路标）；
+    // 只有旧条目才做状态迁移，且目标状态未出现在当前配置阶段时。新条目（标题/状态 架构）
+    // 原样保留——否则用户把阶段改名成旧状态名（如「未沟通」）会被误迁移成「收集箱」。
+    const isLegacyItem = !!(oldComm || oldRes || oldMeet || raw['机会点名称'] || raw['转路标']);
+    const status = rawStatus
+        ? (isLegacyItem && !configuredLabels.includes(rawStatus) ? migrateStatus(rawStatus) : rawStatus)
+        : (configuredLabels[0] ?? '收集箱');
     const tags = Array.isArray(raw['标签']) ? raw['标签'].map(String) : [];
     return {
         id: typeof raw['id'] === 'string' ? raw['id'] : fallbackId,
@@ -1932,7 +2911,7 @@ async function ensureOpportunityFile(app, path, title) {
     }
 }
 /** Read all items from the master file (empty array if missing). */
-async function parseOpportunitiesFile(app, path, title) {
+async function parseOpportunitiesFile(app, path, title, configuredLabels = []) {
     const file = app.vault.getAbstractFileByPath(path);
     if (!(file instanceof obsidian.TFile)) {
         await ensureOpportunityFile(app, path, title);
@@ -1948,7 +2927,7 @@ async function parseOpportunitiesFile(app, path, title) {
         // ⚠️ fallbackId 必须稳定（按数组索引），不能用 Date.now()：历史数据无 id 字段时，
         //    若每次读取都生成新 id，updateOpportunity 按 id 找不到条目会静默失败 → 数据「保存后丢失」。
         //    用索引保证同一位置的数据每次读到相同 id，首次保存后 id 即固化为真实值。
-        .map((r, i) => fromFmObject(r, `board-${i}`))
+        .map((r, i) => fromFmObject(r, `board-${i}`, configuredLabels))
         // 旧数据无 order 字段时，按数组顺序赋默认权重，保证稳定排序且不互相冲突
         .map((it, i) => (it.order >= 0 ? it : ({ ...it, order: i })));
 }
@@ -1970,13 +2949,13 @@ async function writeOpportunitiesFile(app, path, items, title) {
     await app.vault.modify(file, front + body);
 }
 /* ---- Item-level operations ---- */
-async function createOpportunity(app, path, data, title) {
-    const items = await parseOpportunitiesFile(app, path, title);
+async function createOpportunity(app, path, data, title, configuredLabels = []) {
+    const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
     const now = todayStr$1();
     const item = {
         id: 'board-' + Date.now(),
         title: data.title,
-        status: data.status || '收集箱',
+        status: data.status || configuredLabels[0] || '收集箱',
         tags: data.tags || [],
         notes: data.notes || '',
         stageNotes: data.stageNotes || {},
@@ -1990,24 +2969,24 @@ async function createOpportunity(app, path, data, title) {
     await writeOpportunitiesFile(app, path, items, title);
     return item;
 }
-async function updateOpportunity(app, path, id, patch, title) {
-    const items = await parseOpportunitiesFile(app, path, title);
+async function updateOpportunity(app, path, id, patch, title, configuredLabels = []) {
+    const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
     const idx = items.findIndex((i) => i.id === id);
     if (idx < 0)
         return;
     items[idx] = { ...items[idx], ...patch, id, updateDate: todayStr$1() };
     await writeOpportunitiesFile(app, path, items, title);
 }
-async function updateBoardItemStatus(app, path, id, status, title) {
+async function updateBoardItemStatus(app, path, id, status, title, configuredLabels = []) {
     // 只改状态；星标是独立的「重要 / 待跟进」标记，与阶段终态解耦，不再随状态切换被清除。
     const patch = { status };
-    await updateOpportunity(app, path, id, patch, title);
+    await updateOpportunity(app, path, id, patch, title, configuredLabels);
 }
-async function toggleBoardItemStarred(app, path, id, val, title) {
-    await updateOpportunity(app, path, id, { starred: val }, title);
+async function toggleBoardItemStarred(app, path, id, val, title, configuredLabels = []) {
+    await updateOpportunity(app, path, id, { starred: val }, title, configuredLabels);
 }
-async function deleteOpportunity(app, path, id, title) {
-    const items = await parseOpportunitiesFile(app, path, title);
+async function deleteOpportunity(app, path, id, title, configuredLabels = []) {
+    const items = await parseOpportunitiesFile(app, path, title, configuredLabels);
     const next = items.filter((i) => i.id !== id);
     await writeOpportunitiesFile(app, path, next, title);
 }
@@ -2045,10 +3024,11 @@ class OpportunityBoard {
         }
     }
     boardTitle() {
-        return this.host.plugin.settings.boardTitle || '看板';
+        return this.host.plugin.settings.boardTitle || t('settings.boardNamePlaceholder');
     }
     boardPath() {
-        return this.host.plugin.settings.opportunityFile || DEFAULT_BOARD_FILE;
+        const raw = (this.host.plugin.settings.opportunityFile || DEFAULT_BOARD_FILE).trim();
+        return raw.toLowerCase().endsWith('.md') ? raw : raw + '.md';
     }
     /** 配置的阶段 label 列表（排序用） */
     stageLabels() {
@@ -2068,7 +3048,7 @@ class OpportunityBoard {
         const path = this.boardPath();
         const title = this.boardTitle();
         await ensureOpportunityFile(this.host.app, path, title);
-        const items = await parseOpportunitiesFile(this.host.app, path, title);
+        const items = await parseOpportunitiesFile(this.host.app, path, title, this.stageLabels());
         const sorted = sortBoardItems(items, this.stageLabels());
         this.cache = { at: now, items: sorted };
         return sorted;
@@ -2147,8 +3127,8 @@ class OpportunityBoard {
         const items = this.filteredItems();
         const tabs = this.mainEl.createDiv({ cls: 'po-tabs' });
         const tabDefs = [
-            { key: 'kanban', label: '▦ 看板' },
-            { key: 'list', label: '☰ 列表' },
+            { key: 'kanban', label: t('modal.opKanban') },
+            { key: 'list', label: t('modal.opList') },
         ];
         const content = this.mainEl.createDiv({ cls: 'po-content' });
         const panels = {};
@@ -2158,7 +3138,7 @@ class OpportunityBoard {
             btn.dataset.view = td.key;
             panels[td.key] = content.createDiv({ cls: 'po-panel' + (td.key === cur ? ' is-active' : ''), attr: { 'data-view': td.key } });
         }
-        const newBtn = tabs.createEl('button', { cls: 'po-add-btn op-new-btn', text: '+ 新建' + this.boardTitle() });
+        const newBtn = tabs.createEl('button', { cls: 'po-add-btn op-new-btn', text: t('modal.opNew', { title: this.boardTitle() }) });
         newBtn.addEventListener('click', (e) => { e.stopPropagation(); void this.createItem(); });
         this.renderPanel(cur, panels[cur], items);
         tabs.addEventListener('click', (e) => {
@@ -2254,7 +3234,7 @@ class OpportunityBoard {
                     const menu = new obsidian.Menu();
                     menu.addItem((m) => m.setTitle(UI_TEXT.edit).setIcon('pencil').onClick(() => this.openModal(it)));
                     if (singleMode)
-                        menu.addItem((m) => m.setTitle('在右侧查看').setIcon('eye').onClick(() => {
+                        menu.addItem((m) => m.setTitle(MODAL_TEXT.opViewRight).setIcon('eye').onClick(() => {
                             this.selectedDetailId = it.id;
                             board.querySelectorAll('.op-card').forEach((c) => c.removeClass('is-selected'));
                             card.addClass('is-selected');
@@ -2262,13 +3242,13 @@ class OpportunityBoard {
                             if (detail instanceof HTMLElement)
                                 this.renderDetail(detail, it);
                         }));
-                    menu.addItem((m) => m.setTitle('打开链接').setIcon('file-text').onClick(() => void this.openLink(it)));
+                    menu.addItem((m) => m.setTitle(MODAL_TEXT.opOpenLink).setIcon('file-text').onClick(() => void this.openLink(it)));
                     menu.addSeparator();
                     for (const s of this.host.plugin.settings.boardStages) {
-                        menu.addItem((m) => m.setTitle('状态: ' + s.label).onClick(() => void this.setItemStatus(it, s.label)));
+                        menu.addItem((m) => m.setTitle(MODAL_TEXT.opStatusPrefix + s.label).onClick(() => void this.setItemStatus(it, s.label)));
                     }
                     menu.addSeparator();
-                    menu.addItem((m) => m.setTitle(it.starred ? '取消星标' : '标记为星标').setIcon('flag').onClick(() => void this.setItemStarred(it, !it.starred)));
+                    menu.addItem((m) => m.setTitle(it.starred ? MODAL_TEXT.opUnstar : MODAL_TEXT.opStar).setIcon('flag').onClick(() => void this.setItemStarred(it, !it.starred)));
                     menu.addItem((m) => m.setTitle(UI_TEXT.delete).setIcon('trash').onClick(() => void this.deleteItem(it)));
                     menu.showAtMouseEvent(e);
                 });
@@ -2312,7 +3292,7 @@ class OpportunityBoard {
             if (sel)
                 this.renderDetail(detail, sel);
             else
-                detail.createSpan({ text: '（该状态暂无条目）' });
+                detail.createSpan({ text: t('modal.opEmptyStage') });
         }
     }
     /** 手动排序：把 draggedId 放到 targetStatus 列中 beforeId 之前（省略 beforeId 则追加到末尾）。 */
@@ -2353,10 +3333,10 @@ class OpportunityBoard {
     renderDetail(container, item) {
         container.empty();
         const wrap = container.createDiv({ cls: 'op-detail__inner' });
-        wrap.createDiv({ cls: 'op-detail__hd', text: this.boardTitle() + '详情' });
+        wrap.createDiv({ cls: 'op-detail__hd', text: t('modal.opDetail', { title: this.boardTitle() }) });
         const titleInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
         titleInput.value = item.title;
-        titleInput.placeholder = this.boardTitle() + '名称';
+        titleInput.placeholder = t('modal.opNamePh', { title: this.boardTitle() });
         const statusSel = wrap.createEl('select', { cls: 'ad-modal-input' });
         for (const s of this.host.plugin.settings.boardStages) {
             const o = statusSel.createEl('option', { value: s.label, text: s.label });
@@ -2365,28 +3345,28 @@ class OpportunityBoard {
         }
         const tagInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
         tagInput.value = (item.tags || []).join('、');
-        tagInput.placeholder = '标签，顿号/逗号分隔';
+        tagInput.placeholder = MODAL_TEXT.opTagPh;
         const notes = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '3' } });
         notes.value = item.notes || '';
-        notes.placeholder = '背景 / 备注';
+        notes.placeholder = MODAL_TEXT.opNotesPh;
         // 阶段输入框：仅渲染「启用输入框」的阶段，标题与阶段名一致联动
         const stageInputs = [];
         for (const s of this.host.plugin.settings.boardStages) {
             if (!s.hasInput)
                 continue;
             wrap.createDiv({ cls: 'op-detail__stage-label', text: s.label });
-            const area = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '2', placeholder: '填写该阶段相关记录…' } });
+            const area = wrap.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '2', placeholder: MODAL_TEXT.opStagePh } });
             area.value = (item.stageNotes || {})[s.label] || '';
             stageInputs.push({ label: s.label, area });
         }
         const linkInput = wrap.createEl('input', { cls: 'ad-modal-input', attr: { type: 'text' } });
         linkInput.value = item.link || '';
-        linkInput.placeholder = '链接双链，如 [[xxx-详情]]';
+        linkInput.placeholder = MODAL_TEXT.opLinkPh;
         const rmRow = wrap.createDiv({ cls: 'op-detail__row' });
         const rmChk = rmRow.createEl('input', { attr: { type: 'checkbox' } });
         rmChk.checked = item.starred;
-        rmRow.createSpan({ text: ' 星标（重要/待跟进）' });
-        const openBtn = wrap.createEl('button', { cls: 'op-detail__btn op-detail__btn--ghost', text: '打开链接' });
+        rmRow.createSpan({ text: MODAL_TEXT.opStarHint });
+        const openBtn = wrap.createEl('button', { cls: 'op-detail__btn op-detail__btn--ghost', text: MODAL_TEXT.opOpenLink });
         openBtn.addEventListener('click', () => void this.openLink({ ...item, link: linkInput.value }));
         const btnRow = wrap.createDiv({ cls: 'op-detail__actions' });
         const saveBtn = btnRow.createEl('button', { cls: 'op-detail__btn op-detail__btn--primary', text: UI_TEXT.save });
@@ -2420,7 +3400,7 @@ class OpportunityBoard {
         const path = this.boardPath();
         await updateOpportunity(this.host.app, path, item.id, {
             title: f.title, status: f.status, tags: f.tags, notes: f.notes, stageNotes: f.stageNotes, link: f.link, starred: f.starred,
-        }, this.boardTitle());
+        }, this.boardTitle(), this.stageLabels());
         const idx = this.currentItems.findIndex((i) => i.id === item.id);
         if (idx >= 0) {
             const cur = this.currentItems[idx];
@@ -2429,7 +3409,7 @@ class OpportunityBoard {
         }
         this.currentItems = sortBoardItems(this.currentItems, this.stageLabels());
         this.cache = { at: Date.now(), items: this.currentItems };
-        this.host.showToast('已保存');
+        this.host.showToast(MODAL_TEXT.opSaved);
         void this.refreshBoard();
     }
     renderList(panel, items) {
@@ -2438,7 +3418,7 @@ class OpportunityBoard {
             const c = chips.createEl('button', { cls: 'op-chip' + (active ? ' is-active' : ''), text: label });
             c.addEventListener('click', onClick);
         };
-        mkChip('全部', this.selectedStatus === 'all' && !this.showStarredOnly, () => {
+        mkChip(UI_TEXT.all, this.selectedStatus === 'all' && !this.showStarredOnly, () => {
             this.selectedStatus = 'all';
             this.showStarredOnly = false;
             this.rerenderSidebarAndPanels();
@@ -2454,10 +3434,10 @@ class OpportunityBoard {
         const thead = table.createEl('thead');
         const headRow = thead.createEl('tr');
         const cols = [
-            { key: 'title', label: '名称' },
-            { key: 'status', label: '状态' },
-            { key: 'createDate', label: '创建时间' },
-            { key: 'starred', label: '星标' },
+            { key: 'title', label: MODAL_TEXT.opName },
+            { key: 'status', label: MODAL_TEXT.oppStatus },
+            { key: 'createDate', label: MODAL_TEXT.opCreated },
+            { key: 'starred', label: MODAL_TEXT.opStarCol },
         ];
         for (const c of cols) {
             const th = headRow.createEl('th', { text: c.label });
@@ -2531,7 +3511,7 @@ class OpportunityBoard {
     async openLink(it) {
         const link = (it.link || '').trim();
         if (!link) {
-            this.host.showToast('该条目暂无链接');
+            this.host.showToast(MODAL_TEXT.opNoLink);
             return;
         }
         await this.host.app.workspace.openLinkText(link.replace(/^\[\[/, '').replace(/\]\]$/, ''), '', true);
@@ -2543,7 +3523,7 @@ class OpportunityBoard {
             const patch = {
                 title: data.title, status: data.status, tags: data.tags, notes: data.notes, stageNotes: data.stageNotes, link: data.link, starred: data.starred,
             };
-            await updateOpportunity(this.host.app, path, item.id, patch, title);
+            await updateOpportunity(this.host.app, path, item.id, patch, title, this.stageLabels());
             const idx = this.currentItems.findIndex((i) => i.id === item.id);
             if (idx >= 0) {
                 const cur = this.currentItems[idx];
@@ -2552,12 +3532,12 @@ class OpportunityBoard {
             }
         }
         else {
-            const created = await createOpportunity(this.host.app, path, data, title);
+            const created = await createOpportunity(this.host.app, path, data, title, this.stageLabels());
             this.currentItems.push(created);
         }
         this.currentItems = sortBoardItems(this.currentItems, this.stageLabels());
         this.cache = { at: Date.now(), items: this.currentItems };
-        this.host.showToast(item ? (this.boardTitle() + '已更新') : (this.boardTitle() + '已创建'));
+        this.host.showToast(item ? MODAL_TEXT.opUpdated : MODAL_TEXT.opCreatedToast);
         void this.refreshBoard();
     }
     async createItem() {
@@ -2565,7 +3545,7 @@ class OpportunityBoard {
     }
     async setItemStatus(item, status) {
         const path = this.boardPath();
-        await updateBoardItemStatus(this.host.app, path, item.id, status, this.boardTitle());
+        await updateBoardItemStatus(this.host.app, path, item.id, status, this.boardTitle(), this.stageLabels());
         const idx = this.currentItems.findIndex((i) => i.id === item.id);
         if (idx >= 0) {
             const cur = this.currentItems[idx];
@@ -2575,12 +3555,12 @@ class OpportunityBoard {
             }
         }
         this.cache = { at: Date.now(), items: this.currentItems };
-        this.host.showToast('状态已更新为「' + status + '」');
+        this.host.showToast(t('modal.opStatusUpdated', { s: status }));
         void this.refreshBoard();
     }
     async setItemStarred(item, val) {
         const path = this.boardPath();
-        await toggleBoardItemStarred(this.host.app, path, item.id, val, this.boardTitle());
+        await toggleBoardItemStarred(this.host.app, path, item.id, val, this.boardTitle(), this.stageLabels());
         const idx = this.currentItems.findIndex((i) => i.id === item.id);
         if (idx >= 0) {
             const cur = this.currentItems[idx];
@@ -2592,10 +3572,10 @@ class OpportunityBoard {
     }
     async deleteItem(item) {
         const path = this.boardPath();
-        await deleteOpportunity(this.host.app, path, item.id, this.boardTitle());
+        await deleteOpportunity(this.host.app, path, item.id, this.boardTitle(), this.stageLabels());
         this.currentItems = this.currentItems.filter((i) => i.id !== item.id);
         this.cache = { at: Date.now(), items: this.currentItems };
-        this.host.showToast(this.boardTitle() + '已删除');
+        this.host.showToast(MODAL_TEXT.opDeleted);
         void this.refreshBoard();
     }
     async refreshBoard() {
@@ -2688,15 +3668,17 @@ function calcNextRemindDate(task, today = new Date()) {
 }
 /** Universe of tasks relevant to "today" (TODO list + progress rings).
  *  INCLUDES tasks completed earlier today (stable denominator for the ring);
- *  excludes cancelled tasks and prior-day completions. */
-function getTodayUniverse(tasks, today = todayStr()) {
+ *  excludes cancelled tasks and prior-day completions.
+ *  keepDone=true 时保留「今天完成的」任务（含今天打卡的每日节点），供「完成后不消失」开关使用；
+ *  更早日期完成的已完成任务不混入今天的列表（避免历史完成项反复出现在 TODO 里）。 */
+function getTodayUniverse(tasks, today = todayStr(), keepDone = false) {
     return tasks.filter((t) => {
         if (t.status === '已取消')
             return false;
         if (t.completeTime && t.completeTime.startsWith(today))
-            return true;
+            return true; // 今天完成的（含 keepDone 开启时展示）
         if (t.status === '已完成')
-            return false;
+            return false; // 更早完成的已完成任务不属于今天
         // Recurring: show if next 提醒日期 is today or already past (a missed
         // occurrence stays pending and reachable, instead of vanishing).
         if (t.type === '重复') {
@@ -2720,15 +3702,29 @@ function getTodayUniverse(tasks, today = todayStr()) {
     });
 }
 /** Today's *pending* tasks — what the TODO list actually shows.
- *  Hides already-completed tasks and today's checked-in daily nodes. */
-function getTodayTasks(tasks, today = todayStr()) {
-    return getTodayUniverse(tasks, today).filter((t) => {
+ *  Hides already-completed tasks and today's checked-in daily nodes.
+ *  keepDone=true 时保留已完成任务（含今日打卡的每日节点），由 UI 以变灰删除线展示。 */
+function getTodayTasks(tasks, today = todayStr(), keepDone = false) {
+    return getTodayUniverse(tasks, today, keepDone).filter((t) => {
+        const node = t.dailyNodes && t.dailyNodes[today];
+        if (node && node.s === 'skip')
+            return false; // 「今日不做」永远排除（不算完成也不算待办）
+        if (keepDone) {
+            // 保留已完成：仅限「今天完成的」任务（今日打卡 done 同样算今天活动），历史完成的不混入。
+            // 重复任务完成 = 推进 next 提醒，同样归为今天完成 → 保留并由画布变灰呈现。
+            if (t.status === '已完成')
+                return !!(t.completeTime && t.completeTime.startsWith(today));
+            if (t.completeTime && t.completeTime.startsWith(today))
+                return true;
+            if (node && node.s === 'done')
+                return true;
+        }
         if (t.status === '已完成')
             return false;
         if (t.completeTime && t.completeTime.startsWith(today))
             return false; // recurring occurrence done today
         // Multi-day task: hide today if today's node already done/skipped
-        if (t.dailyNodes && t.dailyNodes[today] && (t.dailyNodes[today].s === 'done' || t.dailyNodes[today].s === 'skip'))
+        if (node && (node.s === 'done' || node.s === 'skip'))
             return false;
         return true;
     });
@@ -2757,16 +3753,6 @@ function overdueDays(dueDate, today = new Date()) {
     const t = new Date(today);
     t.setHours(0, 0, 0, 0);
     return Math.max(0, Math.round((t.getTime() - d.getTime()) / 86400000));
-}
-/** Urgency label + color key derived from task priority (紧急程度). */
-function urgencyMeta(priority) {
-    switch (priority) {
-        case '重要且紧急': return { label: '紧急', key: 'high' };
-        case '紧急不重要': return { label: '较急', key: 'mid' };
-        case '重要不紧急': return { label: '一般', key: 'low' };
-        case '不重要不紧急': return { label: '不急', key: 'none' };
-        default: return null;
-    }
 }
 
 /** 长列表窗口化渲染的纯函数辅助（无 DOM 依赖，可单测）。 */
@@ -2819,10 +3805,16 @@ const ICON_list = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" x
 const ICON_newTask = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path class="ad-ico-accent" transform="matrix(1 0 0 1 49.9844 50.0078)" d="M15.0078 24.9922L10.0078 24.9922L10.0078 14.9922L0 14.9922L0 9.9922L10.0078 9.9922L10.0078 0L15.0078 0L15.0078 9.9922L25.0156 9.9922L25.0156 14.9922L15.0078 14.9922L15.0078 24.9922Z"/><path fill="currentColor" transform="matrix(1 0 0 1 5 5)" d="M65.0234 7.0156L65.0234 42.9141L60.0234 42.9141L60.0234 7.0156C60.0234 5.6797 59.5938 5 58.7578 5L7.7734 5C6.5078 5 5 6.0938 5 7.0156L5 62.9141C5 63.7266 6.5859 64.9297 8.0078 64.9297L41.7969 64.9297L41.7969 69.9297L8.0078 69.9297C4.2266 69.9297 0 66.9297 0 62.9141L0 7.0156C0 5.1094 0.9531 3.2422 2.625 1.8828C4.0938 0.6875 5.9766 0 7.7734 0L58.7578 0C62.4453 0 65.0234 2.8828 65.0234 7.0156Z"/><path class="ad-ico-accent" transform="matrix(1 0 0 1 10 10)" d="M53.7578 0L2.7734 0C1.5078 0 0 1.0938 0 2.0156L0 19.9844L55.0156 19.9844L55.0156 2.0156C55.0234 0.6797 54.5937 0 53.7578 0ZM37.5234 10.0156L4.9219 10.0156L4.9219 5.0156L37.5234 5.0156L37.5234 10.0156ZM49.9922 10.0156L44.9922 10.0156L44.9922 5.0156L49.9922 5.0156L49.9922 10.0156Z"/><rect fill="currentColor" transform="matrix(1 0 0 1 10 24.9688)" width="55.0312" height="5"/></svg>`;
 const ICON_newDiary = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" transform="matrix(1 0 0 1 3.71373 7.15256e-06)" d="M2.8583 78.7429L2.6079 78.7429C1.8208 78.6767 1.1736 78.3409 0.6662 77.7355C0.1588 77.1302 -0.0588 76.4342 0.0135 75.6476C0.7764 68.9199 1.8781 63.5597 3.7497 57.0527C5.6214 50.5457 8.0213 44.2398 10.9496 38.135C23.5691 12.5426 43.9832 -0.6576 69.996 0.0252C70.4768 0.0409 70.9249 0.1698 71.3406 0.4119C71.7562 0.654 72.0894 0.9803 72.3401 1.3907C72.5946 1.8023 72.7339 2.2498 72.7581 2.733C72.7824 3.2163 72.6886 3.6754 72.4767 4.1104C72.1581 4.7704 65.8541 17.7658 58.0479 24.9576L64.6592 26.9262C65.5823 27.1916 66.2085 27.7754 66.5379 28.6777C66.8673 29.5799 66.7645 30.4299 66.2296 31.2277C65.3647 32.5135 45.2805 62.248 20.1553 62.248L18.9036 62.248C18.1183 62.2162 17.4592 61.9115 16.9263 61.3339C16.3933 60.7562 16.1426 60.0747 16.174 59.2894C16.2054 58.5041 16.5098 57.8448 17.0872 57.3116C17.6645 56.7784 18.3459 56.5273 19.1312 56.5583C37.1103 57.2524 53.2801 38.795 59.1176 31.2276L50.8904 28.7924C50.3252 28.6291 49.8563 28.3198 49.4838 27.8643C49.1112 27.4089 48.901 26.888 48.8529 26.3016C48.8049 25.7152 48.9276 25.167 49.2211 24.657C49.5146 24.147 49.9269 23.7655 50.458 23.5124C55.829 20.9065 61.7575 11.894 65.194 5.7718C43.5736 6.6594 27.0852 18.2892 16.1385 40.5019C13.3615 46.3181 11.0795 52.3224 9.2923 58.5147C7.505 64.7071 6.4524 69.7469 5.7031 76.1483C5.6381 76.8847 5.3324 77.5019 4.7863 78C4.2401 78.4981 3.5975 78.7457 2.8583 78.7429Z"/><ellipse class="ad-ico-accent" transform="matrix(0.98034 0.197314 -0.197314 0.98034 3.97314 69)" cx="4" cy="5" rx="4" ry="5"/></svg>`;
 const ICON_newProject = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" transform="matrix(1 0 0 1 -0.00164186 -4.76837e-07)" d="M73.2522 27.368C73.2911 27.1093 73.2235 26.8824 73.0495 26.6871C72.8754 26.4919 72.6576 26.3988 72.3962 26.408L6.7375 26.408C6.6118 26.4057 6.4913 26.4297 6.3761 26.48C6.2608 26.5303 6.1613 26.6023 6.0775 26.696C5.9938 26.7864 5.9341 26.8906 5.8983 27.0085C5.8625 27.1265 5.8542 27.2463 5.8735 27.368L10.5814 57.552C10.6188 57.7613 10.7197 57.9334 10.884 58.0682C11.0484 58.203 11.2369 58.2683 11.4494 58.264L67.6803 58.264C67.8921 58.2673 68.0797 58.2016 68.2432 58.0669C68.4067 57.9322 68.507 57.7605 68.5443 57.552L73.2522 27.368ZM77.4881 23.028C78.768 24.452 79.332 26.34 79.024 28.2L74.3161 58.384C73.8281 61.516 70.9762 63.884 67.6683 63.884L11.4294 63.884C8.0815 63.884 5.2815 61.576 4.7896 58.384L0.0736 28.2C-0.071 27.2647 -0.0071 26.344 0.2656 25.4377C0.5382 24.5314 0.9929 23.7282 1.6296 23.028C2.2817 22.3103 3.0517 21.7564 3.9394 21.3661C4.8271 20.9759 5.7558 20.7832 6.7255 20.788L72.3842 20.788C74.3441 20.788 76.2001 21.6 77.4841 23.028L77.4881 23.028ZM6.1615 19.6C5.3726 19.6145 4.6933 19.3487 4.1237 18.8026C3.5542 18.2564 3.2602 17.5889 3.2416 16.8L3.2416 6.6C3.2416 2.964 6.3215 0 10.1134 0L16.2213 0C18.7093 0 21.0212 1.3 22.2292 3.388L24.5971 7.464C24.7731 7.776 25.1171 7.972 25.4891 7.972L69.0122 7.972C72.8042 7.972 75.8881 10.936 75.8881 14.58L75.8881 16.796C75.8717 17.5873 75.5781 18.257 75.0073 18.8052C74.4365 19.3533 73.7554 19.6196 72.9642 19.604C72.1729 19.6196 71.4919 19.3533 70.9211 18.8052C70.3502 18.257 70.0566 17.5873 70.0402 16.796L70.0402 14.58C70.0348 14.3016 69.9316 14.066 69.7309 13.873C69.5302 13.6801 69.2906 13.5864 69.0122 13.592L25.4891 13.592C22.9972 13.592 20.6892 12.296 19.4813 10.208L17.1133 6.128C17.0209 5.9696 16.895 5.8449 16.7356 5.7542C16.5762 5.6634 16.4047 5.6187 16.2213 5.62L10.1134 5.62C9.8366 5.6155 9.5984 5.7092 9.3987 5.9011C9.1991 6.0929 9.096 6.3272 9.0894 6.604L9.0894 16.8C9.0731 17.5913 8.7794 18.261 8.2086 18.8092C7.6378 19.3573 6.9568 19.6236 6.1655 19.608L6.1615 19.6Z"/><path class="ad-ico-accent" transform="matrix(1 0 0 1 26 33)" d="M22.416 0C24.044 0 25.348 1.22 25.348 2.732C25.348 4.244 24.032 5.464 22.408 5.464L2.94 5.464C1.316 5.464 0 4.244 0 2.732C0 1.22 1.316 0 2.94 0L28.58 0L22.416 0Z"/></svg>`;
-const ICON_calendar = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" transform="matrix(1 0 0 1 11.25 23.4375)" d="M3.125 0L54.375 0C55.2379 0 55.9745 0.3051 56.5847 0.9153C57.1949 1.5255 57.5 2.2621 57.5 3.125L57.5 45.3125C57.5 46.1754 57.1949 46.912 56.5847 47.5222C55.9745 48.1324 55.2379 48.4375 54.375 48.4375L3.125 48.4375C2.2621 48.4375 1.5255 48.1324 0.9153 47.5222C0.3051 46.912 0 46.1754 0 45.3125L0 3.125C0 2.2621 0.3051 1.5255 0.9153 0.9153C1.5255 0.3051 2.2621 0 3.125 0Z"/><rect class="ad-ico-accent" transform="matrix(1 0 0 1 23.4375 11.7188)" width="9.375" height="11.7188" rx="1.875" ry="1.875"/><rect class="ad-ico-accent" transform="matrix(1 0 0 1 47.1875 11.7188)" width="9.375" height="11.7188" rx="1.875" ry="1.875"/><rect fill="currentColor" transform="matrix(1 0 0 1 23.4375 33.5938)" width="9.375" height="9.375" rx="1.4062" ry="1.4062"/><rect fill="currentColor" transform="matrix(1 0 0 1 35.3125 33.5938)" width="9.375" height="9.375" rx="1.4062" ry="1.4062"/><rect fill="currentColor" transform="matrix(1 0 0 1 47.1875 33.5938)" width="9.375" height="9.375" rx="1.4062" ry="1.4062"/><rect fill="currentColor" transform="matrix(1 0 0 1 23.4375 45.4688)" width="9.375" height="9.375" rx="1.4062" ry="1.4062"/><rect fill="currentColor" transform="matrix(1 0 0 1 35.3125 45.4688)" width="9.375" height="9.375" rx="1.4062" ry="1.4062"/><rect fill="currentColor" transform="matrix(1 0 0 1 47.1875 45.4688)" width="15.625" height="9.375" rx="1.4062" ry="1.4062"/></svg>`;
+const ICON_calendar = `<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path class="ad-ico-accent" d="M390.252145 698.526207c0.322341 18.012236 3.108804 34.383088 8.350179 49.117674 5.234211 14.735609 12.847609 27.345812 22.840194 37.821398 9.985422 10.483772 22.425755 18.588357 37.33021 24.314778 14.897292 5.725398 32.334429 8.594749 52.311413 8.594749 16.369829 0 31.927153-2.454912 46.662763-7.367805 14.735609-4.91187 27.668153-11.865235 38.804794-20.874423 11.128455-9.003048 19.96982-19.96982 26.524097-32.909527 6.54609-12.932544 9.82374-27.583219 9.823739-43.961235 0-22.264073-5.486968-41.174772-16.454764-56.731072-10.974959-15.549138-26.278503-25.297153-45.925982-29.226648v-0.982374c16.700357-5.894244 28.980032-15.303544 36.839023-28.243251 7.858992-12.932544 11.788487-28.075429 11.788488-45.434795 0-15.057951-3.115967-28.40391-9.331529-40.031739-6.224772-11.619642-14.490016-21.197788-24.804943-28.734438-10.314926-7.528464-21.941732-13.262048-34.874275-17.191544-12.94073-3.929496-26.116821-5.894244-39.540551-5.894244-17.36039 0-32.909527 2.947122-46.662763 8.841366-13.753235 5.894244-25.464975 14.083763-35.119869 24.559349-9.662057 10.483772-17.275455 22.840194-22.840194 37.084616-5.571902 14.244422-8.680706 29.716812-9.332553 46.417169h55.995316c-0.329505-8.842389 0.652869-17.437138 2.947121-25.787316 2.287089-8.350179 5.809309-15.879666 10.56052-22.594601 4.743024-6.707772 10.722202-12.034081 17.928325-15.963576 7.198959-3.929496 15.71696-5.894244 25.540699-5.894244 15.717983 0 28.565593 4.420683 38.559201 13.262048 9.984399 8.842389 14.981203 20.629853 14.981203 35.366486 0 10.483772-2.210341 19.325138-6.630001 26.524096-4.420683 7.206122-10.238179 12.854772-17.437138 16.945951-7.207146 4.098341-15.395642 6.961552-24.559348 8.595772a129.343857 129.343857 0 0 1-27.506471 1.964748v41.750893c11.128455-0.321318 22.018479 0 32.663934 0.982374 10.637268 0.982374 20.215414 3.52222 28.734438 7.613398 8.510838 4.098341 15.387455 10.069333 20.62883 17.928325 5.234211 7.860015 7.860015 18.504446 7.860015 31.927153 0 19.647479-6.308683 34.797527-18.910699 45.433772-12.609179 10.645454-28.243251 15.9646-46.908356 15.9646-21.941732 0-38.396495-6.953366-49.363268-20.875447-10.974959-13.914918-16.132422-31.352055-15.47239-52.310389H390.252145z"/><path fill="currentColor" d="M838.026378 126.409015h-59.445904V79.237669c0-6.723122-5.64251-12.254092-12.603039-12.254092h-34.219359c-7.118118 0-12.602016 5.485945-12.602016 12.254092v47.171346h-415.973969V79.237669c0-6.723122-5.64251-12.254092-12.602016-12.254092h-34.220383c-7.118118 0-12.602016 5.485945-12.602016 12.254092v47.171346H184.311773c-65.738213 0-118.828362 53.168943-118.828363 118.755707v594.434478c0 65.448618 53.200666 118.755708 118.828363 118.755707h653.715628c65.738213 0 118.828362-53.168943 118.828363-118.755707V245.164722c-0.001023-65.448618-53.202713-118.755708-118.829386-118.755707z m59.402925 713.191208c0 32.806173-26.523073 59.331293-59.402925 59.331293H184.310749c-32.757055 0-59.402925-26.65201-59.402925-59.331293V364.107695h772.521479v475.492528z m0-534.916942H124.907824v-59.518559c0-32.806173 26.523073-59.331293 59.402925-59.331293h59.445904v47.171346c0 6.723122 5.64251 12.254092 12.602016 12.254091h34.220382c7.118118 0 12.602016-5.485945 12.602016-12.254091v-47.171346h415.972947v47.171346c0 6.723122 5.64251 12.254092 12.602015 12.254091h34.21936c7.119141 0 12.603039-5.485945 12.603039-12.254091v-47.171346h59.445904c32.757055 0 59.402925 26.65201 59.402924 59.331293v59.518559z"/></svg>`;
 const ICON_opportunity = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" transform="matrix(1 0 0 1 10.3281 11.6172)" d="M54.75 19.8906C53.9219 20.125 53.4375 20.9922 53.6719 21.8203C54.3281 24.1094 54.6563 26.4922 54.6562 28.8984C54.6563 43.1094 43.0938 54.6641 28.8906 54.6641C14.6875 54.6641 3.125 43.1016 3.125 28.8984C3.125 14.6875 14.6875 3.1328 28.8906 3.1328C30.6094 3.1328 32.3359 3.3047 34.0078 3.6406C34.8516 3.8125 35.6797 3.2656 35.8516 2.4141C36.0234 1.5703 35.4766 0.7422 34.625 0.5703C32.75 0.1953 30.8203 0 28.8906 0C24.9922 0 21.2031 0.7656 17.6406 2.2734C14.2031 3.7266 11.1094 5.8125 8.4609 8.4609C5.8047 11.1172 3.7266 14.2031 2.2734 17.6406C0.7656 21.2031 0 24.9844 0 28.8906C0 32.7891 0.7656 36.5781 2.2734 40.1406C3.7266 43.5781 5.8125 46.6719 8.4609 49.3203C11.1094 51.9688 14.2031 54.0703 17.6406 55.5234C21.2031 57.0313 24.9844 57.7969 28.8906 57.7969C32.7969 57.7969 36.5781 57.0313 40.1406 55.5234C43.5781 54.0703 46.6719 51.9844 49.3203 49.3359C51.9766 46.6797 54.0547 43.5938 55.5078 40.1562C57.0156 36.5938 57.7813 32.8125 57.7812 28.9062C57.7813 26.2109 57.4063 23.5391 56.6797 20.9688C56.4453 20.1328 55.5781 19.6562 54.75 19.8906Z"/><path fill="currentColor" transform="matrix(1 0 0 1 19.1562 20.4531)" d="M20.0625 3.125C21.2109 3.125 22.3594 3.2422 23.4766 3.4688C24.3203 3.6406 25.1484 3.0938 25.3203 2.25C25.4922 1.4063 24.9453 0.5781 24.1016 0.4062C22.7812 0.1328 21.4219 0 20.0625 0C14.7031 0 9.6641 2.0859 5.875 5.875C2.0859 9.6641 0 14.7031 0 20.0625C0 25.4219 2.0859 30.4609 5.875 34.25C9.6641 38.0391 14.7031 40.125 20.0625 40.125C25.4219 40.125 30.4609 38.0391 34.25 34.25C38.0391 30.4609 40.125 25.4219 40.125 20.0625C40.125 18.8438 40.0156 17.6172 39.7969 16.4219C39.6406 15.5703 38.8281 15.0078 37.9766 15.1641C37.125 15.3203 36.5625 16.1328 36.7188 16.9844C36.9062 17.9922 37 19.0234 37 20.0625C37 29.4062 29.3984 37.0078 20.0547 37.0078C10.7109 37.0078 3.1094 29.4063 3.1094 20.0625C3.1172 10.7188 10.7188 3.125 20.0625 3.125Z"/><path class="ad-ico-accent" transform="matrix(1 0 0 1 28.9453 10.3755)" d="M39.8672 11.0932L33.2734 9.3276C32.3203 9.0698 31.0547 9.3589 30.4453 9.9604L30.3984 10.0073L30.3516 9.9604C30.7344 9.2964 30.8828 8.3198 30.6797 7.5464L28.9141 0.9526C28.6562 -0.0005 27.9609 -0.2896 27.3516 0.3198L18.1719 9.4995C17.5625 10.1089 17.2812 11.3667 17.5391 12.3276L19.3047 18.9057L16.3594 21.851C14.6563 20.601 12.5547 19.8589 10.2812 19.8589C4.6016 19.8589 0 24.4604 0 30.1401C0 35.8198 4.5938 40.4214 10.2734 40.4214C15.9531 40.4214 20.5547 35.8198 20.5547 30.1401C20.5547 27.8667 19.8125 25.7651 18.5625 24.062L21.9219 20.7026L28.5 22.4682C29.4531 22.726 30.7188 22.437 31.3281 21.8354L40.5078 12.6557C41.1094 12.0464 40.8203 11.351 39.8672 11.0932Z"/></svg>`;
 const ICON_gantt = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" d="M0 5L0 15C0 18 2 20 5 20L55 20C58 20 60 18 60 15L60 5C60 2 58 0 55 0L5 0C2 0 0 2 0 5ZM55 15L5 15L5 5L55 5L55 15Z" fill-rule="evenodd"/><path class="ad-ico-accent" transform="matrix(1 0 0 1 10 30)" d="M0 5L0 15C0 18 2 20 5 20L55 20C58 20 60 18 60 15L60 5C60 2 58 0 55 0L5 0C2 0 0 2 0 5ZM55 15L5 15L5 5L55 5L55 15Z" fill-rule="evenodd"/><path fill="currentColor" transform="matrix(1 0 0 1 20 60)" d="M0 5L0 15C0 18 2 20 5 20L55 20C58 20 60 18 60 15L60 5C60 2 58 0 55 0L5 0C2 0 0 2 0 5ZM55 15L5 15L5 5L55 5L55 15Z" fill-rule="evenodd"/></svg>`;
 const ICON_kanban = `<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="80"><path fill="currentColor" transform="matrix(1 0 0 1 1 3.085)" d="M33 66.915C33 70.855 30.085 73.83 26.145 73.83L6.85 73.83C2.915 73.83 0 70.855 0 66.915L0 6.915C0 2.975 2.915 0 6.855 0L26.15 0C30.085 0 33 2.975 33 6.915L33 66.915ZM25 65.83L25 8L8 8L8 65.83L25 65.83Z"/><path class="ad-ico-accent" transform="matrix(1 0 0 1 45.995 3.085)" d="M33.005 46.915C33.005 50.855 30.09 53.83 26.15 53.83L6.855 53.83C2.915 53.83 0 50.855 0 46.915L0 6.915C0 2.975 2.915 0 6.855 0L26.145 0C30.085 0 33 2.975 33 6.915L33 46.915L33.005 46.915ZM25.005 8L8.005 8L8.005 45.83L25.005 45.83L25.005 8Z"/></svg>`;
+/** Gear — settings button. Monochrome (currentColor); center circle removed → hollow gear. */
+const ICON_gear = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path fill="currentColor" d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65z"/></svg>`;
+/** Sun — theme toggle (shown in dark mode, click → light). Monochrome (currentColor), same as moon. */
+const ICON_sun = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path fill="currentColor" d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/></svg>`;
+/** Moon — theme toggle (shown in light mode, click → dark). Theme-adaptive via currentColor. */
+const ICON_moon = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-5.4-5.4c0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>`;
 
 /** 项目总览（第二页）渲染器 — 从 DashboardView 抽出。 */
 class ProjectBoard {
@@ -2843,6 +3835,7 @@ class ProjectBoard {
     get createProjectFile() { return this.host.createProjectFile.bind(this.host); }
     get openTaskModalWithParent() { return this.host.openTaskModalWithParent.bind(this.host); }
     get toggleTask() { return this.host.toggleTask.bind(this.host); }
+    get setDailyNode() { return this.host.setDailyNode.bind(this.host); }
     constructor(host) {
         // Project overview state
         this.currentProjects = [];
@@ -2851,6 +3844,8 @@ class ProjectBoard {
         this.poMainEl = null;
         this.calYear = new Date().getFullYear();
         this.calMonth = new Date().getMonth();
+        this.calView = 'month';
+        this.calSel = '';
         this.sortCol = '';
         this.sortDir = 'asc';
         this.taskListFilter = 'all';
@@ -3011,7 +4006,7 @@ class ProjectBoard {
         const sidebar = this.boardEl?.querySelector('.po-sidebar');
         if (sidebar)
             this.renderSidebar(sidebar);
-        this.showToast(`\u2728 ${proj.name} \u9636\u6BB5\u5DF2\u66F4\u65B0\u4E3A "${this.plugin.settings.npdpStages[stage]}"`);
+        this.showToast(t('modal.poStageUpdated', { name: proj.name, stage: this.plugin.settings.npdpStages[stage] ?? '' }));
     }
     /** Render the project sidebar with filtering */
     renderSidebar(sidebar) {
@@ -3022,7 +4017,7 @@ class ProjectBoard {
         const totalActive = this.currentProjects.reduce((s, p) => s + p.activeCount, 0);
         const allItem = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === null ? ' is-active' : '') });
         allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#7BA7FF;color:#7BA7FF' } });
-        allItem.createSpan({ text: '\u5168\u90E8\u9879\u76EE' });
+        allItem.createSpan({ text: t('home.nav.allProjects') });
         allItem.createSpan({ cls: 'po-count', text: totalActive + '/' + totalTasks });
         allItem.addEventListener('click', () => {
             this.selectedProject = null;
@@ -3045,12 +4040,12 @@ class ProjectBoard {
                 e.preventDefault();
                 const menu = new obsidian.Menu();
                 menu.addItem((menuItem) => {
-                    menuItem.setTitle('\u7F16\u8F91\u9879\u76EE').setIcon('pencil').onClick(() => {
+                    menuItem.setTitle(t('modal.projectCtxEdit')).setIcon('pencil').onClick(() => {
                         void this.editProject(p);
                     });
                 });
                 menu.addItem((menuItem) => {
-                    menuItem.setTitle('\u5220\u9664\u9879\u76EE').setIcon('trash').onClick(() => {
+                    menuItem.setTitle(t('modal.projectCtxDelete')).setIcon('trash').onClick(() => {
                         void this.deleteProject(p, sidebar);
                     });
                 });
@@ -3095,7 +4090,7 @@ class ProjectBoard {
             });
         });
         // New project button
-        const addBtn = sidebar.createEl('button', { cls: 'po-add-btn', text: '+ \u65B0\u5EFA\u9879\u76EE' });
+        const addBtn = sidebar.createEl('button', { cls: 'po-add-btn', text: UI_TEXT.newProjectBtn });
         addBtn.addEventListener('click', () => {
             void this.createProjectFile();
         });
@@ -3110,18 +4105,18 @@ class ProjectBoard {
         const parts = taskId.split('/');
         const curProj = parts.length > 1 ? parts[1] : '';
         if (curProj === targetProject) {
-            this.showToast('任务已在该项目');
+            this.showToast(MODAL_TEXT.poAlreadyInProject);
             return;
         }
         const file = this.app.vault.getAbstractFileByPath(taskId);
         if (!(file instanceof obsidian.TFile)) {
-            this.showToast('找不到任务文件');
+            this.showToast(MODAL_TEXT.poTaskFileMissing);
             return;
         }
         const fileName = parts[parts.length - 1] || '';
         const newPath = `${rootPath}/${targetProject}/${fileName}`;
         if (this.app.vault.getAbstractFileByPath(newPath)) {
-            this.showToast(`目标项目已存在同名任务「${fileName}」，未移动`);
+            this.showToast(t('modal.poNameExists', { name: fileName }));
             return;
         }
         await this.app.fileManager.renameFile(file, newPath);
@@ -3134,7 +4129,7 @@ class ProjectBoard {
                 await this.writeFrontmatter(moved, { '项目': targetProject });
             }
         }
-        this.showToast(`已移动到「${targetProject}」`);
+        this.showToast(t('modal.poMoved', { project: targetProject }));
         // 重新扫描项目与任务，刷新计数与视图
         this.currentProjects = await this.taskStore.scanAllProjects();
         this.currentTasks = await this.taskStore.scanAllTasks();
@@ -3144,15 +4139,24 @@ class ProjectBoard {
     }
     /** Delete project with confirmation */
     async deleteProject(proj, sidebar) {
-        const confirmed = confirm(`\u786E\u5B9A\u5220\u9664\u9879\u76EE "${proj.name}" \u53CA\u5176\u6240\u6709\u4EFB\u52A1\u6587\u4EF6\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002`);
-        if (!confirmed)
-            return;
         const folder = this.app.vault.getAbstractFileByPath(proj.path);
-        if (folder instanceof obsidian.TFolder) {
-            await this.app.fileManager.trashFile(folder);
-            this.showToast('\u274C \u9879\u76EE\u5DF2\u5220\u9664: ' + proj.name);
-            await this.refresh();
-        }
+        if (!(folder instanceof obsidian.TFolder))
+            return;
+        const { ConfirmModal } = await Promise.resolve().then(function () { return ConfirmModal$1; });
+        new ConfirmModal({
+            app: this.app,
+            title: t('common.delete'),
+            message: t('modal.poDeleteProjectConfirm', { name: proj.name }),
+            confirmLabel: t('common.delete'),
+            cancelLabel: t('common.cancel'),
+            onConfirm: () => {
+                void (async () => {
+                    await this.app.fileManager.trashFile(folder);
+                    this.showToast(t('modal.poProjectDeleted', { name: proj.name }));
+                    await this.refresh();
+                })();
+            },
+        }).open();
     }
     /** Sort currentProjects by the persisted sidebar order (new projects go last) */
     applyProjectOrder() {
@@ -3194,10 +4198,6 @@ class ProjectBoard {
         }
         // Filter tasks that have at least one date (used only for the timeline range)
         const tasksWithDates = tasks.filter((t) => t.startDate || t.dueDate);
-        if (tasks.length === 0) {
-            panel.createDiv({ cls: 'po-empty', text: UI_TEXT.noTasks });
-            return;
-        }
         // ---------- Build parent/child hierarchy from the FULL task list ----------
         // Reference obsidian-pm builds the tree from ALL tasks, then renders. A parent
         // task without dates must still be in the tree so its children get the correct
@@ -3370,10 +4370,10 @@ class ProjectBoard {
         // ---------- DOM scaffold ----------
         const zoomBar = panel.createDiv({ cls: 'po-gantt__zoom' });
         const zoomLevels = [
-            { key: 'day', label: '日' },
-            { key: 'week', label: '周' },
-            { key: 'month', label: '月' },
-            { key: 'quarter', label: '季度' },
+            { key: 'day', label: t('ui.poScaleDay') },
+            { key: 'week', label: t('ui.poScaleWeek') },
+            { key: 'month', label: t('ui.poScaleMonth') },
+            { key: 'quarter', label: t('ui.poScaleQuarter') },
         ];
         zoomLevels.forEach((z) => {
             const btn = zoomBar.createEl('button', { cls: 'po-gantt__zoom-btn' + (z.key === granularity ? ' is-active' : ''), text: z.label });
@@ -3390,7 +4390,7 @@ class ProjectBoard {
         zoomBar.createSpan({ cls: 'po-gantt__sep' });
         const filterBtn = zoomBar.createEl('button', { cls: 'po-gantt__zoom-btn' + (this.ganttStatusFilter.length ? ' is-active' : '') });
         const updateFilterLabel = () => {
-            filterBtn.textContent = this.ganttStatusFilter.length ? `状态: ${this.ganttStatusFilter.length}` : '状态筛选';
+            filterBtn.textContent = this.ganttStatusFilter.length ? (MODAL_TEXT.opStatusPrefix + this.ganttStatusFilter.length) : MODAL_TEXT.poStatusFilter;
             filterBtn.toggleClass('is-active', this.ganttStatusFilter.length > 0);
         };
         updateFilterLabel();
@@ -3398,7 +4398,7 @@ class ProjectBoard {
             const menu = new obsidian.Menu();
             for (const st of STATUS_LIST) {
                 menu.addItem((item) => item
-                    .setTitle(st)
+                    .setTitle(UI_TEXT.statusLabel(st))
                     .setChecked(this.ganttStatusFilter.includes(st))
                     .onClick(() => {
                     const idx = this.ganttStatusFilter.indexOf(st);
@@ -3414,7 +4414,7 @@ class ProjectBoard {
             }
             if (this.ganttStatusFilter.length) {
                 menu.addSeparator();
-                menu.addItem((item) => item.setTitle('清除筛选').onClick(() => {
+                menu.addItem((item) => item.setTitle(MODAL_TEXT.poClearFilter).onClick(() => {
                     this.ganttStatusFilter.length = 0;
                     updateFilterLabel();
                     this.plugin.settings.poGanttStatusFilter = [];
@@ -3424,6 +4424,11 @@ class ProjectBoard {
             }
             menu.showAtMouseEvent(e);
         });
+        // 筛选结果为空时，筛选栏（缩放 + 状态筛选）仍必须渲染，不能整块消失
+        if (tasks.length === 0) {
+            panel.createDiv({ cls: 'po-empty', text: UI_TEXT.noTasks });
+            return;
+        }
         const gantt = panel.createDiv({ cls: 'po-gantt' });
         const wrapper = gantt.createDiv({ cls: 'po-gantt__wrap' });
         // Left panel: task labels
@@ -3432,6 +4437,14 @@ class ProjectBoard {
         leftHeader.style.height = HEADER_HEIGHT + 'px';
         leftHeader.createSpan({ text: UI_TEXT.poTaskName, cls: 'po-gantt__left-hd-label' });
         const leftBody = left.createDiv({ cls: 'po-gantt__left-body' });
+        // 拖动指示线（插入位置）+ 清理函数（拖动结束/放下时复位所有拖动 UI）
+        const dropLine = leftBody.createDiv({ cls: 'po-gantt__drop-line' });
+        const clearDropUI = () => {
+            dropLine.style.display = 'none';
+            leftBody.querySelectorAll('.is-drop-target').forEach((el) => el.removeClass('is-drop-target'));
+            leftBody.querySelectorAll('.po-row--drag-over').forEach((el) => el.removeClass('po-row--drag-over'));
+            leftBody.querySelectorAll('.po-gantt__label-row').forEach((el) => delete el.dataset.dropZone);
+        };
         // Right panel: scrollable SVG timeline
         const right = wrapper.createDiv({ cls: 'po-gantt__right' });
         // Sticky header (SVG) — pinned to top on vertical scroll, scrolls horizontally with body
@@ -3460,7 +4473,7 @@ class ProjectBoard {
                     x: x1, y, width: Math.max(0, x2 - x1), height: h,
                     class: (m.getMonth() % 2 === 0) ? 'po-gantt__band-even' : 'po-gantt__band-odd',
                 }));
-                headerSvg.appendChild(svgText(x1 + 6, y + h - 7, (m.getMonth() + 1) + '月', 'po-gantt__hdr-month-top'));
+                headerSvg.appendChild(svgText(x1 + 6, y + h - 7, tArr('status.months')[m.getMonth()] ?? '', 'po-gantt__hdr-month-top'));
                 m = nm;
             }
         };
@@ -3520,7 +4533,7 @@ class ProjectBoard {
                 const nm = new Date(m.getFullYear(), m.getMonth() + 1, 1);
                 const x1 = Math.max(0, dateToX(m));
                 const x2 = Math.min(totalWidth, dateToX(nm));
-                headerSvg.appendChild(svgText(x1 + (x2 - x1) / 2, 44, (m.getMonth() + 1) + '月', 'po-gantt__hdr-month'));
+                headerSvg.appendChild(svgText(x1 + (x2 - x1) / 2, 44, tArr('status.months')[m.getMonth()] ?? '', 'po-gantt__hdr-month'));
                 headerSvg.appendChild(svgEl('line', { x1, y1: 24, x2: x1, y2: HEADER_HEIGHT, class: 'po-gantt__hdr-tick' }));
                 m = nm;
             }
@@ -3574,6 +4587,7 @@ class ProjectBoard {
         const tooltip = panel.createDiv({ cls: 'po-gantt__tooltip' });
         // ---------- Task bars (SVG rects) + left labels ----------
         const bars = [];
+        const i18nT = t; // forEach 参数 t 会 shadow 模块级 t，这里先存别名供 drop 回调使用
         orderedTasks.forEach((t, idx) => {
             const level = taskLevels.get(t.id) || 0;
             const isParent = childrenOf.has(t.content);
@@ -3611,24 +4625,93 @@ class ProjectBoard {
                     item.setTitle(UI_TEXT.taskDetail).setIcon('pencil').onClick(() => this.openTaskEditModal(t));
                 });
                 menu.addItem((item) => {
-                    item.setTitle('删除任务').setIcon('trash').onClick(() => void this.deleteTask(t));
+                    item.setTitle(MODAL_TEXT.poDeleteTask).setIcon('trash').onClick(() => void this.deleteTask(t));
                 });
                 menu.showAtMouseEvent(e);
             });
-            // Drag to reorder task rows (persisted)
+            // Drag: hover row middle = drop as subtask (row highlights); hover near row top/bottom edge
+            // = insert (a drop-line shows the exact insert position). Alt/Shift forces subtask mode.
             lr.draggable = true;
             lr.addEventListener('dragstart', (e) => {
                 e.dataTransfer?.setData('text/task-id', t.id);
                 lr.addClass('po-row--dragging');
+                clearDropUI();
             });
-            lr.addEventListener('dragend', () => lr.removeClass('po-row--dragging'));
-            lr.addEventListener('dragover', (e) => { e.preventDefault(); lr.addClass('po-row--drag-over'); });
-            lr.addEventListener('dragleave', () => lr.removeClass('po-row--drag-over'));
-            lr.addEventListener('drop', (e) => {
+            lr.addEventListener('dragend', () => { lr.removeClass('po-row--dragging'); clearDropUI(); });
+            lr.addEventListener('dragover', (e) => {
                 e.preventDefault();
+                const rect = lr.getBoundingClientRect();
+                const bodyRect = leftBody.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const zone = y < rect.height * 0.3 ? 'top' : y > rect.height * 0.7 ? 'bottom' : 'mid';
+                // 只保留当前行的状态，清除其他行残留高亮/指示
+                leftBody.querySelectorAll('.is-drop-target').forEach((el) => { if (el !== lr)
+                    el.removeClass('is-drop-target'); });
+                leftBody.querySelectorAll('.po-row--drag-over').forEach((el) => { if (el !== lr)
+                    el.removeClass('po-row--drag-over'); });
+                lr.dataset.dropZone = zone;
+                if (zone === 'mid') {
+                    // 行中间：设为子任务 → 高亮目标行，隐藏插入线
+                    lr.addClass('is-drop-target');
+                    lr.removeClass('po-row--drag-over');
+                    dropLine.style.display = 'none';
+                }
+                else {
+                    // 上/下边缘：插入排序 → 在对应边缘显示插入横线
+                    lr.removeClass('is-drop-target');
+                    lr.addClass('po-row--drag-over');
+                    const lineTop = rect.top - bodyRect.top + (zone === 'top' ? -1 : rect.height - 1);
+                    dropLine.style.top = Math.max(0, lineTop) + 'px';
+                    dropLine.style.display = 'block';
+                }
+            });
+            lr.addEventListener('dragleave', () => {
                 lr.removeClass('po-row--drag-over');
+                lr.removeClass('is-drop-target');
+                delete lr.dataset.dropZone;
+                dropLine.style.display = 'none';
+            });
+            lr.addEventListener('drop', async (e) => {
+                e.preventDefault();
                 const draggedId = e.dataTransfer?.getData('text/task-id');
+                const zone = lr.dataset.dropZone || 'top';
+                clearDropUI();
                 if (!draggedId || draggedId === t.id)
+                    return;
+                const draggedTask = tasks.find((tt) => tt.id === draggedId);
+                // 行中间（或 Alt/Shift 强制）= 设为该任务的子任务
+                if (zone === 'mid' || e.altKey || e.shiftKey) {
+                    if (!draggedTask || !draggedTask.sourceFile)
+                        return;
+                    if (draggedTask.parent === t.content) {
+                        this.showToast(MODAL_TEXT.poAlreadySubtask);
+                        return;
+                    }
+                    // 防环：目标任务的祖先链不能包含被拖任务（否则变成自己后代的子任务）
+                    const visited = new Set([t.content]);
+                    let cur = t.parent || null;
+                    while (cur && !visited.has(cur)) {
+                        if (cur === draggedTask.content)
+                            break;
+                        visited.add(cur);
+                        const pt = tasks.find((tt) => tt.content === cur);
+                        cur = pt ? (pt.parent || null) : null;
+                    }
+                    if (cur === draggedTask.content || visited.has(draggedTask.content)) {
+                        this.showToast(MODAL_TEXT.poParentCycle);
+                        return;
+                    }
+                    const file = this.app.vault.getAbstractFileByPath(draggedTask.sourceFile);
+                    if (!(file instanceof obsidian.TFile))
+                        return;
+                    await this.host.writeFrontmatter(file, { '\u7236\u4efb\u52a1': t.content });
+                    draggedTask.parent = t.content;
+                    this.showToast(i18nT('ui.subtaskParentSet', { name: t.content }));
+                    this.renderPanels();
+                    return;
+                }
+                // 上/下边缘 = 插入排序（top → 目标之前，bottom → 目标之后）
+                if (!draggedTask)
                     return;
                 const rows = Array.from(leftBody.querySelectorAll('.po-gantt__label-row'));
                 const ids = rows.map((r) => r.dataset.taskId).filter((id) => !!id);
@@ -3637,7 +4720,8 @@ class ProjectBoard {
                 if (from < 0 || to < 0)
                     return;
                 ids.splice(from, 1);
-                ids.splice(from < to ? to - 1 : to, 0, draggedId);
+                const toIdx = ids.indexOf(t.id);
+                ids.splice(zone === 'top' ? toIdx : toIdx + 1, 0, draggedId);
                 this.plugin.settings.poTaskOrder = ids;
                 void this.plugin.saveSettings();
                 this.renderPanels();
@@ -3881,10 +4965,16 @@ class ProjectBoard {
         const section = panel.createDiv({ cls: 'po-tasklist' });
         const toolbar = section.createDiv({ cls: 'po-toolbar' });
         toolbar.createSpan({ cls: 'po-toolbar__label', text: UI_TEXT.filter });
-        [UI_TEXT.all, '待办', '进行中', '已阻塞', '已完成'].forEach((f, i) => {
-            const key = i === 0 ? 'all' : f;
-            const chip = toolbar.createEl('button', { cls: 'po-chip' + (key === this.taskListFilter ? ' is-active' : ''), text: f });
-            chip.dataset.filter = key;
+        const statusFilters = [
+            { key: 'all', label: UI_TEXT.all },
+            { key: '待办', label: MODAL_TEXT.stTodo },
+            { key: '进行中', label: MODAL_TEXT.stInProgress },
+            { key: '已阻塞', label: MODAL_TEXT.stBlocked },
+            { key: '已完成', label: MODAL_TEXT.stDone },
+        ];
+        statusFilters.forEach((f) => {
+            const chip = toolbar.createEl('button', { cls: 'po-chip' + (f.key === this.taskListFilter ? ' is-active' : ''), text: f.label });
+            chip.dataset.filter = f.key;
         });
         const wrap = section.createDiv({ cls: 'po-table-wrap' });
         const table = wrap.createEl('table', { cls: 'po-table' });
@@ -4071,7 +5161,6 @@ class ProjectBoard {
     buildPoRow(tbody, t, projects, origIndex) {
         const statusMap = { '待办': 'po-todo', '进行中': 'po-progress', '已阻塞': 'po-blocked', '已完成': 'po-done', '已取消': 'po-cancelled' };
         const prioMap = { '重要且紧急': 'po-p-high', '重要不紧急': 'po-p-med', '紧急不重要': 'po-p-med', '不重要不紧急': 'po-p-low' };
-        const prioShort = { '重要且紧急': '高', '重要不紧急': '中', '紧急不重要': '中', '不重要不紧急': '低' };
         const colorMap = {};
         projects.forEach((p) => { colorMap[p.name] = p.color; });
         const tr = tbody.createEl('tr');
@@ -4091,17 +5180,17 @@ class ProjectBoard {
         nameEl.addEventListener('click', () => {
             this.openTaskEditModal(t);
         });
-        // Priority
+        // Priority（纯文本无 emoji，与 TODO/本周待办胶囊一致）
         const tdPrio = tr.createEl('td');
         if (t.priority)
-            tdPrio.createSpan({ cls: 'po-prio ' + (prioMap[t.priority] || ''), text: prioShort[t.priority] || t.priority });
+            tdPrio.createSpan({ cls: 'po-prio ' + (prioMap[t.priority] || ''), text: UI_TEXT.prioText(t.priority) });
         // Start date
         tr.createEl('td', { cls: 'po-mono', text: t.startDate || '-' });
         // Due date
         tr.createEl('td', { cls: 'po-mono', text: t.dueDate || '-' });
         // Status
         const tdSt = tr.createEl('td');
-        tdSt.createSpan({ cls: 'po-status ' + (statusMap[t.status] || ''), text: t.status });
+        tdSt.createSpan({ cls: 'po-status ' + (statusMap[t.status] || ''), text: UI_TEXT.statusLabel(t.status) });
         // Project
         const tdProj = tr.createEl('td');
         const projColor = colorMap[t.projectId] || '#3b82f6';
@@ -4129,142 +5218,684 @@ class ProjectBoard {
     }
     /* ---- Calendar Panel ---- */
     renderCalendarPanel(panel, tasks, projects) {
-        const grid = panel.createDiv({ cls: 'po-cal' });
-        // Build project color lookup
+        const root = panel.createDiv({ cls: 'po-cal' });
+        root.tabIndex = 0;
         const colorMap = {};
         projects.forEach((p) => { colorMap[p.name] = p.color; });
         const today = new Date();
         const todayStr = fmtDate(today);
-        // Use calYear/calMonth state
-        const renderMonth = () => {
-            grid.empty();
-            const y = this.calYear, m = this.calMonth;
-            const dim = new Date(y, m + 1, 0).getDate();
-            const fd = new Date(y, m, 1).getDay();
-            const adj = fd === 0 ? 6 : fd - 1;
-            // Header with navigation
-            const header = grid.createDiv({ cls: 'po-cal__header' });
-            header.createSpan({ cls: 'po-cal__title', text: y + '\u5E74' + (m + 1) + '\u6708' });
-            const nav = header.createDiv({ cls: 'po-cal__nav' });
-            const prevBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u2190' });
-            const todayBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u4ECA\u5929' });
-            const nextBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '\u2192' });
-            prevBtn.addEventListener('click', () => {
-                this.calMonth--;
-                if (this.calMonth < 0) {
-                    this.calMonth = 11;
-                    this.calYear--;
+        if (!this.calSel)
+            this.calSel = todayStr;
+        /** 月视图横条重定位观察器：窗格调整/打开源文件返回后布局变化时自动纠正横条 top */
+        let calResizeObserver = null;
+        const effDate = (task) => task.remindDate || task.dueDate || '';
+        /** 跨天任务：同时有开始/截止日期且不同天（如 8月1日 → 8月20日） */
+        const isRangeTask = (task) => !!task.startDate && !!task.dueDate && task.startDate !== task.dueDate;
+        /** 重复任务的有效日期：提醒日期已过（错过）→ 归到今天，与 TODO 列表口径一致；未错过 → 提醒日期 */
+        const recEffDate = (task) => {
+            if (task.type !== '重复' || !task.remindDate)
+                return null;
+            return task.remindDate < todayStr ? todayStr : task.remindDate;
+        };
+        /** 按「锚定日」取任务：跨天任务只在开始日出现一次（避免首末双显），普通任务按有效日期 */
+        const tasksOn = (ds) => tasks.filter((task) => {
+            if (isRangeTask(task))
+                return task.startDate === ds;
+            const rec = recEffDate(task);
+            if (rec)
+                return rec === ds;
+            return effDate(task) === ds || task.startDate === ds;
+        });
+        /** 跨天任务按「活跃日期」取（任务覆盖 ds 的所有任务，含跨天中间日）——详情面板用 */
+        const tasksActiveOn = (ds) => tasks.filter((task) => {
+            if (isRangeTask(task))
+                return !!task.startDate && !!task.dueDate && task.startDate <= ds && ds <= task.dueDate;
+            const rec = recEffDate(task);
+            if (rec)
+                return rec === ds;
+            return effDate(task) === ds || task.startDate === ds;
+        });
+        const rangeLabel = (task) => dayFmt(task.startDate) + ' → ' + dayFmt(task.dueDate);
+        /** 单日 hover 状态文案（横条按日分段 title 用）：8月17日 · 已完成 · 备注 */
+        const dayStateLabel = (task, ds) => {
+            const node = task.dailyNodes && task.dailyNodes[ds];
+            const st = node && node.s === 'done' ? t('home.calNodeDone') : node && node.s === 'skip' ? t('home.calNodeSkip') : t('home.calNodeTodo');
+            const note = node && node.n ? node.n : '';
+            return dayFmt(ds) + ' · ' + st + (note ? ' · ' + note : '');
+        };
+        /** 指定日期相对某周一（mon）的列索引 0-6 */
+        const dayIndexOf = (mon, ds) => {
+            const a = new Date(mon + 'T00:00:00');
+            const b = new Date(ds + 'T00:00:00');
+            return Math.round((b.getTime() - a.getTime()) / 86400000);
+        };
+        const isOverdue = (task) => task.status !== '已完成' && task.status !== '已取消' && !!task.dueDate && new Date(task.dueDate) < today;
+        const projColor = (task) => colorMap[task.projectId] || '#3b82f6';
+        const addDays = (ds, n) => {
+            const d = new Date(ds + 'T00:00:00');
+            d.setDate(d.getDate() + n);
+            return fmtDate(d);
+        };
+        const mondayOf = (ds) => {
+            const d = new Date(ds + 'T00:00:00');
+            const dow = d.getDay();
+            const diff = dow === 0 ? -6 : 1 - dow;
+            d.setDate(d.getDate() + diff);
+            return fmtDate(d);
+        };
+        const dayFmt = (ds) => {
+            const d = new Date(ds + 'T00:00:00');
+            return t('ui.calDayFmt', { m: String(d.getMonth() + 1), d: String(d.getDate()) });
+        };
+        const rangeTitle = (mon) => dayFmt(mon) + ' – ' + dayFmt(addDays(mon, 6));
+        const MAX_TRACK = 5; // 单行/单周最多轨道数（月、周视图共用；与「格子最多 5 个任务」一致，超出轨道的跨天任务 → 胶囊 → +N 面板）
+        /** 渲染单条任务行（详情面板 / 议程共用）：项目色点 + 名称 + 状态 + 逾期标签；多日任务可展开每日记录 */
+        const renderTaskRow = (container, task) => {
+            const row = container.createDiv({ cls: 'po-cal__task' });
+            row.draggable = true;
+            row.dataset.taskId = task.id;
+            row.createSpan({ cls: 'po-mini-dot', attr: { style: 'background:' + projColor(task) } });
+            const nameSpan = row.createSpan({ cls: 'po-cal__task-name po-clickable', text: task.content });
+            nameSpan.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this.openTaskEditModal(task);
+            });
+            row.createSpan({ cls: 'po-status ' + (task.status === '已完成' ? 'po-done' : 'po-todo'), text: UI_TEXT.statusLabel(task.status) });
+            if (isRangeTask(task)) {
+                row.createSpan({ cls: 'po-cal__range', text: rangeLabel(task) });
+            }
+            if (isOverdue(task)) {
+                const due = new Date(task.dueDate + 'T00:00:00');
+                const days = Math.max(1, Math.round((today.getTime() - due.getTime()) / 86400000));
+                row.createSpan({ cls: 'po-cal__over', text: t('ui.calOverdueDays', { n: String(days) }) });
+            }
+            // 多日任务：点击展开每日执行记录（含总进度）
+            if (isRangeTask(task)) {
+                const toggle = row.createSpan({ cls: 'po-cal__expand', text: '▸' });
+                toggle.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const wrap = row.nextElementSibling;
+                    if (wrap && wrap.hasClass('po-cal__daily')) {
+                        wrap.remove();
+                        toggle.setText('▸');
+                        return;
+                    }
+                    const daily = container.createDiv({ cls: 'po-cal__daily' });
+                    let d = task.startDate;
+                    let done = 0, total = 0;
+                    while (d <= task.dueDate) {
+                        total++;
+                        const node = task.dailyNodes && task.dailyNodes[d];
+                        const mark = node && node.s === 'done' ? '✓' : node && node.s === 'skip' ? '╌' : '○';
+                        if (node && node.s === 'done')
+                            done++;
+                        const line = daily.createDiv({ cls: 'po-cal__daily-row' });
+                        line.createSpan({ cls: 'po-cal__daily-date', text: dayFmt(d) });
+                        const st = line.createSpan({ cls: 'po-cal__daily-state ' + (node && node.s === 'done' ? 'is-done' : node && node.s === 'skip' ? 'is-skip' : 'is-todo'), text: mark });
+                        st.addEventListener('click', (ev2) => {
+                            ev2.stopPropagation();
+                            const next = node && node.s === 'done' ? 'todo' : 'done';
+                            void this.setDailyNode(task, d, next);
+                        });
+                        line.createSpan({ cls: 'po-cal__daily-note', text: node?.n || '' });
+                        d = addDays(d, 1);
+                    }
+                    daily.createDiv({ cls: 'po-cal__daily-sum', text: t('ui.calProgress', { done: String(done), total: String(total) }) });
+                    toggle.setText('▾');
+                });
+            }
+            row.addEventListener('dragstart', (ev) => ev.dataTransfer?.setData('text/plain', task.id));
+        };
+        /** 任务芯片（月 / 周格子内）：项目色左边条 + 三态配色；跨天任务带延续标记；重复任务绿色 ↻ */
+        const buildChip = (holder, task) => {
+            const isRange = isRangeTask(task);
+            const isRecur = task.type === '重复';
+            const cls = isOverdue(task) ? 'is-overdue' : task.status === '已完成' ? 'is-done' : 'is-normal';
+            const chip = holder.createDiv({ cls: 'po-cal__chip ' + cls + (isRange ? ' is-range' : '') + (isRecur ? ' is-recur' : ''), text: (isRecur ? '↻ ' : '') + task.content });
+            chip.setAttr('style', '--chip-color:' + projColor(task));
+            if (isRange)
+                chip.setAttr('title', rangeLabel(task));
+            chip.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this.openTaskEditModal(task);
+            });
+            // 右键：重复任务也可快捷标记当日
+            chip.addEventListener('contextmenu', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const menu = new obsidian.Menu();
+                menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(task)));
+                menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (task.sourceFile)
+                    void this.app.workspace.openLinkText(task.sourceFile, '', true); }));
+                menu.showAtMouseEvent(ev);
+            });
+            chip.draggable = true;
+            chip.dataset.taskId = task.id;
+        };
+        /** 日期格拖放改期（月 / 周通用） */
+        const bindDrop = (el) => {
+            el.addEventListener('dragover', (e) => {
+                if (el.dataset.date) {
+                    e.preventDefault();
+                    el.addClass('po-cal__day--drag-over');
                 }
-                renderMonth();
+            });
+            el.addEventListener('dragleave', () => el.removeClass('po-cal__day--drag-over'));
+            el.addEventListener('drop', (e) => {
+                e.preventDefault();
+                el.removeClass('po-cal__day--drag-over');
+                const taskId = e.dataTransfer?.getData('text/plain');
+                if (!taskId)
+                    return;
+                const task = tasks.find((tt) => tt.id === taskId);
+                if (!task)
+                    return;
+                this.calSel = el.dataset.date || this.calSel;
+                void this.updateTaskDate(task, this.calSel);
+            });
+        };
+        /** 工具栏：视图切换 + 月份标题 + 导航 */
+        const renderToolbar = () => {
+            const bar = root.createDiv({ cls: 'po-cal__bar' });
+            const seg = bar.createDiv({ cls: 'po-cal__seg' });
+            const views = [
+                { key: 'month', label: t('ui.calViewMonth') },
+                { key: 'week', label: t('ui.calViewWeek') },
+            ];
+            views.forEach((v) => {
+                const b = seg.createEl('button', { cls: 'po-cal__seg-btn' + (this.calView === v.key ? ' is-active' : ''), text: v.label });
+                b.addEventListener('click', () => { this.calView = v.key; render(); });
+            });
+            const ttl = bar.createSpan({ cls: 'po-cal__ttl' });
+            ttl.style.marginLeft = 'auto'; // 月份/日期标题推到右上角，紧贴切换月份的 ‹ 今天 › 左边
+            if (this.calView === 'month') {
+                const months = tArr('status.months');
+                ttl.setText(t('ui.calMonthFmt', { y: String(this.calYear), m: months[this.calMonth] ?? String(this.calMonth + 1) }));
+            }
+            else {
+                const mon = mondayOf(this.calSel);
+                ttl.setText(rangeTitle(mon));
+            }
+            const nav = bar.createDiv({ cls: 'po-cal__nav' });
+            const prevBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '‹' });
+            const todayBtn = nav.createEl('button', { cls: 'po-cal__btn', text: UI_TEXT.today });
+            const nextBtn = nav.createEl('button', { cls: 'po-cal__btn', text: '›' });
+            prevBtn.addEventListener('click', () => {
+                if (this.calView === 'month') {
+                    this.calMonth--;
+                    if (this.calMonth < 0) {
+                        this.calMonth = 11;
+                        this.calYear--;
+                    }
+                }
+                else {
+                    this.calSel = addDays(this.calSel, -7);
+                }
+                render();
             });
             nextBtn.addEventListener('click', () => {
-                this.calMonth++;
-                if (this.calMonth > 11) {
-                    this.calMonth = 0;
-                    this.calYear++;
+                if (this.calView === 'month') {
+                    this.calMonth++;
+                    if (this.calMonth > 11) {
+                        this.calMonth = 0;
+                        this.calYear++;
+                    }
                 }
-                renderMonth();
+                else {
+                    this.calSel = addDays(this.calSel, 7);
+                }
+                render();
             });
             todayBtn.addEventListener('click', () => {
                 this.calYear = today.getFullYear();
                 this.calMonth = today.getMonth();
-                renderMonth();
-            });
-            // Weekdays
-            const weekdays = grid.createDiv({ cls: 'po-cal__weekdays' });
-            ['\u4E00', '\u4E8C', '\u4E09', '\u56DB', '\u4E94', '\u516D', '\u65E5'].forEach((d) => weekdays.createSpan({ text: d }));
-            // Days
-            const days = grid.createDiv({ cls: 'po-cal__days' });
-            for (let i = 0; i < adj; i++)
-                days.createDiv({ cls: 'po-cal__day' });
-            for (let d = 1; d <= dim; d++) {
-                const ds = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-                const isToday = ds === todayStr;
-                const dayTasks = tasks.filter((t) => {
-                    const effectiveDate = t.remindDate || t.dueDate;
-                    return effectiveDate === ds || t.startDate === ds;
-                });
-                const hasOverdue = dayTasks.some((t) => t.status !== '\u5DF2\u5B8C\u6210' && t.status !== '\u5DF2\u53D6\u6D88' && t.dueDate && new Date(t.dueDate) < today);
-                const cls = 'po-cal__day' + (isToday ? ' is-today' : '') +
-                    (dayTasks.length ? (hasOverdue ? ' has-overdue has-tasks' : ' has-tasks') : '');
-                const dayEl = days.createDiv({ cls, attr: { 'data-date': ds } });
-                dayEl.createSpan({ cls: 'po-cal__day-num', text: String(d) });
-                // Show up to 3 task names inside the cell
-                const shown = dayTasks.slice(0, 3);
-                shown.forEach((t) => {
-                    const taskEl = dayEl.createDiv({ cls: 'po-cal__day-task', text: t.content });
-                    taskEl.style.color = t.status === '\u5DF2\u5B8C\u6210' ? 'var(--ad-text-dim)' : '';
-                });
-                if (dayTasks.length > 3) {
-                    dayEl.createDiv({ cls: 'po-cal__day-more', text: '+' + (dayTasks.length - 3) });
-                }
-            }
-            // Preview area
-            const preview = grid.createDiv({ cls: 'po-cal__preview', text: '\u70B9\u51FB\u65E5\u671F\u67E5\u770B\u5F53\u5929\u4EFB\u52A1' });
-            // Click date to show tasks
-            grid.addEventListener('click', (e) => {
-                const dayEl = e.target.closest('.po-cal__day');
-                if (!dayEl || !dayEl.dataset.date)
-                    return;
-                const dt = dayEl.dataset.date;
-                const dayTasks = tasks.filter((t) => {
-                    const effectiveDate = t.remindDate || t.dueDate;
-                    return effectiveDate === dt || t.startDate === dt;
-                });
-                preview.empty();
-                if (dayTasks.length) {
-                    dayTasks.forEach((t) => {
-                        const row = preview.createDiv({ cls: 'po-cal__task' });
-                        row.draggable = true;
-                        row.dataset.taskId = t.id;
-                        const projColor = colorMap[t.projectId] || '#3b82f6';
-                        row.createSpan({ cls: 'po-mini-dot', attr: { style: 'background:' + projColor } });
-                        const nameSpan = row.createSpan({ cls: 'po-cal__task-name po-clickable', text: t.content });
-                        nameSpan.addEventListener('click', (ev) => {
-                            ev.stopPropagation();
-                            this.openTaskEditModal(t);
-                        });
-                        row.createSpan({ cls: 'po-status ' + (t.status === '\u5DF2\u5B8C\u6210' ? 'po-done' : 'po-todo'), text: t.status });
-                        // Drag to move task to another date
-                        row.addEventListener('dragstart', (ev) => {
-                            ev.dataTransfer?.setData('text/plain', t.id);
-                        });
-                    });
-                }
-                else {
-                    preview.createSpan({ text: '\u8BE5\u65E5\u671F\u6682\u65E0\u4EFB\u52A1' });
-                }
-            });
-            // Drop on calendar days to move task
-            grid.addEventListener('dragover', (e) => {
-                const dayEl = e.target.closest('.po-cal__day');
-                if (dayEl?.dataset.date) {
-                    e.preventDefault();
-                    dayEl.addClass('po-cal__day--drag-over');
-                }
-            });
-            grid.addEventListener('dragleave', (e) => {
-                const dayEl = e.target.closest('.po-cal__day');
-                if (dayEl)
-                    dayEl.removeClass('po-cal__day--drag-over');
-            });
-            grid.addEventListener('drop', (e) => {
-                e.preventDefault();
-                const dayEl = e.target.closest('.po-cal__day');
-                if (!dayEl?.dataset.date)
-                    return;
-                dayEl.removeClass('po-cal__day--drag-over');
-                const taskId = e.dataTransfer?.getData('text/plain');
-                if (!taskId)
-                    return;
-                const task = tasks.find((t) => t.id === taskId);
-                if (!task)
-                    return;
-                const newDate = dayEl.dataset.date;
-                void this.updateTaskDate(task, newDate);
+                this.calSel = todayStr;
+                render();
             });
         };
-        renderMonth();
+        /** 月视图：7 列弹性网格 + 溢出日 + 周末底色 + 今日圆徽 + 芯片 + 跨天横条 */
+        const renderMonth = () => {
+            calResizeObserver?.disconnect();
+            calResizeObserver = null;
+            const y = this.calYear, m = this.calMonth;
+            const dim = new Date(y, m + 1, 0).getDate();
+            const fd = new Date(y, m, 1).getDay();
+            const adj = fd === 0 ? 6 : fd - 1;
+            const cells = Math.ceil((adj + dim) / 7) * 7;
+            const prevDim = new Date(y, m, 0).getDate();
+            const wd = root.createDiv({ cls: 'po-cal__weekdays' });
+            UI_TEXT.calWeekdays.forEach((d, i) => {
+                const s = wd.createSpan({ text: d });
+                if (i >= 5)
+                    s.addClass('is-we');
+            });
+            const days = root.createDiv({ cls: 'po-cal__days' });
+            const monthStart = fmtDate(new Date(y, m, 1));
+            const monthEnd = fmtDate(new Date(y, m + 1, 0));
+            const rows = cells / 7;
+            const colW = 100 / 7; // 每列宽度（百分比）
+            const TRACK_H = 17; // 轨道高（px）
+            const DATE_OFF = 20; // 日期号区高度（px）
+            const rangeTasks = tasks.filter(isRangeTask);
+            const rowSegs = Array.from({ length: rows }, () => []);
+            rangeTasks.forEach((task) => {
+                const s = task.startDate < monthStart ? monthStart : task.startDate;
+                const e = task.dueDate > monthEnd ? monthEnd : task.dueDate;
+                if (s > e)
+                    return;
+                const sIdx = adj + (new Date(s + 'T00:00:00').getDate()) - 1;
+                const eIdx = adj + (new Date(e + 'T00:00:00').getDate()) - 1;
+                if (sIdx < 0 || eIdx >= cells)
+                    return;
+                const sRow = Math.floor(sIdx / 7), eRow = Math.floor(eIdx / 7);
+                const sCol = sIdx % 7, eCol = eIdx % 7;
+                for (let r = sRow; r <= eRow; r++) {
+                    rowSegs[r]?.push({
+                        c1: r === sRow ? sCol : 0,
+                        c2: r === eRow ? eCol : 6,
+                        task,
+                    });
+                }
+            });
+            // 第二步：全局轨道分配（跨行一致）——每个跨天任务整月只分配一次轨道号，各行的段都画在同一条轨道上，
+            // 保证「第一行排第二，第二行也排第二」；最多 MAX_TRACK 条，放不下的进全局溢出 → 以胶囊锚定显示。
+            const clampedRanges = rangeTasks
+                .map((task) => ({
+                task,
+                s: task.startDate < monthStart ? monthStart : task.startDate,
+                e: task.dueDate > monthEnd ? monthEnd : task.dueDate,
+            }))
+                .filter(({ s, e }) => s <= e);
+            clampedRanges.sort((a, b) => a.task.startDate.localeCompare(b.task.startDate) || a.task.id.localeCompare(b.task.id));
+            const gTracks = []; // 每轨道最后占用结束日（YYYY-MM-DD 字典序可比）
+            const gTrackOf = new Map();
+            clampedRanges.forEach(({ task, s, e }) => {
+                let ti = gTracks.findIndex((end) => s > end);
+                if (ti === -1) {
+                    if (gTracks.length >= MAX_TRACK)
+                        return;
+                    ti = gTracks.length;
+                    gTracks.push('');
+                }
+                gTracks[ti] = e;
+                gTrackOf.set(task.id, ti);
+            });
+            const rowPlaced = Array.from({ length: rows }, () => []);
+            const rowOverflowTasks = Array.from({ length: rows }, () => []);
+            rowSegs.forEach((segs, r) => {
+                segs.forEach((seg) => {
+                    const t = gTrackOf.get(seg.task.id);
+                    if (t === undefined) {
+                        rowOverflowTasks[r]?.push(seg.task);
+                        return;
+                    }
+                    rowPlaced[r]?.push({ seg, track: t });
+                });
+            });
+            // 横条片段改为在单元格循环内按本格实际经过数渲染（见下方第三步），不再预统计。
+            // 第三步：渲染日期格 + 横条覆盖层。
+            // 横条：跨列连续（每行一个定位锚点，见第四步）→ 保持原横条样式、不浮动；
+            // 胶囊：填进横条未占用的轨道槽位，空槽再溢出到横条带下方；横条 + 胶囊合计最多 6 个。
+            const SLOT_MAX = 5; // 每格最多显示任务数（横条 + 胶囊合计）
+            // 当日被隐藏的真实任务（当日口径）：key = 日期，value = 覆盖该日的溢出任务 + 该日超预算的重复/单日胶囊。
+            // 点 +N 面板只列出「这一天」的任务，数字与徽标完全一致。
+            const dayHidden = new Map();
+            let overflowKey = null; // 当前展开的「当日溢出面板」定位（r|ds），点同一处收起
+            for (let i = 0; i < cells; i++) {
+                let ds = '';
+                let isOut = false;
+                if (i < adj) {
+                    ds = fmtDate(new Date(y, m - 1, prevDim - adj + 1 + i));
+                    isOut = true;
+                }
+                else if (i < adj + dim) {
+                    ds = fmtDate(new Date(y, m, i - adj + 1));
+                }
+                else {
+                    ds = fmtDate(new Date(y, m + 1, i - adj - dim + 1));
+                    isOut = true;
+                }
+                const dObj = new Date(ds + 'T00:00:00');
+                const isToday = ds === todayStr;
+                const isSel = ds === this.calSel;
+                const isWe = dObj.getDay() === 6 || dObj.getDay() === 0;
+                const dayTasks = tasksOn(ds);
+                let cls = 'po-cal__day';
+                if (isOut)
+                    cls += ' is-out';
+                if (isWe)
+                    cls += ' is-weekend';
+                if (isToday)
+                    cls += ' is-today';
+                if (isSel)
+                    cls += ' is-sel';
+                const dayEl = days.createDiv({ cls, attr: { 'data-date': ds } });
+                dayEl.createSpan({ cls: 'po-cal__day-num' + (isToday ? ' is-today' : ''), text: String(dObj.getDate()) });
+                const r = Math.floor(i / 7);
+                const c = i % 7;
+                // 本格被横条占用的轨道号（全局轨道，横条连续不浮动）
+                const occupied = new Set((rowPlaced[r] || []).filter(({ seg }) => c >= seg.c1 && c <= seg.c2).map(({ track }) => track));
+                // 胶囊列表（显示优先级：重复任务 > 单日任务）；预算 = 5 − 本格横条数。
+                // 溢出任务（没拿到全局轨道的跨天任务）不再锚定显示胶囊，统一收进 +N。
+                const singleHere = dayTasks.filter((task) => !isRangeTask(task));
+                const recurHere = singleHere.filter((task) => task.type === '重复');
+                const singleOnly = singleHere.filter((task) => task.type !== '重复');
+                const chipList = [...recurHere, ...singleOnly];
+                const chipBudget = Math.max(0, SLOT_MAX - occupied.size);
+                const chipsToShow = chipList.slice(0, chipBudget);
+                const chipHidden = Math.max(0, chipList.length - chipBudget);
+                // 被本行溢出任务覆盖但未显示的格子：计入 +N（点开可见真实任务）
+                const overflowCovered = (rowOverflowTasks[r] || []).filter((task) => !!task.startDate && !!task.dueDate && task.startDate <= ds && ds <= task.dueDate);
+                const hidden = chipHidden + overflowCovered.length;
+                // 当日口径：徽标数字 = 面板列出的任务数（溢出覆盖 + 超预算胶囊），点 +N 只显示这一天
+                if (hidden > 0)
+                    dayHidden.set(ds, [...overflowCovered, ...chipList.slice(chipBudget)]);
+                // 轨道交错（grid 与覆盖层横条严格对齐）：空轨道用胶囊填上（从 track 0 往上），
+                // 横条轨道留空槽（被覆盖层覆盖），剩余胶囊堆在 1fr 区域；这样重复/单日任务
+                // 会优先填进横条区上方的空槽，而不是全堆在横条下面。
+                const body = dayEl.createDiv({ cls: 'po-cal__day-body' });
+                const maxBarTrack = occupied.size > 0 ? Math.max(...occupied) : -1;
+                const trackCount = maxBarTrack >= 0 ? maxBarTrack + 1 : 0;
+                body.style.gridTemplateRows = trackCount > 0
+                    ? `repeat(${trackCount}, 17px) auto`
+                    : 'auto';
+                let ci = 0;
+                const placeNext = () => {
+                    if (ci < chipsToShow.length) {
+                        const t = chipsToShow[ci++];
+                        if (t) {
+                            buildChip(body, t);
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                for (let t = 0; t < trackCount; t++) {
+                    if (occupied.has(t)) {
+                        body.createDiv({ cls: 'po-cal__slot' }); // 横条覆盖此槽
+                    }
+                    else if (!placeNext()) {
+                        body.createDiv({ cls: 'po-cal__slot' });
+                    }
+                }
+                while (ci < chipsToShow.length) {
+                    const t = chipsToShow[ci++];
+                    if (t)
+                        buildChip(body, t);
+                }
+                if (hidden > 0) {
+                    dayEl.style.paddingBottom = '18px'; // 给 +N (15px) + 底部 2px + 1px 间隙留出独立空间
+                    const more = dayEl.createDiv({ cls: 'po-cal__day-more', text: '+' + hidden });
+                    more.addEventListener('click', (ev) => { ev.stopPropagation(); openRowOverflow(r, ds); });
+                }
+                // 仅预留日期号区；横条带由 slot 撑开，空轨道被胶囊/空槽填满 → 不再有中段空位
+                dayEl.style.paddingTop = DATE_OFF + 'px';
+                dayEl.addEventListener('click', () => {
+                    if (isOut) {
+                        const d = new Date(ds + 'T00:00:00');
+                        this.calYear = d.getFullYear();
+                        this.calMonth = d.getMonth();
+                    }
+                    this.calSel = ds;
+                    render();
+                });
+                dayEl.addEventListener('dblclick', (ev) => {
+                    ev.stopPropagation();
+                    this.calSel = ds;
+                    // 默认带当前侧栏项目，避免保存时找不到项目文件夹
+                    void this.openTaskModalWithParent('', this.selectedProject ?? '');
+                });
+                bindDrop(dayEl);
+            }
+            // 第四步：读取每行真实顶部 offsetTop，再渲染横条覆盖层（绝对定位铺满，跨列连续）。
+            // 这样做既不占 grid 行（避免把日期格挤到下方产生「两个月视图」），又能在行高不均时与槽位严格对齐。
+            const rowTops = [];
+            for (let r = 0; r < rows; r++) {
+                const firstCell = days.children[r * 7];
+                rowTops.push(firstCell ? firstCell.offsetTop : 0);
+            }
+            /** 当日溢出面板：点 +N 从该行下方铺开全宽面板，只列出覆盖「这一天」的被隐藏任务（数字与徽标一致） */
+            function openRowOverflow(r, ds) {
+                const key = r + '|' + ds;
+                const existing = days.querySelector('.po-cal__rowover');
+                if (existing) {
+                    existing.remove();
+                    if (overflowKey === key) {
+                        overflowKey = null;
+                        return;
+                    }
+                }
+                overflowKey = key;
+                const list = dayHidden.get(ds) || [];
+                if (!list.length) {
+                    overflowKey = null;
+                    return;
+                }
+                const panel = days.createDiv({ cls: 'po-cal__rowover' });
+                panel.style.top = ((rowTops[r + 1] ?? days.offsetHeight) + 2) + 'px';
+                panel.createDiv({ cls: 'po-cal__rowover-hd', text: t('ui.calOverflowRow') + '（' + String(list.length) + '）' });
+                list.forEach((task) => renderTaskRow(panel, task));
+                panel.addEventListener('click', () => { overflowKey = null; panel.remove(); });
+            }
+            const barLayer = days.createDiv({ cls: 'po-cal__mbars' });
+            const barRefs = [];
+            rowPlaced.forEach((placed, r) => {
+                if (!placed.length)
+                    return;
+                placed.forEach(({ seg, track }) => {
+                    const topPx = DATE_OFF + track * TRACK_H;
+                    const segCount = seg.c2 - seg.c1 + 1;
+                    const bar = barLayer.createDiv({ cls: 'po-cal__mbar' + (seg.task.status === '已完成' ? ' is-done' : ''), text: '' });
+                    bar.setAttr('style', '--chip-color:' + projColor(seg.task) + '; top:' + ((rowTops[r] ?? 0) + topPx) + 'px; left:calc(' + (seg.c1 * colW).toFixed(4) + '% + 4px); width:calc(' + (segCount * colW).toFixed(4) + '% - 8px);');
+                    // 按日分段：当天 done → 深色实心、skip → 灰色虚线、无 → 浅色（每段都贴左显示任务名）
+                    // 每段 hover 显示该日状态 + 备注（不再整条显示所有日期）
+                    for (let c = seg.c1; c <= seg.c2; c++) {
+                        const gi = r * 7 + c;
+                        const segDate = fmtDate(new Date(y, m, gi - adj + 1));
+                        const node = seg.task.dailyNodes && seg.task.dailyNodes[segDate];
+                        let st = 'is-empty';
+                        if (node && node.s === 'done')
+                            st = 'is-done';
+                        else if (node && node.s === 'skip')
+                            st = 'is-skip';
+                        const piece = bar.createDiv({ cls: 'po-cal__mbar-seg ' + st, text: c === seg.c1 ? seg.task.content : '' });
+                        piece.setAttr('title', dayStateLabel(seg.task, segDate));
+                        piece.style.width = 'calc(' + (100 / segCount).toFixed(4) + '% - 1px)';
+                        // 右键：删除任务 / 打开源文件
+                        piece.addEventListener('contextmenu', (ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            const menu = new obsidian.Menu();
+                            menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(seg.task)));
+                            menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (seg.task.sourceFile)
+                                void this.app.workspace.openLinkText(seg.task.sourceFile, '', true); }));
+                            menu.showAtMouseEvent(ev);
+                        });
+                    }
+                    bar.setAttr('title', rangeLabel(seg.task));
+                    bar.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        this.openTaskEditModal(seg.task);
+                    });
+                    bar.draggable = false;
+                    bar.dataset.taskId = seg.task.id;
+                    barRefs.push({ el: bar, r, topPx });
+                });
+            });
+            // 布局变化后重测行顶：解决「打开源文件后返回日历、窗格调整」时横条错位
+            // （offsetTop 在布局未稳定时测出错误值且不会自动纠正，这里用 rAF 稳定后重测 + ResizeObserver 监听尺寸变化）
+            const repositionBars = () => {
+                const tops = [];
+                for (let rr = 0; rr < rows; rr++) {
+                    const fc = days.children[rr * 7];
+                    tops.push(fc ? fc.offsetTop : 0);
+                }
+                barRefs.forEach(({ el, r, topPx }) => {
+                    el.style.top = ((tops[r] ?? 0) + topPx) + 'px';
+                });
+            };
+            requestAnimationFrame(() => repositionBars());
+            calResizeObserver = new ResizeObserver(() => repositionBars());
+            calResizeObserver.observe(days);
+        };
+        /** 周视图：7 列日柱，今日列高亮；跨天任务渲染为跨列横条 */
+        const renderWeek = () => {
+            const mon = mondayOf(this.calSel);
+            const weekEnd = addDays(mon, 6);
+            const wd = root.createDiv({ cls: 'po-cal__weekdays' });
+            UI_TEXT.calWeekdays.forEach((d, i) => {
+                const s = wd.createSpan({ text: d });
+                if (i >= 5)
+                    s.addClass('is-we');
+            });
+            const cols = root.createDiv({ cls: 'po-cal__week' });
+            cols.style.gridTemplateRows = 'repeat(' + MAX_TRACK + ', auto) 1fr';
+            const wSegs = [];
+            tasks.filter(isRangeTask).forEach((task) => {
+                const s = task.startDate < mon ? mon : task.startDate;
+                const e = task.dueDate > weekEnd ? weekEnd : task.dueDate;
+                if (s > e)
+                    return;
+                wSegs.push({ si: dayIndexOf(mon, s), ei: dayIndexOf(mon, e), task });
+            });
+            wSegs.sort((a, b) => (a.task.startDate || '').localeCompare(b.task.startDate || '') || a.task.id.localeCompare(b.task.id) || a.si - b.si);
+            const wTracks = [];
+            const wPlaced = [];
+            wSegs.forEach((seg) => {
+                let ti = wTracks.findIndex((end) => seg.si > end);
+                if (ti === -1) {
+                    if (wTracks.length >= MAX_TRACK)
+                        return; // 罕见超限：跳过（详情面板仍可见）
+                    ti = wTracks.length;
+                    wTracks.push(-1);
+                }
+                wTracks[ti] = seg.ei;
+                wPlaced.push({ seg, track: ti });
+            });
+            wPlaced.forEach(({ seg, track }) => {
+                const { si, ei, task } = seg;
+                const segCount = ei - si + 1;
+                const bar = cols.createDiv({ cls: 'po-cal__wbar' + (task.status === '已完成' ? ' is-done' : ''), text: '' });
+                bar.setAttr('style', '--chip-color:' + projColor(task));
+                bar.style.gridRow = (track + 1) + ' / ' + (track + 2);
+                bar.style.gridColumn = (si + 1) + ' / ' + (ei + 2);
+                // 按日分段：当天 done → 深色实心、skip → 灰色虚线、无 → 浅色（仅首段显示任务名）
+                // 每段 hover 显示该日状态 + 备注（不再整条显示所有日期）
+                for (let c = si; c <= ei; c++) {
+                    const ds = addDays(mon, c);
+                    const node = task.dailyNodes && task.dailyNodes[ds];
+                    let st = 'is-empty';
+                    if (node && node.s === 'done')
+                        st = 'is-done';
+                    else if (node && node.s === 'skip')
+                        st = 'is-skip';
+                    const piece = bar.createDiv({ cls: 'po-cal__mbar-seg ' + st, text: c === si ? task.content : '' });
+                    piece.setAttr('title', dayStateLabel(task, ds));
+                    piece.style.width = 'calc(' + (100 / segCount).toFixed(4) + '% - 1px)';
+                    // 右键：删除任务 / 打开源文件
+                    piece.addEventListener('contextmenu', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        const menu = new obsidian.Menu();
+                        menu.addItem((item) => item.setTitle(t('ui.calCtxDelete')).setIcon('trash').onClick(() => void this.deleteTask(task)));
+                        menu.addItem((item) => item.setTitle(t('ui.calCtxOpenSource')).setIcon('file-text').onClick(() => { if (task.sourceFile)
+                            void this.app.workspace.openLinkText(task.sourceFile, '', true); }));
+                        menu.showAtMouseEvent(ev);
+                    });
+                }
+                bar.setAttr('title', rangeLabel(task));
+                bar.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    this.openTaskEditModal(task);
+                });
+                bar.draggable = false;
+                bar.dataset.taskId = task.id;
+            });
+            for (let i = 0; i < 7; i++) {
+                const ds = addDays(mon, i);
+                const dObj = new Date(ds + 'T00:00:00');
+                const isToday = ds === todayStr;
+                const isSel = ds === this.calSel;
+                const dayTasks = tasksOn(ds);
+                const col = cols.createDiv({ cls: 'po-cal__wcol' + (isToday ? ' is-today' : '') + (isSel ? ' is-sel' : ''), attr: { 'data-date': ds } });
+                col.style.gridRow = String(MAX_TRACK + 1);
+                const hd = col.createDiv({ cls: 'po-cal__wcol-hd' });
+                hd.createSpan({ cls: 'po-cal__wcol-day', text: String(dObj.getDate()) });
+                hd.createSpan({ cls: 'po-cal__wcol-name', text: UI_TEXT.calWeekdays[i] });
+                // 日柱内只放锚定在当天的普通任务（跨天任务已在横条中，不再重复）
+                dayTasks.filter((task) => !isRangeTask(task)).forEach((task) => buildChip(col, task));
+                col.addEventListener('click', () => { this.calSel = ds; render(); });
+                col.addEventListener('dblclick', (ev) => {
+                    ev.stopPropagation();
+                    this.calSel = ds;
+                    void this.openTaskModalWithParent('', this.selectedProject ?? '');
+                });
+                bindDrop(col);
+            }
+        };
+        /** 常驻详情面板：默认选中今天，点击日期刷新 */
+        const renderDetail = () => {
+            const dt = this.calSel;
+            // 详情面板用「活跃日期」：跨天任务的中间日也能看到对应任务
+            const dayTasks = tasksActiveOn(dt);
+            const dObj = new Date(dt + 'T00:00:00');
+            const det = root.createDiv({ cls: 'po-cal__det' });
+            const hd = det.createDiv({ cls: 'po-cal__det-hd' });
+            hd.createSpan({ cls: 'po-cal__det-ttl', text: dayFmt(dt) + ' · ' + (dt === todayStr ? t('ui.calAgendaToday') : UI_TEXT.calWeekdays[(dObj.getDay() + 6) % 7]) + ' · ' + t('ui.calTaskCount', { n: String(dayTasks.length) }) });
+            if (!dayTasks.length)
+                det.createSpan({ cls: 'po-cal__det-empty', text: t('ui.noTaskOnDay') });
+            dayTasks.forEach((task) => renderTaskRow(det, task));
+            const newBtn = det.createDiv({ cls: 'po-cal__new', text: t('ui.calNewTask') });
+            newBtn.addEventListener('click', () => { void this.openTaskModalWithParent('', this.selectedProject ?? ''); });
+        };
+        /** 组装 + 键盘导航（← / → 切月或周，T 回今天） */
+        const render = () => {
+            root.empty();
+            renderToolbar();
+            if (this.calView === 'month')
+                renderMonth();
+            else
+                renderWeek();
+            renderDetail();
+        };
+        root.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (this.calView === 'month') {
+                    this.calMonth--;
+                    if (this.calMonth < 0) {
+                        this.calMonth = 11;
+                        this.calYear--;
+                    }
+                }
+                else {
+                    this.calSel = addDays(this.calSel, -7);
+                }
+                render();
+            }
+            else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                if (this.calView === 'month') {
+                    this.calMonth++;
+                    if (this.calMonth > 11) {
+                        this.calMonth = 0;
+                        this.calYear++;
+                    }
+                }
+                else {
+                    this.calSel = addDays(this.calSel, 7);
+                }
+                render();
+            }
+            else if (e.key === 't' || e.key === 'T') {
+                e.preventDefault();
+                this.calYear = today.getFullYear();
+                this.calMonth = today.getMonth();
+                this.calSel = todayStr;
+                render();
+            }
+        });
+        render();
     }
     /** Update task dueDate (and remindDate if exists) in source file (unified writer) */
     async updateTaskDate(task, newDate) {
@@ -4285,18 +5916,18 @@ class ProjectBoard {
         task.dueDate = newDate;
         if (task.remindDate)
             task.remindDate = newDate;
-        this.showToast('\u2728 \u4EFB\u52A1\u65E5\u671F\u5DF2\u66F4\u65B0');
+        this.showToast(t('modal.poDateUpdated'));
         await this.refresh();
     }
     /* ---- Kanban Panel ---- */
     renderKanbanPanel(panel, tasks, projects) {
         const board = panel.createDiv({ cls: 'po-kanban' });
         const cols = [
-            { key: '\u5F85\u529E', label: '\u5F85\u529E' },
-            { key: '\u8FDB\u884C\u4E2D', label: '\u8FDB\u884C\u4E2D' },
-            { key: '\u5DF2\u963B\u585E', label: '\u5DF2\u963B\u585E' },
-            { key: '\u5DF2\u5B8C\u6210', label: '\u5DF2\u5B8C\u6210' },
-            { key: '\u5DF2\u53D6\u6D88', label: '\u5DF2\u53D6\u6D88' },
+            { key: '\u5F85\u529E', label: UI_TEXT.statusLabel('\u5F85\u529E') },
+            { key: '\u8FDB\u884C\u4E2D', label: UI_TEXT.statusLabel('\u8FDB\u884C\u4E2D') },
+            { key: '\u5DF2\u963B\u585E', label: UI_TEXT.statusLabel('\u5DF2\u963B\u585E') },
+            { key: '\u5DF2\u5B8C\u6210', label: UI_TEXT.statusLabel('\u5DF2\u5B8C\u6210') },
+            { key: '\u5DF2\u53D6\u6D88', label: UI_TEXT.statusLabel('\u5DF2\u53D6\u6D88') },
         ];
         // Build project color lookup
         const colorMap = {};
@@ -4390,7 +6021,7 @@ class ProjectBoard {
             return;
         await this.writeFrontmatter(file, { '\u72B6\u6001': newStatus });
         task.status = newStatus;
-        this.showToast('\u2728 \u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0: ' + newStatus);
+        this.showToast(t('modal.poStatusUpdated', { status: newStatus }));
         await this.refresh();
     }
     /** Update task priority in source file (unified writer: inserts the field when missing) */
@@ -4402,7 +6033,7 @@ class ProjectBoard {
             return;
         await this.writeFrontmatter(file, { '\u4F18\u5148\u7EA7': newPriority });
         task.priority = newPriority;
-        this.showToast('\u2728 \u4F18\u5148\u7EA7\u5DF2\u66F4\u65B0: ' + newPriority);
+        this.showToast(t('modal.poPriorityUpdated', { priority: newPriority }));
         await this.refresh();
     }
 }
@@ -4588,13 +6219,13 @@ class DashboardView extends obsidian.ItemView {
         };
         // 首页模块注册表：将 7 张卡的渲染从硬编码顺序统一为「注册表驱动 + settings.homeModules 排序/显隐」
         this.homeModules = [
-            { id: 'quick-capture', title: '快速捕捉', cardCls: 'ad-card ad-b-capture', live: false, render: (b) => this.renderQuickCapture(b) },
+            { id: 'quick-capture', title: t('home.modules.quickCapture'), cardCls: 'ad-card ad-b-capture', live: false, render: (b) => this.renderQuickCapture(b) },
             { id: 'todo', title: 'TODO', cardCls: 'ad-card ad-b-todo', render: (b, t) => void this.renderTodo(b, t) },
-            { id: 'progress', title: '工作进度', cardCls: 'ad-card ad-b-progress', render: (b, t) => void this.renderProgress(b, t) },
-            { id: 'weekly', title: '本周待办 & 逾期', cardCls: 'ad-card ad-b-weekly', render: (b, t) => void this.renderWeekly(b, t) },
-            { id: 'projects', title: '项目情况', cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
-            { id: 'heatmap', title: '笔记统计', cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
-            { id: 'countdown', title: '倒计时', cardCls: 'ad-card ad-b-countdown', live: false, render: (b) => this.renderCountdown(b) },
+            { id: 'progress', title: t('home.modules.progress'), cardCls: 'ad-card ad-b-progress', render: (b, t) => void this.renderProgress(b, t) },
+            { id: 'weekly', title: t('home.modules.weekly'), cardCls: 'ad-card ad-b-weekly', render: (b, t) => void this.renderWeekly(b, t) },
+            { id: 'projects', title: t('home.modules.projects'), cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
+            { id: 'heatmap', title: t('home.modules.heatmap'), cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
+            { id: 'countdown', title: t('home.modules.countdown'), cardCls: 'ad-card ad-b-countdown', live: false, render: () => { } },
         ];
         // Project overview state (renderer extracted into ProjectBoard)
         this.selectedProject = null;
@@ -4627,12 +6258,12 @@ class DashboardView extends obsidian.ItemView {
         if (!btn)
             return;
         const eff = this.effectiveTheme();
-        btn.textContent = eff === 'dark' ? '\u2600' : '\uD83C\uDF19';
-        btn.title = (eff === 'dark' ? '\u5207\u6362\u5230\u6D45\u8272' : '\u5207\u6362\u5230\u6DF1\u8272')
-            + '\uFF08\u540C\u65F6\u5207\u6362 Obsidian \u5916\u89C2\uFF09';
+        btn.textContent = '';
+        injectSvg(btn, eff === 'dark' ? ICON_sun : ICON_moon);
+        btn.title = eff === 'dark' ? t('home.themeToLight') : t('home.themeToDark');
     }
     getViewType() { return VIEW_TYPE; }
-    getDisplayText() { return 'Dashboard'; }
+    getDisplayText() { return 'Xove Dashboard'; }
     getIcon() { return 'layout-dashboard'; }
     async onOpen() {
         // NOTE: earlier builds emptied this.containerEl then added .dashboard-plugin
@@ -4710,7 +6341,7 @@ class DashboardView extends obsidian.ItemView {
             try {
                 const e = err instanceof Error ? err : new Error(String(err));
                 this.dashboardEl?.empty();
-                this.dashboardEl?.createEl('pre', { cls: 'ad-error', text: 'Dashboard 渲染出错：\n' + (e.stack || e.message) });
+                this.dashboardEl?.createEl('pre', { cls: 'ad-error', text: t('home.renderError') + '：\n' + (e.stack || e.message) });
             }
             catch { /* ignore */ }
             console.error('[Dashboard] render error', err);
@@ -4746,15 +6377,17 @@ class DashboardView extends obsidian.ItemView {
        BANNER — image insert via modal, vertical drag only
        ============================================================ */
     renderBanner(root) {
+        if (!this.plugin.settings.banner.enabled)
+            return;
         const banner = root.createDiv({ cls: 'ad-banner' });
-        const ph = banner.createDiv({ cls: 'ad-banner__ph', text: '[ banner ]  ·  点击右上角按钮插入封面图片' });
+        const ph = banner.createDiv({ cls: 'ad-banner__ph', text: t('home.bannerPlaceholder') });
         this.bannerPh = ph;
         const img = banner.createEl('img', { cls: 'ad-banner__img ad-banner__img--hidden' });
         img.alt = 'Banner';
         this.bannerImg = img;
         // toolbar
         const bar = banner.createDiv({ cls: 'ad-banner__bar' });
-        const pickBtn = bar.createEl('button', { cls: 'ad-banner__btn', text: '更换图片' });
+        const pickBtn = bar.createEl('button', { cls: 'ad-banner__btn', text: t('home.changeImage') });
         // hidden file input
         const fileInput = root.createEl('input', { cls: 'ad-banner__fileinput', attr: { type: 'file', accept: 'image/*' } });
         // restore saved image
@@ -4808,8 +6441,34 @@ class DashboardView extends obsidian.ItemView {
         ph.addClass('ad-banner__ph--hidden');
     }
     async saveBanner() {
-        this.plugin.settings.banner = { ...this.bannerState };
+        // 保留设置中当前的 enabled（横幅开关可能在视图打开后被设置页改过）
+        const enabled = this.plugin.settings.banner?.enabled ?? true;
+        this.plugin.settings.banner = { ...this.bannerState, enabled };
         await this.plugin.saveSettings();
+    }
+    /** 设置页开关横幅后，立即重建横幅显隐（无需重载视图） */
+    refreshBanner() {
+        const root = this.dashboardEl;
+        if (!root)
+            return;
+        const old = root.querySelector('.ad-banner');
+        const enabled = !!this.plugin.settings.banner.enabled;
+        if (!enabled) {
+            if (old)
+                old.remove();
+            this.bannerPh = null;
+            this.bannerImg = null;
+            return;
+        }
+        if (old)
+            return; // 已显示，无需重建
+        this.bannerPh = null;
+        this.bannerImg = null;
+        this.bannerState = { ...DEFAULT_SETTINGS.banner, ...this.plugin.settings.banner };
+        this.renderBanner(root);
+        const nb = root.querySelector('.ad-banner');
+        if (nb)
+            root.insertBefore(nb, root.firstChild);
     }
     /* ---- Vault note counts by creation date ---- */
     getVaultNoteCounts() {
@@ -4946,19 +6605,26 @@ class DashboardView extends obsidian.ItemView {
         const left = h.createDiv({ cls: 'ad-header__left' });
         left.createEl('p', { cls: 'ad-eyebrow', text: d.header.eyebrow });
         this.adTitleEl = left.createEl('h1', { cls: 'ad-title', text: this.plugin.settings.dashboardTitle || d.header.title });
-        left.createEl('p', { cls: 'ad-subtitle', text: 'Obsidian · Personal Dashboard · v' + (this.plugin.manifest?.version ?? d.header.subtitle.replace(/^.*v/, 'v')) });
+        left.createEl('p', { cls: 'ad-subtitle', text: 'Obsidian · Xove Dashboard · v' + (this.plugin.manifest?.version ?? d.header.subtitle.replace(/^.*v/, 'v')) });
         const right = h.createDiv({ cls: 'ad-header__right' });
         const now = new Date();
-        const dateStr = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
-        const timeStr = now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+        const loc = isEnglish() ? 'en-US' : 'zh-CN';
+        const dateStr = now.toLocaleDateString(loc, { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const timeStr = now.toLocaleTimeString(loc, { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
         this.dateEl = right.createDiv({ cls: 'ad-header__date', text: `${dateStr} ${timeStr}` });
         const meta = right.createDiv({ cls: 'ad-header__meta' });
-        this.weekdayEl = meta.createSpan({ text: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }) });
+        this.weekdayEl = meta.createSpan({ text: new Date().toLocaleDateString(loc, { timeZone: 'Asia/Shanghai', weekday: 'long' }) });
         meta.createSpan({ cls: 'ad-dot' });
         // Compute the real lunar date up front (mock data has a stale literal);
         // the 30s interval below keeps it fresh across day boundaries.
+        // 决策2：英文模式下自动隐藏农历。
         const initialLunar = getLunarDate(new Date());
-        this.lunarEl = meta.createSpan({ text: initialLunar ? '农历 ' + initialLunar : d.lunar });
+        if (initialLunar && !isEnglish()) {
+            this.lunarEl = meta.createSpan({ text: t('home.lunarPrefix') + initialLunar });
+        }
+        else if (!isEnglish()) {
+            this.lunarEl = meta.createSpan({ text: d.lunar });
+        }
         // Buttons row: theme toggle (left) + settings (right), same line
         const btns = right.createDiv({ cls: 'ad-header__btns' });
         const themeBtn = btns.createEl('button', { cls: 'ad-header__theme' });
@@ -4975,8 +6641,8 @@ class DashboardView extends obsidian.ItemView {
                 this.applyTheme();
             })();
         });
-        const settings = btns.createEl('button', { cls: 'ad-header__settings' });
-        settings.textContent = '\u2699 \u8BBE\u7F6E';
+        const settings = btns.createEl('button', { cls: 'ad-header__settings', attr: { 'aria-label': t('home.settingsBtn') } });
+        injectSvg(settings, ICON_gear);
         settings.addEventListener('click', () => {
             const app = this.app;
             app.setting?.open();
@@ -4985,18 +6651,20 @@ class DashboardView extends obsidian.ItemView {
         // Update time every 30 seconds
         this.registerInterval(window.setInterval(() => {
             const n = new Date();
+            const l = isEnglish() ? 'en-US' : 'zh-CN';
             if (this.dateEl) {
-                const ds = n.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
-                const ts = n.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+                const ds = n.toLocaleDateString(l, { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+                const ts = n.toLocaleTimeString(l, { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
                 this.dateEl.textContent = `${ds} ${ts}`;
             }
             if (this.weekdayEl) {
-                this.weekdayEl.textContent = n.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' });
+                this.weekdayEl.textContent = n.toLocaleDateString(l, { timeZone: 'Asia/Shanghai', weekday: 'long' });
             }
+            // 英文模式下 lunarEl 不存在（决策2：隐藏农历），自然跳过
             if (this.lunarEl) {
                 const lunar = getLunarDate(n);
                 if (lunar)
-                    this.lunarEl.textContent = '\u519C\u5386 ' + lunar;
+                    this.lunarEl.textContent = t('home.lunarPrefix') + lunar;
             }
         }, 30000));
     }
@@ -5007,17 +6675,17 @@ class DashboardView extends obsidian.ItemView {
         const nav = root.createEl('nav', { cls: 'ad-toolbar' });
         // 导航组：去哪看（主页 / 全部项目 / 机会点）
         const navItems = [
-            { glyph: '\u2302', label: '\u4E3B\u9875', action: 'home', svg: ICON_home },
-            { glyph: '\u203A', label: '\u5168\u90E8\u9879\u76EE', action: 'all', svg: ICON_allProjects },
+            { glyph: '\u2302', label: t('home.nav.home'), action: 'home', svg: ICON_home },
+            { glyph: '\u203A', label: t('home.nav.allProjects'), action: 'all', svg: ICON_allProjects },
         ];
         if (this.plugin.settings.boardEnabled) {
-            navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || '\u770B\u677F', action: 'opportunity', svg: ICON_opportunity });
+            navItems.push({ glyph: '\u25C8', label: this.plugin.settings.boardTitle || t('home.nav.board'), action: 'opportunity', svg: ICON_opportunity });
         }
         // 动作组：建什么（新建日记 / 新建任务 / 新建项目）
         const actionItems = [
-            { glyph: '+', label: '\u65B0\u5EFA\u65E5\u8BB0', action: 'diary', svg: ICON_newDiary },
-            { glyph: '\u25A1', label: '\u65B0\u5EFA\u4EFB\u52A1', action: 'task', svg: ICON_newTask },
-            { glyph: '\u25A3', label: '\u65B0\u5EFA\u9879\u76EE', action: 'project', svg: ICON_newProject },
+            { glyph: '+', label: t('home.nav.newDiary'), action: 'diary', svg: ICON_newDiary },
+            { glyph: '\u25A1', label: t('home.nav.newTask'), action: 'task', svg: ICON_newTask },
+            { glyph: '\u25A3', label: t('home.nav.newProject'), action: 'project', svg: ICON_newProject },
         ];
         const makeBtn = (it, extraCls = '') => {
             const btn = nav.createEl('button', { cls: 'ad-toolbar__btn' + (extraCls ? ' ' + extraCls : '') });
@@ -5045,7 +6713,7 @@ class DashboardView extends obsidian.ItemView {
                 }
                 catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    this.showToast('打开失败：' + msg, 'error');
+                    this.showToast(t('home.openFailed') + msg, 'error');
                     console.error('[Dashboard] toolbar action "' + it.action + '" failed', e);
                 }
                 window.setTimeout(() => btn.removeClass('is-active'), 350);
@@ -5079,18 +6747,18 @@ class DashboardView extends obsidian.ItemView {
         el.removeClass('ad-parse-issues--hidden');
         const bar = el.createDiv({ cls: 'ad-parse-issues__bar' });
         bar.createSpan({ cls: 'ad-parse-issues__icon', text: '⚠' });
-        bar.createSpan({ cls: 'ad-parse-issues__text', text: `${issues.length} 个文件解析异常（数据可能不完整），点击查看` });
-        const toggle = bar.createSpan({ cls: 'ad-parse-issues__toggle', text: '收起' });
+        bar.createSpan({ cls: 'ad-parse-issues__text', text: t('home.parseIssues', { n: issues.length }) });
+        const toggle = bar.createSpan({ cls: 'ad-parse-issues__toggle', text: t('common.collapse') });
         const list = el.createDiv({ cls: 'ad-parse-issues__list ad-parse-issues__list--hidden' });
         bar.addEventListener('click', () => {
             const hidden = list.classList.toggle('ad-parse-issues__list--hidden');
-            toggle.textContent = hidden ? '展开' : '收起';
+            toggle.textContent = hidden ? t('common.expand') : t('common.collapse');
         });
         for (const it of issues) {
             const row = list.createDiv({ cls: 'ad-parse-issues__item' });
             row.createSpan({ cls: 'ad-parse-issues__path', text: it.path });
             row.createSpan({ cls: 'ad-parse-issues__msg', text: `[${it.kind}] ${it.message}` });
-            const openBtn = row.createEl('button', { cls: 'ad-parse-issues__open', text: '在 Obsidian 打开' });
+            const openBtn = row.createEl('button', { cls: 'ad-parse-issues__open', text: t('home.parseOpen') });
             openBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 void this.openFileByPath(it.path);
@@ -5104,7 +6772,7 @@ class DashboardView extends obsidian.ItemView {
             await leaf.openFile(f);
         }
         else {
-            this.showToast('文件不存在：' + path, 'error');
+            this.showToast(t('home.fileNotFound') + path, 'error');
         }
     }
     /* ============================================================
@@ -5133,16 +6801,16 @@ class DashboardView extends obsidian.ItemView {
             return;
         }
         const card = board.createDiv({ cls: 'ad-card ad-card--guide' });
-        this.cardHead(card, '\u{1F680}', '欢迎使用 Dashboard');
-        card.createDiv({ cls: 'ad-guide__body', text: '检测到你的知识库还没有任何项目或任务。从下面任意一个开始，几秒即可上手：' });
+        this.cardHead(card, '\u{1F680}', t('home.guideTitle'));
+        card.createDiv({ cls: 'ad-guide__body', text: t('home.guideBody') });
         const actions = card.createDiv({ cls: 'ad-guide__actions' });
         const mk = (label, fn) => {
             const b = actions.createEl('button', { cls: 'ad-guide__btn', text: label });
             b.addEventListener('click', fn);
         };
-        mk('＋ 新建项目', () => void this.createProjectFile());
-        mk('＋ 新建任务', () => void this.openTaskModal(this.selectedProject ?? undefined));
-        mk('＋ 新建日记', () => void this.createDiary());
+        mk(t('home.guideNewProject'), () => void this.createProjectFile());
+        mk(t('home.guideNewTask'), () => void this.openTaskModal(this.selectedProject ?? undefined));
+        mk(t('home.guideNewDiary'), () => void this.createDiary());
     }
     /* ============================================================
        Board — single grid containing all cards
@@ -5159,14 +6827,14 @@ class DashboardView extends obsidian.ItemView {
     renderQuickCapture(board) {
         // 复用已存在的卡壳（由 renderEnabledModules 按顺序建好），否则每次渲染都会追加一张新卡
         const card = this.getOrCreateCard(board, 'ad-card ad-b-capture');
-        this.cardHead(card, '\u25C6', '\u5FEB\u901F\u6355\u6349');
+        this.cardHead(card, '\u25C6', t('home.modules.quickCapture'));
         const qc = card.createDiv({ cls: 'ad-qc' });
         const area = qc.createEl('textarea', {
             cls: 'ad-qc__area',
-            attr: { rows: '3', placeholder: '\u8BB0\u5F55\u4E00\u95EA\u800C\u8FC7\u7684\u60F3\u6CD5\u2026' },
+            attr: { rows: '3', placeholder: t('home.quickCapturePlaceholder') },
         });
         const row = qc.createDiv({ cls: 'ad-qc__row' });
-        const cta = row.createEl('button', { cls: 'ad-qc__cta', text: '\u6355\u6349' });
+        const cta = row.createEl('button', { cls: 'ad-qc__cta', text: t('home.captureBtn') });
         const submit = async () => {
             const content = area.value.trim();
             if (!content) {
@@ -5177,11 +6845,11 @@ class DashboardView extends obsidian.ItemView {
             try {
                 await this.createCaptureNote(content);
                 area.value = '';
-                this.showToast('\u2728 \u60F3\u6CD5\u5DF2\u6355\u6349\uFF01');
+                this.showToast(t('home.capturedToast'));
             }
             catch (err) {
                 console.error('[Dashboard] 快速捕捉失败', err);
-                this.showToast('\u26A0\uFE0F 捕捉失败，请检查「存储路径」设置', 'error');
+                this.showToast(t('home.captureFailed'), 'error');
             }
             finally {
                 window.setTimeout(() => cta.removeClass('flash'), 400);
@@ -5249,7 +6917,7 @@ class DashboardView extends obsidian.ItemView {
         const filepath = `${dc.storagePath}/${filename}.md`;
         // Check if already exists
         if (this.app.vault.getAbstractFileByPath(filepath)) {
-            this.showToast(`\u274C ${filename} \u5DF2\u5B58\u5728`);
+            this.showToast(t('home.fileExists', { name: filename }));
             return;
         }
         // Build content from template
@@ -5263,7 +6931,7 @@ class DashboardView extends obsidian.ItemView {
             }
         }
         await this.app.vault.create(filepath, content);
-        this.showToast(`\u2728 \u65E5\u8BB0\u5DF2\u521B\u5EFA\uFF1A${filename}`);
+        this.showToast(t('home.diaryCreated', { name: filename }));
         // Open the new note
         const file = this.app.vault.getAbstractFileByPath(filepath);
         if (file instanceof obsidian.TFile) {
@@ -5295,9 +6963,9 @@ class DashboardView extends obsidian.ItemView {
     }
     applyNamingPattern(pattern, d) {
         const pad = (n) => String(n).padStart(2, '0');
-        const WK_SHORT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        const WK_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-        const meridiem = d.getHours() < 12 ? '上午' : '下午';
+        const WK_SHORT = tArr('status.weekShort');
+        const WK_FULL = tArr('status.weekLong');
+        const meridiem = tArr('status.amPm')[d.getHours() < 12 ? 0 : 1];
         const h12 = d.getHours() % 12 || 12;
         // 支持的命名占位符（一次性正则替换，避免 DD 与 ddd/dddd 互相串扰）。
         // YYYY 年 / MM 月(2位) / MMM 月缩写(如 8月) / DD 日(2位)
@@ -5305,7 +6973,7 @@ class DashboardView extends obsidian.ItemView {
         // HH 24小时 / hh 12小时 / mm 分 / ss|SS 秒 / A 上午·下午
         const map = {
             YYYY: String(d.getFullYear()),
-            MMM: `${d.getMonth() + 1}月`,
+            MMM: tArr('status.months')[d.getMonth()],
             MM: pad(d.getMonth() + 1),
             dddd: WK_FULL[d.getDay()],
             ddd: WK_SHORT[d.getDay()],
@@ -5329,18 +6997,32 @@ class DashboardView extends obsidian.ItemView {
         const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
         if (!(file instanceof obsidian.TFile))
             return;
-        // Repeat task: instead of toggling status, advance remindDate
-        if (task.type === '\u91CD\u590D' && task.status !== '\u5DF2\u5B8C\u6210') {
-            const nextDate = calcNextRemindDate(task);
-            if (nextDate) {
-                await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
-                task.remindDate = nextDate;
-                const now = nowFmt();
-                await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
-                task.completeTime = now;
-                this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
+        // Repeat task.
+        if (task.type === '\u91CD\u590D') {
+            // 今日已推进过（完成状态）：再点圆圈 = 取消今日完成 → 回退 remindDate 到今天并清除完成时间
+            const advancedToday = !!task.completeTime && task.completeTime.startsWith(todayStr());
+            if (advancedToday && task.status !== '\u5DF2\u5B8C\u6210') {
+                await this.writeFrontmatter(file, { '\u63D0\u9192\u65E5\u671F': todayStr(), '\u5B8C\u6210\u65F6\u95F4': null });
+                task.remindDate = todayStr();
+                task.completeTime = null;
+                row.toggleClass('is-done', false);
+                this.showToast(t('home.nodeTodo', { date: todayStr() }));
                 void this.refreshRelevant();
                 return;
+            }
+            // 未完成（含今日尚未推进）：推进 remindDate 到下一次
+            if (task.status !== '\u5DF2\u5B8C\u6210') {
+                const nextDate = calcNextRemindDate(task);
+                if (nextDate) {
+                    await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', nextDate);
+                    task.remindDate = nextDate;
+                    const now = nowFmt();
+                    await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
+                    task.completeTime = now;
+                    this.showToast(t('home.repeatNext', { date: nextDate }));
+                    void this.refreshRelevant();
+                    return;
+                }
             }
         }
         const newStatus = task.status === '\u5DF2\u5B8C\u6210' ? '\u5F85\u529E' : '\u5DF2\u5B8C\u6210';
@@ -5358,6 +7040,72 @@ class DashboardView extends obsidian.ItemView {
     /** Write frontmatter fields to a file via the shared data-layer writer (CRLF-safe + YAML value escaping). */
     async writeFrontmatter(file, updates) {
         await writeFrontmatter(this.app, file, updates);
+    }
+    /**
+     * Set a single daily-node state for a task's date, rewriting the body
+     * "## 每日节点" block (state: done / todo / skip). Falls back to legacy
+     * frontmatter "每日节点" key when the body block is absent.
+     */
+    async setDailyNode(task, date, state) {
+        if (!task.sourceFile)
+            return;
+        const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
+        if (!(file instanceof obsidian.TFile))
+            return;
+        const raw = await this.app.vault.read(file);
+        const lines = raw.split(/\r?\n/);
+        // End of frontmatter
+        let fmEnd = 0;
+        if (lines[0]?.trim() === '---') {
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i]?.trim() === '---') {
+                    fmEnd = i;
+                    break;
+                }
+            }
+        }
+        // Parse existing nodes from the body block (canonical parser: marker words
+        // like 未做/待办/完成 are not treated as notes — see parseDailyNodesFromBody)
+        const nodes = parseDailyNodesFromBody(raw);
+        // Apply the target state (todo = remove node entirely so it counts as "not done")
+        if (state === 'todo') {
+            delete nodes[date];
+        }
+        else {
+            nodes[date] = { s: state, n: (nodes[date]?.n) || '' };
+        }
+        // Rebuild body without the old daily-node block, then append fresh block
+        const block = serializeDailyNodesBlock(nodes);
+        const fmPart = lines.slice(0, fmEnd + 1).join('\n');
+        const bodyLines = [];
+        let inDnBlock = false;
+        for (let j = fmEnd + 1; j < lines.length; j++) {
+            const l = lines[j] ?? '';
+            if (/^#{1,6}\s+每日节点\s*$/.test(l.trim())) {
+                inDnBlock = true;
+                continue;
+            }
+            if (inDnBlock) {
+                if (/^-\s*\d{4}-\d{2}-\d{2}/.test(l.trim()))
+                    continue;
+                if (l.trim() === '')
+                    continue;
+                inDnBlock = false;
+            }
+            bodyLines.push(l);
+        }
+        while (bodyLines.length && (bodyLines[bodyLines.length - 1] ?? '').trim() === '')
+            bodyLines.pop();
+        const tail = bodyLines.join('\n').trim();
+        let out = fmPart;
+        if (tail)
+            out += '\n' + tail;
+        if (block)
+            out += '\n\n' + block + '\n';
+        await this.app.vault.modify(file, out.trimEnd() + '\n');
+        task.dailyNodes = nodes;
+        this.showToast(state === 'done' ? t('home.nodeDone', { date }) : state === 'skip' ? t('home.nodeSkipped', { date }) : t('home.nodeTodo', { date }));
+        void this.refreshRelevant();
     }
     async writeTaskField(task, fieldKey, value) {
         if (!task.sourceFile)
@@ -5403,7 +7151,7 @@ class DashboardView extends obsidian.ItemView {
             await this.writeTaskField(task, '\u63D0\u9192\u65E5\u671F', newRemind);
             task.remindDate = newRemind;
         }
-        this.showToast('\u2728 \u4EFB\u52A1\u5DF2\u5EF6\u540E\u4E00\u5929');
+        this.showToast(t('home.taskPostponed'));
         void this.refreshRelevant();
     }
     /** Edit project via ProjectModal */
@@ -5445,7 +7193,7 @@ class DashboardView extends obsidian.ItemView {
             '\u7ED3\u675F\u65E5\u671F': data.endDate,
             '\u9636\u6BB5': String(data.stage),
         });
-        this.showToast('\u2728 \u9879\u76EE\u5DF2\u66F4\u65B0');
+        this.showToast(t('home.projectUpdated'));
         await this.projectBoard.refresh();
     }
     async showDashboard() {
@@ -5465,26 +7213,46 @@ class DashboardView extends obsidian.ItemView {
     async deleteTask(task) {
         if (!task.sourceFile)
             return;
-        const confirmed = confirm(`\u786E\u5B9A\u5220\u9664\u4EFB\u52A1 "${task.content}"\uFF1F`);
-        if (!confirmed)
-            return;
         const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
-        if (file instanceof obsidian.TFile) {
-            await this.app.fileManager.trashFile(file);
-            this.showToast('\u274C \u4EFB\u52A1\u5DF2\u5220\u9664: ' + task.content);
-            void this.refreshRelevant();
-        }
+        if (!(file instanceof obsidian.TFile))
+            return;
+        const { ConfirmModal } = await Promise.resolve().then(function () { return ConfirmModal$1; });
+        new ConfirmModal({
+            app: this.app,
+            title: t('common.delete'),
+            message: t('home.deleteTaskConfirm', { name: task.content }),
+            confirmLabel: t('common.delete'),
+            cancelLabel: t('common.cancel'),
+            onConfirm: () => {
+                void (async () => {
+                    await this.app.fileManager.trashFile(file);
+                    this.showToast(t('home.taskDeleted', { name: task.content }));
+                    void this.refreshRelevant();
+                })();
+            },
+        }).open();
     }
     /** Open TaskEditModal for a given task */
     openTaskEditModal(task, presetTodayNode) {
-        new TaskEditModal({
-            app: this.app,
-            task,
-            presetTodayNode,
-            onSave: () => {
-                void this.refreshRelevant();
-            },
-        }).open();
+        // 异步加载项目与任务列表，供任务详情弹窗内的「项目 / 父任务」下拉使用
+        void (async () => {
+            const [projects, allTasks] = await Promise.all([
+                this.taskStore.scanAllProjects(),
+                this.taskStore.scanAllTasks(),
+            ]);
+            new TaskEditModal({
+                app: this.app,
+                task,
+                presetTodayNode,
+                projects,
+                allTasks,
+                projectsFolder: this.plugin.settings.projectsFolder,
+                taskDetailMode: this.plugin.settings.taskDetailMode,
+                onSave: () => {
+                    void this.refreshRelevant();
+                },
+            }).open();
+        })();
     }
     /** Find the actual project folder by scanning vault */
     async findProjectFolder(projectName) {
@@ -5492,6 +7260,15 @@ class DashboardView extends obsidian.ItemView {
         const root = this.app.vault.getAbstractFileByPath(rootPath);
         if (!(root instanceof obsidian.TFolder))
             return null;
+        // 优先按「显示名 → path」映射匹配（TaskModal 传的是 ProjectInfo.name，可能是 frontmatter 项目名称而非文件夹名）
+        const projects = await this.taskStore.scanAllProjects();
+        const byName = projects.find((p) => p.name === projectName);
+        if (byName) {
+            const f = this.app.vault.getAbstractFileByPath(byName.path);
+            if (f instanceof obsidian.TFolder)
+                return f;
+        }
+        // 兜底：按文件夹名递归匹配
         return this.findProjectFolderRecursive(root, projectName);
     }
     findProjectFolderRecursive(folder, projectName) {
@@ -5510,7 +7287,7 @@ class DashboardView extends obsidian.ItemView {
     async createTaskFile(title, projectName, startDate, endDate, priority, status, type, tags, reminders, notes, parent, repeatFreq, repeatInterval, repeatWorkdaysOnly, repeatWeekdays, repeatMonthDay, noEndDate) {
         const projectFolder = await this.findProjectFolder(projectName);
         if (!projectFolder) {
-            this.showToast(`\u274C \u627E\u4E0D\u5230\u9879\u76EE\u6587\u4EF6\u5939: ${projectName}`);
+            this.showToast(t('home.projectFolderMissing', { name: projectName }));
             return;
         }
         const safeTitle = title.replace(/[*"/<>:|?\\]/g, '-');
@@ -5518,7 +7295,7 @@ class DashboardView extends obsidian.ItemView {
         const filePath = `${projectFolder.path}/${filename}`;
         // Check if already exists
         if (this.app.vault.getAbstractFileByPath(filePath)) {
-            this.showToast(`\u274C ${title} \u5DF2\u5B58\u5728\u4E8E\u8BE5\u9879\u76EE\u4E2D`);
+            this.showToast(t('home.taskExistsInProject', { name: title }));
             return;
         }
         // Map status values
@@ -5579,8 +7356,15 @@ class DashboardView extends obsidian.ItemView {
         lines.push('');
         lines.push(`# ${title}`);
         lines.push('');
-        await this.app.vault.create(filePath, lines.join('\n'));
-        this.showToast(`\u2728 \u4EFB\u52A1\u5DF2\u521B\u5EFA`);
+        try {
+            await this.app.vault.create(filePath, lines.join('\n'));
+            this.showToast(t('home.taskCreated'));
+            void this.refreshRelevant();
+        }
+        catch (err) {
+            console.error('createTaskFile failed', err);
+            this.showToast(t('home.taskCreateFailed', { name: title, error: err instanceof Error ? err.message : String(err) }));
+        }
     }
     /** Create a project folder + project.md with Chinese frontmatter */
     async createProjectFile() {
@@ -5621,8 +7405,19 @@ class DashboardView extends obsidian.ItemView {
         ];
         // Config file: project-{name}.md
         const projectFilePath = `${projectFolderPath}/project-${safeName}.md`;
-        await this.app.vault.create(projectFilePath, lines.join('\n'));
-        this.showToast(`\u2728 \u9879\u76EE\u5DF2\u521B\u5EFA\uFF1A${name}`);
+        try {
+            if (this.app.vault.getAbstractFileByPath(projectFilePath)) {
+                this.showToast(t('home.fileExists', { name: 'project-' + safeName }));
+                return;
+            }
+            await this.app.vault.create(projectFilePath, lines.join('\n'));
+            this.showToast(t('home.projectCreated', { name }));
+            void this.refreshRelevant();
+        }
+        catch (err) {
+            console.error('createProjectFolder failed', err);
+            this.showToast(t('home.projectCreateFailed', { name, error: err instanceof Error ? err.message : String(err) }));
+        }
     }
     /** Get list of all projects (async version using scanAllProjects) */
     async getProjectsList() {
@@ -5665,6 +7460,21 @@ class DashboardView extends obsidian.ItemView {
             return;
         const allTasks = await this.taskStore.scanAllTasks();
         await this.renderTodo(this.boardEl, allTasks);
+    }
+    /** 设置页切换「完成后不消失」等开关后，立即刷新 TODO 卡片（无需切页/重载） */
+    refreshTodo() {
+        void this.refreshTodoList();
+    }
+    /** Refresh the weekly & overdue list card in-place */
+    async refreshWeeklyList() {
+        if (!this.boardEl)
+            return;
+        const allTasks = await this.taskStore.scanAllTasks();
+        await this.renderWeekly(this.boardEl, allTasks);
+    }
+    /** 设置页切换「完成后不消失」等开关后，立即刷新本周待办卡片（无需切页/重载） */
+    refreshWeekly() {
+        void this.refreshWeeklyList();
     }
     /**
      * 由多类名字符串构造合法的类选择器：'ad-card ad-b-todo' → '.ad-card.ad-b-todo'
@@ -5710,21 +7520,58 @@ class DashboardView extends obsidian.ItemView {
             if (!matched)
                 el.remove();
         });
+        // ── 第零步：把「启用模块」展开为渲染单元。
+        //   倒计时是多实例模块：settings.countdown 每一项 = 一张独立卡片（cdIdx = 数组下标）；
+        //   列表为空时退化出一张占位卡（cdIdx = -1），保证「右键添加」始终有入口。
+        const units = [];
+        for (const cfg of enabled) {
+            const mod = this.homeModules.find((x) => x.id === cfg.id);
+            if (!mod)
+                continue;
+            if (mod.id === 'countdown') {
+                const cds = this.plugin.settings.countdown ?? [];
+                const idxs = cds.length ? cds.map((_, i) => i) : [-1];
+                for (const i of idxs)
+                    units.push({ mod, cdIdx: i });
+            }
+            else {
+                units.push({ mod });
+            }
+        }
         // ── 第一步：**同步**建好全部卡壳并按 settings 顺序摆位 ──────────────────
         // 关键：部分模块的 render 是 async（todo/progress/weekly/projects 包在 `void` 里），
         // 若等它们各自 createDiv，DOM 顺序就变成「谁先 resolve 谁在前」→ 表现为
         // 「排好的布局一切页/一重启就乱」。先同步占好位置，异步内容只是往壳里填。
         const shells = [];
-        for (const cfg of enabled) {
-            const mod = this.homeModules.find((x) => x.id === cfg.id);
-            if (!mod)
-                continue;
-            const sel = DashboardView.cardSel(mod.cardCls);
+        // 倒计时卡片数量减少后，残留旧实例（data-cd-idx 不再存在）需按精确下标移除
+        const cdLiveIdx = new Set(units.filter((u) => u.cdIdx !== undefined).map((u) => String(u.cdIdx)));
+        board.querySelectorAll('.ad-b-countdown').forEach((el) => {
+            const idx = el.getAttribute('data-cd-idx');
+            if (idx !== null && !cdLiveIdx.has(idx))
+                el.remove();
+        });
+        for (const u of units) {
+            const sel = DashboardView.cardSel(u.mod.cardCls);
             let el = board.querySelector(sel);
-            if (!el)
-                el = board.createDiv({ cls: mod.cardCls });
-            el.setAttribute('data-mod', mod.id);
-            this.applyCardSpan(el, cfg.cols, cfg.rows);
+            // 倒计时多实例：同一 class 有多张卡，必须按 data-cd-idx 精确命中，否则会全命中第一张
+            if (u.cdIdx !== undefined && el) {
+                const exact = board.querySelector(`${sel}[data-cd-idx="${u.cdIdx}"]`);
+                if (exact) {
+                    el = exact;
+                    el.empty();
+                }
+                else {
+                    el = null;
+                }
+            }
+            if (!el) {
+                el = board.createDiv({ cls: u.mod.cardCls });
+                if (u.cdIdx !== undefined)
+                    el.setAttribute('data-cd-idx', String(u.cdIdx));
+            }
+            el.setAttribute('data-mod', u.mod.id);
+            const cfg = this.plugin.settings.homeModules?.find((m) => m.id === u.mod.id);
+            this.applyCardSpan(el, cfg?.cols, cfg?.rows);
             shells.push(el);
         }
         // 只在实际错位时才移动节点：避免无谓的重新插入导致快速捕捉输入框失焦
@@ -5738,21 +7585,26 @@ class DashboardView extends obsidian.ItemView {
         }
         // ── 第二步：填充内容（各 render 内部用 getOrCreateCard 命中上面的壳） ──────
         const allTasks = opts?.allTasks ?? await this.taskStore.scanAllTasks();
-        for (const cfg of enabled) {
-            const mod = this.homeModules.find((x) => x.id === cfg.id);
-            if (!mod)
-                continue;
-            if (opts?.onlyLive && mod.live === false)
-                continue;
+        for (const u of units) {
             // 异步渲染期间用户可能已切页，必须重校验，否则会把主页卡渲染进其它页面
             if (this.currentPage !== 'home' || !this.boardEl)
                 return;
-            await mod.render(board, allTasks);
+            if (u.cdIdx !== undefined) {
+                // 倒计时多实例：按 data-cd-idx 渲染对应独立卡片（live:false，不进 onlyLive 刷新）
+                if (opts?.onlyLive)
+                    continue;
+                this.renderCountdownCard(board, u.cdIdx);
+                continue;
+            }
+            if (opts?.onlyLive && u.mod.live === false)
+                continue;
+            await u.mod.render(board, allTasks);
             // 内容渲染可能重建了卡片，比例/标识需要复位一次（幂等）
-            const cardEl = board.querySelector(DashboardView.cardSel(mod.cardCls));
+            const cardEl = board.querySelector(DashboardView.cardSel(u.mod.cardCls));
             if (cardEl) {
-                cardEl.setAttribute('data-mod', mod.id);
-                this.applyCardSpan(cardEl, cfg.cols, cfg.rows);
+                cardEl.setAttribute('data-mod', u.mod.id);
+                const cfg = this.plugin.settings.homeModules?.find((m) => m.id === u.mod.id);
+                this.applyCardSpan(cardEl, cfg?.cols, cfg?.rows);
             }
         }
         // 编辑态下确保每张卡都带「比例」按钮（重渲染（如数据刷新）会清空按钮，这里补回）
@@ -5979,12 +7831,11 @@ class DashboardView extends obsidian.ItemView {
             y - r.top <= EDGE ||
             r.bottom - y <= EDGE);
     }
-    /** 编辑态下右键卡片：倒计时卡片先弹出右键菜单选「编辑」，确认后再开编辑弹窗 */
+    /** 首页倒计时卡片右键菜单：仅提供「编辑」（删除统一走编辑态「拖到此处删除」区，
+     *  避免入口重复、误删；新增卡片走「添加卡片」菜单）。非首页 / 非倒计时卡直接放行系统菜单。 */
     onBoardContextMenu(e) {
-        // 右键菜单仅首页编辑态下用于倒计时卡片；项目/机会点页无卡片编辑模式，直接放行系统右键菜单
+        // 右键菜单仅作用于首页倒计时卡片；项目/机会点页无此卡片，直接放行系统右键菜单
         if (this.currentPage !== 'home')
-            return;
-        if (!this.adEditMode)
             return;
         const card = e.target.closest('.ad-card');
         if (!card)
@@ -5992,21 +7843,45 @@ class DashboardView extends obsidian.ItemView {
         if ((card.getAttribute('data-mod') ?? '') !== 'countdown')
             return;
         e.preventDefault();
+        const idxAttr = card.getAttribute('data-cd-idx');
+        const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
+        if (idx < 0)
+            return; // 占位卡（无事件）不提供右键菜单
+        // 右键仅提供「编辑」；删除统一走编辑态「拖到此处删除」区，避免入口重复、误删
         const menu = new obsidian.Menu();
         menu.addItem((item) => item
-            .setTitle('\u7F16\u8F91')
+            .setTitle(t('common.edit'))
             .setIcon('pencil')
-            .onClick(() => this.openCountdownEdit()));
+            .onClick(() => this.openCountdownEdit(idx)));
         menu.showAtMouseEvent(e);
     }
-    /** 打开倒计时事件编辑弹窗，保存后回写 settings 并刷新卡片 */
-    openCountdownEdit() {
+    /** 打开倒计时事件编辑弹窗；idx >= 0 时仅编辑这一张卡（其他不受影响），idx < 0 时编辑整张占位卡。
+     *  保存后回写 settings 并刷新卡片。 */
+    openCountdownEdit(idx) {
         if (!this.boardEl)
             return;
+        const fullList = this.plugin.settings.countdown ?? [];
+        if (idx >= 0) {
+            // 单卡编辑：弹窗只显示当前这一张卡，确认后只回写这张卡（其他卡片不受影响）
+            const current = fullList[idx];
+            if (!current)
+                return;
+            const modal = new CountdownModal(this.app, [{ ...current }], (cfg) => {
+                const next = fullList.slice();
+                if (cfg.length)
+                    next[idx] = cfg[0];
+                this.plugin.settings.countdown = next;
+                void this.plugin.saveSettings();
+                void this.renderEnabledModules(this.boardEl);
+            }, { single: true });
+            modal.open();
+            return;
+        }
+        // 兜底：占位卡场景，整批编辑
         const modal = new CountdownModal(this.app, this.plugin.settings.countdown, (cfg) => {
             this.plugin.settings.countdown = cfg;
             void this.plugin.saveSettings();
-            this.renderCountdown(this.boardEl);
+            void this.renderEnabledModules(this.boardEl);
         });
         modal.open();
     }
@@ -6195,7 +8070,16 @@ class DashboardView extends obsidian.ItemView {
         const overTrash = ds.overTrash || this.isOverTrash(ds.lastX, ds.lastY);
         if (overTrash && id) {
             ds.placeholder.remove();
-            this.removeModule(id);
+            if (id === 'countdown') {
+                // 倒计时是多实例：只删除被拖动的这一张（按 data-cd-idx 精确定位），
+                // 不能走 removeModule（会把整个倒计时模块隐藏，误删其余卡片）
+                const idxAttr = card.getAttribute('data-cd-idx');
+                const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
+                this.deleteCountdownCard(idx);
+            }
+            else {
+                this.removeModule(id);
+            }
             return;
         }
         ds.placeholder.parentNode?.insertBefore(card, ds.placeholder);
@@ -6247,7 +8131,7 @@ class DashboardView extends obsidian.ItemView {
         if (this.boardEl)
             this.boardEl.empty();
         await this.showDashboardKeepEditMode();
-        this.showToast('↺ 已恢复默认布局');
+        this.showToast(t('home.restoreLayout'));
     }
     /** 重建首页但不退出编辑态（供「重置布局 / 添加卡片」在编辑态内复用） */
     async showDashboardKeepEditMode() {
@@ -6307,13 +8191,13 @@ class DashboardView extends obsidian.ItemView {
         if (this.adEditBar || !this.dashboardEl)
             return;
         const bar = this.dashboardEl.createDiv({ cls: 'ad-editbar' });
-        bar.createEl('button', { cls: 'ad-editbar__trash', text: '\uD83D\uDDD1 拖到此处删除' });
+        bar.createEl('button', { cls: 'ad-editbar__trash', text: t('home.editbar.trash') });
         bar.createDiv({ cls: 'ad-editbar__spacer' });
-        const add = bar.createEl('button', { cls: 'ad-editbar__add', text: '＋ 添加卡片' });
+        const add = bar.createEl('button', { cls: 'ad-editbar__add', text: t('home.editbar.add') });
         add.addEventListener('click', () => this.openAddMenu());
-        const reset = bar.createEl('button', { cls: 'ad-editbar__reset', text: '↺ 重置布局' });
+        const reset = bar.createEl('button', { cls: 'ad-editbar__reset', text: t('home.editbar.reset') });
         reset.addEventListener('click', () => void this.resetLayout());
-        const done = bar.createEl('button', { cls: 'ad-editbar__done', text: '完成' });
+        const done = bar.createEl('button', { cls: 'ad-editbar__done', text: t('home.editbar.done') });
         done.addEventListener('click', () => this.exitEditMode());
         this.adEditBar = bar;
     }
@@ -6337,7 +8221,7 @@ class DashboardView extends obsidian.ItemView {
             if (!c.getAttribute('data-mod'))
                 c.setAttribute('data-mod', modId);
             const btn = c.createDiv({ cls: 'ad-card__resize', text: '⤢' });
-            btn.setAttribute('aria-label', '调整卡片比例（拖动缩放，点击精确设置）');
+            btn.setAttribute('aria-label', t('home.ratioAria'));
             btn.addEventListener('pointerdown', (ev) => {
                 ev.stopPropagation();
                 ev.preventDefault();
@@ -6514,8 +8398,8 @@ class DashboardView extends obsidian.ItemView {
         const curRows = m.rows ?? 1;
         const { backdrop, close } = this.createPopover('ad-propmenu-backdrop', { anchored: true });
         const menu = backdrop.createDiv({ cls: 'ad-propmenu' });
-        const ratioHint = MIN_RATIO[modId] ? `（本卡最低宽高比 ${MIN_RATIO[modId]}:1）` : '';
-        menu.createDiv({ cls: 'ad-propmenu__title', text: `调整卡片比例（宽 1-4 格，高 1-4 格；如 1×2 竖卡）${ratioHint}` });
+        const ratioHint = MIN_RATIO[modId] ? t('home.ratioHint', { ratio: MIN_RATIO[modId] }) : '';
+        menu.createDiv({ cls: 'ad-propmenu__title', text: t('home.ratioMenuTitle', { hint: ratioHint }) });
         const grid = menu.createDiv({ cls: 'ad-propmenu__grid' });
         for (let r = 1; r <= 4; r++) {
             for (let c = 1; c <= 4; c++) {
@@ -6556,27 +8440,39 @@ class DashboardView extends obsidian.ItemView {
             this.adLimitTimer = null;
         }, 460);
     }
-    /** 弹出被隐藏模块的列表，点击即加回首页 */
+    /** 弹出可添加的卡片列表；点击即加入首页。
+     *  - 倒计时：自由追加独立卡片（≤5 张），与「隐藏模块」显隐逻辑解耦；
+     *  - 其余模块：列出被隐藏（enabled=false）的模块，点击恢复显示。 */
     openAddMenu() {
         const hm = this.plugin.settings.homeModules ?? [];
         const hidden = hm.filter((m) => !m.enabled);
         const titleMap = new Map(this.homeModules.map((m) => [m.id, m.title]));
+        const cds = this.plugin.settings.countdown ?? [];
         const { backdrop, close } = this.createPopover('ad-addmenu-backdrop');
         const menu = backdrop.createDiv({ cls: 'ad-addmenu' });
-        menu.createDiv({ cls: 'ad-addmenu__title', text: '添加卡片到首页' });
-        if (hidden.length === 0) {
-            menu.createDiv({ cls: 'ad-addmenu__empty', text: '所有模块均已显示在首页' });
+        menu.createDiv({ cls: 'ad-addmenu__title', text: t('home.addMenuTitle') });
+        // 倒计时：存在倒计时卡片 ≤5 时，始终提供「添加倒计时卡片」入口
+        if (cds.length < 5) {
+            const item = menu.createDiv({ cls: 'ad-addmenu__item' });
+            item.createSpan({ text: t('home.cdAddCard') });
+            item.createSpan({ text: '＋' });
+            item.addEventListener('click', () => {
+                close();
+                this.addCountdownCard();
+            });
         }
-        else {
-            for (const m of hidden) {
-                const item = menu.createDiv({ cls: 'ad-addmenu__item' });
-                item.createSpan({ text: titleMap.get(m.id) ?? m.id });
-                item.createSpan({ text: '＋' });
-                item.addEventListener('click', () => {
-                    close();
-                    void this.addModule(m.id);
-                });
-            }
+        for (const m of hidden) {
+            const item = menu.createDiv({ cls: 'ad-addmenu__item' });
+            item.createSpan({ text: titleMap.get(m.id) ?? m.id });
+            item.createSpan({ text: '＋' });
+            item.addEventListener('click', () => {
+                close();
+                void this.addModule(m.id);
+            });
+        }
+        // 既无隐藏模块、倒计时也已满 5 张：给个空提示
+        if (hidden.length === 0 && cds.length >= 5) {
+            menu.createDiv({ cls: 'ad-addmenu__empty', text: t('home.addMenuEmpty') });
         }
     }
     /** 全部卡片被移除后的空状态提示 */
@@ -6586,8 +8482,8 @@ class DashboardView extends obsidian.ItemView {
         this.boardEl.empty();
         const hint = this.boardEl.createDiv({ cls: 'ad-empty' });
         hint.createDiv({ cls: 'ad-empty__icon', text: '\uD83D\uDD12' });
-        hint.createDiv({ cls: 'ad-empty__title', text: '首页暂无卡片' });
-        hint.createDiv({ cls: 'ad-empty__hint', text: '长按此处或点「＋ 添加卡片」把模块加回来' });
+        hint.createDiv({ cls: 'ad-empty__title', text: t('home.emptyTitle') });
+        hint.createDiv({ cls: 'ad-empty__hint', text: t('home.emptyHint') });
     }
     /** Refresh all home dashboard cards (todo + progress + weekly) in-place.
      *  A single vault scan feeds all three cards; each card reuses its own shell
@@ -6656,9 +8552,20 @@ class DashboardView extends obsidian.ItemView {
         this.cardHead(card, '\u25CE', 'TODO', undefined, summary);
         const list = card.createDiv({ cls: 'ad-todo' });
         try {
-            const todayTasks = getTodayTasks(tasks);
-            // Sort: overdue first, then by priority
+            // 「完成后不消失」开关：开启时已完成任务保留在列表中，以变灰 + 删除线展示
+            const keepDone = !!this.plugin.settings.todoShowCompleted;
+            const today = todayStr();
+            const todayTasks = getTodayTasks(tasks, today, keepDone);
+            // 视为「已完成」的行：状态已完成，或重复任务在今日完成推进（默认推进后仍保留待办状态，
+            // 但画布上用变灰呈现）。用于排序沉底与 is-done 样式。
+            const isDoneRow = (t) => t.status === '\u5DF2\u5B8C\u6210'
+                || (t.type === '\u91CD\u590D' && !!t.completeTime && t.completeTime.startsWith(today));
+            // Sort: 已完成沉底（仅开启保留时才有已完成行）、逾期优先、再按优先级
             const sorted = todayTasks.sort((a, b) => {
+                const aDone = isDoneRow(a);
+                const bDone = isDoneRow(b);
+                if (aDone !== bDone)
+                    return aDone ? 1 : -1;
                 if (a.isOverdue && !b.isOverdue)
                     return -1;
                 if (!a.isOverdue && b.isOverdue)
@@ -6666,7 +8573,7 @@ class DashboardView extends obsidian.ItemView {
                 return priorityWeight(a.priority) - priorityWeight(b.priority);
             });
             sorted.forEach((task) => {
-                const isDone = task.status === '\u5DF2\u5B8C\u6210';
+                const isDone = isDoneRow(task);
                 const row = list.createDiv({ cls: 'ad-todo__item' + (isDone ? ' is-done' : '') + (task.isOverdue ? ' is-overdue' : '') });
                 // Circle click → toggle task (handles repeat tasks)
                 const check = row.createSpan({ cls: 'ad-todo__check' });
@@ -6680,30 +8587,31 @@ class DashboardView extends obsidian.ItemView {
                     this.openTaskEditModal(task);
                 });
                 // Tag with priority
-                const prioLabel = task.priority || '\u672A\u8BBE\u7F6E';
+                // 优先级标签：纯文本无 emoji（不显示 🔴🟡🔵⚪ 圆点），胶囊样式参考本周待办的紧急标签（ad-wo__urg）
+                const prioLabel = task.priority ? UI_TEXT.prioText(task.priority) : t('common.notSet');
                 row.createSpan({ cls: 'ad-todo__tag', text: prioLabel, attr: { 'data-prio': task.priority || '' } });
                 // Right-click context menu
                 row.addEventListener('contextmenu', (e) => {
                     e.preventDefault();
                     const menu = new obsidian.Menu();
                     menu.addItem((item) => {
-                        item.setTitle('\u7F16\u8F91\u4EFB\u52A1').setIcon('pencil').onClick(() => this.openTaskEditModal(task));
+                        item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
                     });
                     menu.addItem((item) => {
-                        item.setTitle('\u5EF6\u540E\u4E00\u5929').setIcon('calendar').onClick(() => void this.postponeTask(task));
+                        item.setTitle(t('home.postponeDay')).setIcon('calendar').onClick(() => void this.postponeTask(task));
                     });
                     menu.addSeparator();
                     menu.addItem((item) => {
-                        item.setTitle('\u5220\u9664\u4EFB\u52A1').setIcon('trash').onClick(() => void this.deleteTask(task));
+                        item.setTitle(t('common.delete')).setIcon('trash').onClick(() => void this.deleteTask(task));
                     });
                     // Multi-day tasks: daily node check-in via edit modal
                     if (task.startDate && task.dueDate && task.startDate !== task.dueDate) {
                         menu.addSeparator();
                         menu.addItem((item) => {
-                            item.setTitle('今日完成').setIcon('check').onClick(() => this.openTaskEditModal(task, 'done'));
+                            item.setTitle(t('home.todayDone')).setIcon('check').onClick(() => this.openTaskEditModal(task, 'done'));
                         });
                         menu.addItem((item) => {
-                            item.setTitle('今日不做').setIcon('x').onClick(() => this.openTaskEditModal(task, 'skip'));
+                            item.setTitle(t('home.todaySkip')).setIcon('x').onClick(() => this.openTaskEditModal(task, 'skip'));
                         });
                     }
                     menu.showAtMouseEvent(e);
@@ -6713,18 +8621,18 @@ class DashboardView extends obsidian.ItemView {
             const doneCount = universe.filter((t) => isDoneToday(t)).length;
             const skipCount = universe.filter((t) => isSkipToday(t)).length;
             const totalForSummary = universe.length - skipCount;
-            summary.textContent = `${doneCount} / ${totalForSummary} done \u00B7 \u6309\u4F18\u5148\u7EA7`;
+            summary.textContent = t('home.todoSummary', { done: doneCount, total: totalForSummary });
         }
         catch {
             summary.textContent = '0 / 0 done';
-            list.createDiv({ cls: 'ad-todo__empty', text: '\u6682\u65E0\u4ECA\u65E5\u4EFB\u52A1' });
+            list.createDiv({ cls: 'ad-todo__empty', text: t('home.noTodayTasks') });
         }
     }
     /* ---- Progress (dual ring, real task data) ---- */
     async renderProgress(board, allTasks) {
         const tasks = allTasks ?? await this.taskStore.scanAllTasks();
         const card = this.getOrCreateCard(board, 'ad-card ad-b-progress');
-        this.cardHead(card, '\u25D0', '\u5DE5\u4F5C\u8FDB\u5EA6', 'today \u00B7 ring');
+        this.cardHead(card, '\u25D0', t('home.modules.progress'), 'today \u00B7 ring');
         const dp = card.createDiv({ cls: 'ad-dp' });
         let todayDone = 0, todayTotal = 0, allDone = 0, allTotal = 0;
         try {
@@ -6745,9 +8653,9 @@ class DashboardView extends obsidian.ItemView {
         if (tasks.length === 0) {
             this.renderEmpty(card, {
                 icon: '\u{1F3AF}',
-                title: '还没有任何任务',
-                hint: '在下方「快速捕捉」里随手记一条，或点工具栏「＋ 新建任务」开始。',
-                actionLabel: '＋ 新建任务',
+                title: t('home.todoEmptyTitle'),
+                hint: t('home.todoEmptyHint'),
+                actionLabel: t('home.todoEmptyAction'),
                 onAction: () => void this.openTaskModal(this.selectedProject ?? undefined),
             });
             return;
@@ -6755,11 +8663,11 @@ class DashboardView extends obsidian.ItemView {
         // Top ring — today's tasks
         const todayPct = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
         this.buildRing(dp, todayPct, 'ad-dp__pct-daily', 'daily');
-        dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u4ECA\u65E5\u5DF2\u5B8C\u6210 ${todayDone} / \u4ECA\u65E5\u603B\u4EFB\u52A1 ${todayTotal}` });
+        dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: t('home.todayStat', { done: todayDone, total: todayTotal }) });
         // Bottom ring — all tasks
         const allPct = allTotal ? Math.round((allDone / allTotal) * 100) : 0;
         this.buildRing(dp, allPct, 'ad-dp__pct-proj', 'proj');
-        dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: `\u5DF2\u5B8C\u6210 ${allDone} / \u603B\u4EFB\u52A1 ${allTotal}` });
+        dp.createDiv({ cls: 'ad-dp__stat' }).createEl('strong', { text: t('home.allStat', { done: allDone, total: allTotal }) });
     }
     buildRing(parent, pct, pctCls, ringKey) {
         const C = 263.9;
@@ -6839,7 +8747,7 @@ class DashboardView extends obsidian.ItemView {
         const head = card.createDiv({ cls: 'ad-card__head' });
         const h3 = head.createEl('h3', { cls: 'ad-card__title' });
         h3.createSpan({ cls: 'ad-marker', text: '\u{1F4C5}' });
-        h3.appendText('\u672C\u5468\u5F85\u529E & \u903E\u671F\u63D0\u9192');
+        h3.appendText(t('home.modules.weekly'));
         const list = card.createDiv({ cls: 'ad-wo' });
         try {
             const today = todayStr();
@@ -6854,13 +8762,23 @@ class DashboardView extends obsidian.ItemView {
             const weekStartStr = fmtDate(weekStart);
             const weekEndStr = fmtDate(weekEnd);
             const isDone = (t) => t.status === '\u5DF2\u5B8C\u6210' || t.status === '\u5DF2\u53D6\u6D88';
+            // 「完成后不消失」开关：开启时本周待办同样保留已完成（变灰+删除线）
+            const keepDone = !!this.plugin.settings.todoShowCompleted;
             // ALL overdue tasks (even outside this week), sorted earliest-overdue first
             const overdue = tasks.filter((t) => t.isOverdue);
             overdue.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
             // This-week, non-overdue, not done — incl. multi-day tasks that span the week
             const thisWeek = tasks.filter((t) => {
-                if (isDone(t))
+                if (isDone(t)) {
+                    // 完成后不消失：仅保留「本周内完成」的已完成任务（变灰展示），逾期完成也一并保留
+                    if (!keepDone)
+                        return false;
+                    if (t.completeTime) {
+                        const ct = t.completeTime.slice(0, 10);
+                        return ct >= weekStartStr && ct < weekEndStr;
+                    }
                     return false;
+                }
                 // Recurring tasks: show when their next 提醒日期 falls within this week
                 if (t.type === '\u91CD\u590D' && t.remindDate) {
                     return t.remindDate < weekEndStr && t.remindDate >= weekStartStr;
@@ -6879,14 +8797,14 @@ class DashboardView extends obsidian.ItemView {
             // Overdue badge (hidden when 0)
             if (overdue.length > 0) {
                 const badge = head.createSpan({ cls: 'ad-badge ad-badge--danger', text: String(overdue.length) });
-                badge.title = `${overdue.length} \u4E2A\u903E\u671F\u4EFB\u52A1`;
+                badge.title = t('home.overdueTooltip', { n: overdue.length });
             }
             // Section: overdue (pinned top, red)
             if (overdue.length > 0) {
                 const og = list.createDiv({ cls: 'ad-wo__group ad-wo--overdue' });
                 const oh4 = og.createEl('h4');
                 oh4.createSpan({ cls: 'ad-wo-mark', text: '▲' });
-                oh4.appendText('逾期提醒');
+                oh4.appendText(t('home.overdue'));
                 const ul = og.createEl('ul', { cls: 'ad-wo__list' });
                 overdue.forEach((t) => this.renderWeeklyRow(ul, t, true));
             }
@@ -6895,38 +8813,39 @@ class DashboardView extends obsidian.ItemView {
             const wg = list.createDiv({ cls: 'ad-wo__group' });
             const wh4 = wg.createEl('h4');
             wh4.createSpan({ cls: 'ad-wo-mark', text: '◆' });
-            wh4.appendText('本周待办');
+            wh4.appendText(t('home.thisWeek'));
             const ul = wg.createEl('ul', { cls: 'ad-wo__list' });
             if (thisWeek.length === 0 && overdue.length === 0) {
-                list.createDiv({ cls: 'ad-wo__empty', text: '\u{1F389} \u672C\u5468\u6682\u65E0\u5F85\u529E\u4EFB\u52A1' });
+                list.createDiv({ cls: 'ad-wo__empty', text: t('home.weekEmpty') });
             }
             else {
                 thisWeek.forEach((t) => this.renderWeeklyRow(ul, t, false));
             }
             // Footer stats
             const foot = card.createDiv({ cls: 'ad-wo__foot' });
-            foot.textContent = `\u672C\u5468\u5171 ${thisWeek.length} \u4E2A\u4EFB\u52A1\uFF0C\u903E\u671F ${overdue.length} \u4E2A`;
+            foot.textContent = t('home.weeklyFoot', { n: thisWeek.length, m: overdue.length });
         }
         catch {
-            list.createDiv({ cls: 'ad-wo__empty', text: '\u52A0\u8F7D\u5931\u8D25' });
+            list.createDiv({ cls: 'ad-wo__empty', text: t('home.loadFailed') });
         }
     }
     /** Build a single weekly/overdue task row (li) with click + context menu */
     renderWeeklyRow(ul, task, isOverdue) {
         const li = ul.createEl('li');
+        if (task.status === '\u5DF2\u5B8C\u6210')
+            li.classList.add('is-done');
         const due = task.dueDate || task.remindDate || '';
         li.createSpan({ cls: 'ad-wo__date', text: due ? due.slice(5) : '\u2014' });
         li.createSpan({ cls: 'ad-wo__text', text: task.content });
         if (isOverdue) {
             const days = overdueDays(task.dueDate);
-            li.createSpan({ cls: 'ad-wo__over', text: `\u903E\u671F ${days}\u5929` });
+            li.createSpan({ cls: 'ad-wo__over', text: t('home.overdueDays', { n: days }) });
             li.classList.add('is-overdue-row');
         }
         else {
-            // This-week rows: show urgency tag (color-coded by priority)
-            const urg = urgencyMeta(task.priority);
-            if (urg) {
-                li.createSpan({ cls: 'ad-wo__urg', text: urg.label, attr: { 'data-urg': urg.key } });
+            // This-week rows: 优先级胶囊与 TODO 卡片统一（纯文本 + data-prio 同款配色）
+            if (task.priority) {
+                li.createSpan({ cls: 'ad-todo__tag', text: UI_TEXT.prioText(task.priority), attr: { 'data-prio': task.priority } });
             }
         }
         li.addEventListener('click', () => this.openTaskEditModal(task));
@@ -6934,26 +8853,26 @@ class DashboardView extends obsidian.ItemView {
             e.preventDefault();
             const menu = new obsidian.Menu();
             menu.addItem((item) => {
-                item.setTitle('\u7F16\u8F91\u4EFB\u52A1').setIcon('pencil').onClick(() => this.openTaskEditModal(task));
+                item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
             });
             menu.addItem((item) => {
-                item.setTitle('\u5220\u9664\u4EFB\u52A1').setIcon('trash').onClick(() => void this.deleteTask(task));
+                item.setTitle(t('home.deleteTask')).setIcon('trash').onClick(() => void this.deleteTask(task));
             });
             menu.addItem((item) => {
-                item.setTitle('\u6253\u5F00\u6E90\u6587\u4EF6').setIcon('file').onClick(() => {
+                item.setTitle(t('common.openSource')).setIcon('file').onClick(() => {
                     if (task.sourceFile)
                         void this.app.workspace.openLinkText(task.sourceFile, '', true);
                 });
             });
             menu.addItem((item) => {
-                item.setTitle('\u5EF6\u540E\u4E00\u5929').setIcon('calendar').onClick(() => void this.postponeTask(task));
+                item.setTitle(t('home.postponeDay')).setIcon('calendar').onClick(() => void this.postponeTask(task));
             });
             menu.addItem((item) => {
-                item.setTitle('\u6807\u8BB0\u5B8C\u6210').setIcon('check').onClick(() => void this.markTaskComplete(task));
+                item.setTitle(t('home.markDone')).setIcon('check').onClick(() => void this.markTaskComplete(task));
             });
             if (isOverdue) {
                 menu.addItem((item) => {
-                    item.setTitle('\u5EF6\u540E\u5230\u4ECA\u5929').setIcon('calendar-clock').onClick(() => void this.postponeTaskToToday(task));
+                    item.setTitle(t('home.postponeToday')).setIcon('calendar-clock').onClick(() => void this.postponeTaskToToday(task));
                 });
             }
             menu.showAtMouseEvent(e);
@@ -6962,7 +8881,7 @@ class DashboardView extends obsidian.ItemView {
     /** Mark a task as completed (状态: 已完成) */
     async markTaskComplete(task) {
         if (task.status === '\u5DF2\u5B8C\u6210') {
-            this.showToast('\u2705 \u4EFB\u52A1\u5DF2\u5B8C\u6210');
+            this.showToast(t('home.taskDone'));
             return;
         }
         // Repeat task: instead of completing, advance 提醒日期 so it keeps recurring.
@@ -6974,14 +8893,14 @@ class DashboardView extends obsidian.ItemView {
                 const now = nowFmt();
                 await this.writeTaskField(task, '\u5B8C\u6210\u65F6\u95F4', now);
                 task.completeTime = now;
-                this.showToast('\u2728 \u91CD\u590D\u4EFB\u52A1\uFF0C\u4E0B\u6B21\u63D0\u9192: ' + nextDate);
+                this.showToast(t('home.repeatNext', { date: nextDate }));
                 void this.refreshRelevant();
                 return;
             }
         }
         await this.writeTaskField(task, '\u72B6\u6001', '\u5DF2\u5B8C\u6210');
         task.status = '\u5DF2\u5B8C\u6210';
-        this.showToast('\u2705 \u4EFB\u52A1\u5DF2\u5B8C\u6210');
+        this.showToast(t('home.taskDone'));
         void this.refreshRelevant();
     }
     /** Move an overdue task's due date to today */
@@ -6991,7 +8910,7 @@ class DashboardView extends obsidian.ItemView {
         const today = todayStr();
         await this.writeTaskField(task, '\u622A\u6B62\u65E5\u671F', today);
         task.dueDate = today;
-        this.showToast('\u2728 \u5DF2\u5EF6\u540E\u5230\u4ECA\u5929');
+        this.showToast(t('home.postponedToday'));
         void this.refreshRelevant();
     }
     /* ---- Projects (real data) ---- */
@@ -7000,7 +8919,7 @@ class DashboardView extends obsidian.ItemView {
         const head = card.createDiv({ cls: 'ad-card__head ad-card__head--proj' });
         const h3 = head.createEl('h3', { cls: 'ad-card__title' });
         h3.createSpan({ cls: 'ad-marker', text: '\u25A6' });
-        h3.appendText('\u9879\u76EE\u60C5\u51B5');
+        h3.appendText(t('home.modules.projects'));
         const hint = head.createSpan({ cls: 'ad-card__hint ad-card__hint--inline' });
         const stages = this.plugin.settings.npdpStages;
         const maxStageFilter = this.plugin.settings.npdpProgressFilter ?? stages.length;
@@ -7015,16 +8934,16 @@ class DashboardView extends obsidian.ItemView {
         const filtered = maxStageFilter < stages.length
             ? stageProjects.filter((p) => (p.stage ?? 0) <= maxStageFilter)
             : stageProjects;
-        hint.textContent = `${filtered.length} / ${stageProjects.length} \u4E2A\u9879\u76EE`;
+        hint.textContent = t('home.projectsCount', { n: filtered.length, m: stageProjects.length });
         if (maxStageFilter < stages.length) {
             hint.textContent += ` (\u2264${stages[maxStageFilter - 1]})`;
         }
         if (projects.length === 0) {
             this.renderEmpty(card, {
                 icon: '\u{1F4D1}',
-                title: '\u8FD8\u6CA1\u6709\u4EFB\u4F55\u9879\u76EE',
-                hint: '\u70B9\u5DE5\u5177\u680F\u300C\uFF0B \u65B0\u5EFA\u9879\u76EE\u300D\u521B\u5EFA\u7B2C\u4E00\u4E2A\u9879\u76EE\uFF0C\u8FDB\u5EA6\u7BA1\u9053\u5C31\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\u3002',
-                actionLabel: '\uFF0B \u65B0\u5EFA\u9879\u76EE',
+                title: t('home.projectsEmptyTitle'),
+                hint: t('home.projectsEmptyHint'),
+                actionLabel: t('home.projectsEmptyAction'),
                 onAction: () => void this.createProjectFile(),
             });
             return;
@@ -7041,7 +8960,7 @@ class DashboardView extends obsidian.ItemView {
             row.createSpan({ cls: 'ad-proj__dot', attr: { style: `background:${p.color}` } });
             const name = row.createDiv({ cls: 'ad-proj__name' });
             name.appendText(p.name);
-            name.createSpan({ cls: 'ad-meta', text: `${p.taskCount} \u4EFB\u52A1 \u00B7 ${p.activeCount}\u6D3B\u8DC3 \u00B7 ${pct}%` });
+            name.createSpan({ cls: 'ad-meta', text: t('home.projectMeta', { tasks: p.taskCount, active: p.activeCount, pct }) });
             // Stage pipeline mini (connector line segments colored by progress, ends at last dot)
             const track = row.createDiv({ cls: 'ad-proj__track' });
             const stageNodes = track.createDiv({ cls: 'ad-proj__stages' });
@@ -7066,10 +8985,10 @@ class DashboardView extends obsidian.ItemView {
                 e.preventDefault();
                 const menu = new obsidian.Menu();
                 menu.addItem((item) => {
-                    item.setTitle('\u7F16\u8F91\u9879\u76EE').setIcon('pencil').onClick(() => void this.editProject(p));
+                    item.setTitle(t('home.editProject')).setIcon('pencil').onClick(() => void this.editProject(p));
                 });
                 menu.addItem((item) => {
-                    item.setTitle('\u67E5\u770B\u7518\u7279\u56FE').setIcon('gantt-chart').onClick(() => void this.navigateToProjectGantt(p));
+                    item.setTitle(t('home.viewGantt')).setIcon('gantt-chart').onClick(() => void this.navigateToProjectGantt(p));
                 });
                 menu.showAtMouseEvent(e);
             });
@@ -7078,10 +8997,10 @@ class DashboardView extends obsidian.ItemView {
         });
         // Footer summary
         const sum = proj.createDiv({ cls: 'ad-proj__sum' });
-        const filterLabel = maxStageFilter < stages.length ? `\u2264 ${stages[maxStageFilter - 1]}` : '\u5168\u90E8';
+        const filterLabel = maxStageFilter < stages.length ? `\u2264 ${stages[maxStageFilter - 1]}` : t('ui.opAll');
         const sumRow = sum.createSpan({ cls: 'ad-row' });
         sumRow.createSpan({ cls: 'ad-key', text: '\u2299' });
-        sumRow.appendText(` ${activeCount} \u8FDB\u884C\u4E2D \u00B7 ${filterLabel}`);
+        sumRow.appendText(` ${t('home.activeCount', { n: activeCount, filter: filterLabel })}`);
     }
     /** Navigate to project overview and select a specific project's Gantt view */
     async navigateToProjectGantt(proj) {
@@ -7106,16 +9025,16 @@ class DashboardView extends obsidian.ItemView {
         const head = card.createDiv({ cls: 'ad-card__head' });
         const h3 = head.createEl('h3', { cls: 'ad-card__title' });
         h3.createSpan({ cls: 'ad-marker', text: '\u25A5' });
-        h3.appendText('\u7B14\u8BB0\u7EDF\u8BA1');
+        h3.appendText(t('home.modules.heatmap'));
         // 统计数字 + 活跃度指标（顶部右上角，与标题同行右对齐）
         const nsHead = head.createDiv({ cls: 'ad-ns__head' });
         nsHead.createDiv({ cls: 'ad-ns__big', text: String(stats.total) });
         const small = nsHead.createDiv({ cls: 'ad-ns__small' });
-        small.createDiv({ cls: 'ad-ns__active', text: `${stats.active} \u5929\u6D3B\u8DC3` });
+        small.createDiv({ cls: 'ad-ns__active', text: t('home.daysActive', { n: stats.active }) });
         const streak = small.createDiv({ cls: 'ad-ns__streak' });
-        streak.appendText('\u5F53\u524D\u8FDE\u7EED ');
+        streak.appendText(t('home.streakPrefix'));
         streak.createEl('strong', { text: String(stats.streak) });
-        streak.appendText(' \u5929');
+        streak.appendText(t('home.daysSuffix'));
         // --- Year boundaries (Jan 1 -> Dec 31) ---
         const yearStart = new Date(year, 0, 1);
         const yearEnd = new Date(year, 11, 31);
@@ -7144,7 +9063,7 @@ class DashboardView extends obsidian.ItemView {
         // Grid: day-of-week column + cells (column flow, fixed 13px cells)
         const grid = heat.createDiv({ cls: 'ad-ns__grid' });
         const dow = grid.createDiv({ cls: 'ad-ns__dow' });
-        ['', '\u4E00', '', '\u4E09', '', '\u4E94', ''].forEach((t) => dow.createSpan({ text: t }));
+        tArr('home.heatDow').forEach((lab) => dow.createSpan({ text: lab }));
         const cells = grid.createDiv({ cls: 'ad-ns__cells' });
         for (let w = 0; w < totalWeeks; w++) {
             for (let r = 0; r < 7; r++) {
@@ -7174,18 +9093,18 @@ class DashboardView extends obsidian.ItemView {
                     cell.addClass('is-today'); // 当天格子：边缘光晕
                 const mm = String(cellDate.getMonth() + 1).padStart(2, '0');
                 const dd = String(cellDate.getDate()).padStart(2, '0');
-                cell.title = isFuture ? `${mm}-${dd} \u00B7 \u672A\u6765` : `${mm}-${dd} \u00B7 ${count} \u7BC7\u7B14\u8BB0`;
+                cell.title = isFuture ? t('home.cellFuture', { m: mm, d: dd }) : t('home.cellNotes', { m: mm, d: dd, n: count });
             }
         }
         // Footer legend (less ... more)
         const foot = card.createDiv({ cls: 'ad-ns__foot' });
-        foot.createSpan({ cls: 'ad-ns__window', text: `${year} \u5168\u5E74` });
+        foot.createSpan({ cls: 'ad-ns__window', text: t('home.heatmapAllYear', { year }) });
         const legend = foot.createSpan({ cls: 'ad-ns__legend' });
-        legend.createSpan({ cls: 'ad-ns__lbl', text: '\u5C11' });
+        legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendFew') });
         ['', 'l1', 'l2', 'l3', 'l4'].forEach((lv) => {
             legend.createSpan({ cls: 'ad-ns__sw' + (lv ? ' ' + lv : '') });
         });
-        legend.createSpan({ cls: 'ad-ns__lbl', text: '\u591A' });
+        legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendMany') });
         // 按卡片实际宽高摊开格子间距（格子尺寸恒为 HM_CELL，绝不缩放），并监听尺寸变化实时重排
         this.layoutHeatmap(card);
         if (this.adHmObsTarget !== heat) {
@@ -7245,7 +9164,7 @@ class DashboardView extends obsidian.ItemView {
             kids[i].style.display = i < hiddenCells ? 'none' : '';
         }
         // 月份标签：按可见周窗口重建，宽度 = 该月周数 × (格子 + 间距) − 间距
-        const monthNames = ['1\u6708', '2\u6708', '3\u6708', '4\u6708', '5\u6708', '6\u6708', '7\u6708', '8\u6708', '9\u6708', '10\u6708', '11\u6708', '12\u6708'];
+        const monthNames = tArr('status.months');
         const visible = this.adHmWeekMonths.slice(total - weeks);
         monthsRow.empty();
         const unit = HM_CELL + cgap;
@@ -7269,53 +9188,102 @@ class DashboardView extends obsidian.ItemView {
         // 底部窗口文案随可见范围变化
         const win = card.querySelector('.ad-ns__window');
         if (win)
-            win.setText(weeks >= total ? `${this.adHmYear} \u5168\u5E74` : `\u8FD1 ${weeks} \u5468`);
+            win.setText(weeks >= total ? t('home.heatmapAllYear', { year: this.adHmYear }) : t('home.heatmapRecent', { n: weeks }));
     }
-    /* ---- Countdown ---- */
-    renderCountdown(board) {
-        const cfg = this.plugin.settings.countdown;
+    /* ---- Countdown（多实例：每张独立卡片） ---- */
+    /** 渲染「倒计时」多实例中的某一张独立卡片；idx 为 settings.countdown 下标，-1 表示占位卡 */
+    renderCountdownCard(board, idx) {
+        const card = board.querySelector(`.ad-card.ad-b-countdown[data-cd-idx="${idx}"]`);
+        if (!card)
+            return;
+        card.empty();
+        card.setAttribute('data-mod', 'countdown');
+        const list = this.plugin.settings.countdown ?? [];
+        if (idx < 0 || idx >= list.length) {
+            this.cardHead(card, '\u25C7', t('home.modules.countdown'), 'Days Left');
+            const cd = card.createDiv({ cls: 'ad-cd' });
+            cd.createDiv({ cls: 'ad-cd__empty', text: t('modal.cdEmpty') });
+            return;
+        }
+        const cfg = list[idx];
+        // 卡片标题固定为模块名「倒计时」（与注册表 homeModules 一致），事件名只出现在副标题「距离 {事件}」
+        this.cardHead(card, '\u25C7', t('home.modules.countdown'), 'Days Left');
+        const cd = card.createDiv({ cls: 'ad-cd' });
+        this.renderOneCountdown(cd, cfg);
+    }
+    /** 新增一张倒计时卡片（追加一个独立事件，最多 5 张） */
+    addCountdownCard() {
+        const list = this.plugin.settings.countdown ?? [];
+        if (list.length >= 5) {
+            this.showToast(t('modal.cdMax'));
+            return;
+        }
+        list.push({ eventName: defaultEventName(), targetDate: '2027-01-01' });
+        this.plugin.settings.countdown = list;
+        // 确保倒计时模块本身已启用：被隐藏时也能通过「添加卡片」恢复显示
+        const hm = this.plugin.settings.homeModules;
+        const m = hm?.find((x) => x.id === 'countdown');
+        if (m && !m.enabled) {
+            m.enabled = true;
+            const maxOrder = hm && hm.length ? Math.max(...hm.map((x) => x.order)) : -1;
+            m.order = maxOrder + 1;
+        }
+        void this.plugin.saveSettings();
+        if (this.boardEl)
+            void this.renderEnabledModules(this.boardEl);
+    }
+    /** 删除指定下标的倒计时卡片（不影响其它卡片） */
+    deleteCountdownCard(idx) {
+        const list = this.plugin.settings.countdown ?? [];
+        if (idx < 0 || idx >= list.length)
+            return;
+        list.splice(idx, 1);
+        this.plugin.settings.countdown = list;
+        void this.plugin.saveSettings();
+        if (this.boardEl)
+            void this.renderEnabledModules(this.boardEl);
+    }
+    renderOneCountdown(cd, cfg) {
         const target = this.parseCountdownDate(cfg.targetDate);
         const now = new Date();
         const today = this.startOfDay(now);
         const targetDay = this.startOfDay(target);
         // 以「天」为单位的差值：>0 表示未来、0 表示当天到达、<0 表示已过期
         const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
-        const card = this.getOrCreateCard(board, 'ad-card ad-b-countdown');
-        this.cardHead(card, '\u25C7', '\u5012\u8BA1\u65F6', 'Days Left');
-        const cd = card.createDiv({ cls: 'ad-cd' });
+        const item = cd.createDiv({ cls: 'ad-cd__item' });
         // 副标题：距离 {事件名}
-        cd.createDiv({ cls: 'ad-cd__sub', text: `\u8DDD\u79BB ${cfg.eventName}` });
+        item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
         if (diffDays > 0) {
             // 进度：以「事件日期前一年」为起点、事件日期为终点（默认即日历年度进度），随事件日期动态变化
             const periodStart = new Date(target.getFullYear() - 1, target.getMonth(), target.getDate());
             const total = Math.max(1, target.getTime() - periodStart.getTime());
             const elapsed = now.getTime() - periodStart.getTime();
             const pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
-            const big = cd.createDiv({ cls: 'ad-cd__big' });
+            const big = item.createDiv({ cls: 'ad-cd__big' });
             big.createSpan({ text: String(diffDays) });
             big.createSpan({ cls: 'ad-unit', text: 'DAYS' });
             // 底部组：小字行紧贴进度条（保留少量间距），整体下移到底部
-            const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+            const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
             const row = bottom.createDiv({ cls: 'ad-cd__row' });
-            row.createSpan({ text: '\u5269\u4F59\u5468\u6570 ' }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
+            row.createSpan({ text: t('home.weeksLeft') }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
             row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
-            row.createSpan({ text: '\u5DF2\u5B8C\u6210 ' }).createEl('strong', { text: pct.toFixed(1) + '%' });
+            row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
             const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
             const fill = barWrap.createDiv({ cls: 'ad-fill' });
             fill.style.width = pct + '%';
         }
         else if (diffDays === 0) {
             // 当天到达目标日期：隐藏数字与 DAYS，居中显示「此时此刻」
-            cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDF89 \u6B64\u65F6\u6B64\u523B' });
-            const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+            item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownArrived') });
+            const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
             const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
             const fill = barWrap.createDiv({ cls: 'ad-fill' });
             fill.style.width = '100%';
         }
         else {
             // 已过期：居中显示「旅程已然到达」
-            cd.createDiv({ cls: 'ad-cd__arrived', text: '\uD83C\uDFC1 \u65C5\u7A0B\u5DF2\u7136\u5230\u8FBE' });
-            const bottom = cd.createDiv({ cls: 'ad-cd__bottom' });
+            item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownReached') });
+            const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
             const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
             const fill = barWrap.createDiv({ cls: 'ad-fill' });
             fill.style.width = '100%';
@@ -7355,7 +9323,7 @@ class Dashboard extends obsidian.Plugin {
     async onload() {
         await this.loadSettings();
         this.registerView(VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
-        this.addRibbonIcon('layout-dashboard', 'Dashboard', () => {
+        this.addRibbonIcon('layout-dashboard', 'Xove dashboard', () => {
             void this.activateView();
         });
         this.addCommand({
@@ -7386,6 +9354,10 @@ class Dashboard extends obsidian.Plugin {
         this.normalizeHomeModules(storedLayoutVersion);
         // 迁移看板阶段结构：旧数据用 kind(终态)，新结构用 hasInput(是否启用输入框)。
         this.normalizeBoardStages();
+        // 同步 i18n 模块的语言状态（zh=中英结合默认 / en=纯英文）
+        setLang(this.settings.language ?? 'zh');
+        // 向后兼容迁移：倒计时单对象→数组、banner 增加 enabled、看板默认名随语言
+        this.normalizeSettings();
     }
     /**
      * 归一化 + 迁移首页模块布局，保证 homeModules 始终是一份完整可用的数据：
@@ -7491,6 +9463,47 @@ class Dashboard extends obsidian.Plugin {
         if (changed)
             void this.saveSettings();
     }
+    /** 向后兼容迁移（旧 data.json 升级，不丢数据）：
+     *  1. 倒计时由「单对象」升级为「数组」（最多 5 个）；
+     *  2. banner 增加 enabled 开关，旧数据默认开启；
+     *  3. 看板默认名随语言：中文默认「灵感收集」，英文默认「Inspirations」。
+     */
+    normalizeSettings() {
+        let changed = false;
+        // 1) 倒计时：单对象 → 数组（最多 5 个，且每个结构合法）
+        const cd = this.settings.countdown;
+        if (!Array.isArray(cd)) {
+            const single = (cd && typeof cd === 'object')
+                ? cd
+                : { eventName: '2027', targetDate: '2027-01-01' };
+            this.settings.countdown = [single];
+            changed = true;
+        }
+        else {
+            let arr = cd;
+            if (arr.length > 5) {
+                arr = arr.slice(0, 5);
+                changed = true;
+            }
+            const valid = arr.filter((c) => c && typeof c === 'object' && typeof c.eventName === 'string');
+            if (valid.length !== arr.length || arr.length === 0) {
+                this.settings.countdown = valid.length ? valid : [{ eventName: '2027', targetDate: '2027-01-01' }];
+                changed = true;
+            }
+        }
+        // 2) banner.enabled：旧数据缺失时默认开启
+        if (typeof this.settings.banner?.enabled !== 'boolean') {
+            this.settings.banner = { ...(this.settings.banner || { imageDataUrl: null, offsetY: 0 }), enabled: true };
+            changed = true;
+        }
+        // 3) 看板默认名随语言（未自定义时）
+        if (!this.settings.boardTitle || this.settings.boardTitle === '灵感收集') {
+            this.settings.boardTitle = getLang() === 'en' ? 'Inspirations' : '灵感收集';
+            changed = true;
+        }
+        if (changed)
+            void this.saveSettings();
+    }
     /** 恢复首页默认布局（显隐 / 顺序 / 比例全部回到默认） */
     async resetHomeLayout() {
         this.settings.homeModules = DEFAULT_HOME_MODULES.map((m) => ({ ...m }));
@@ -7550,12 +9563,37 @@ class Dashboard extends obsidian.Plugin {
                 view.rebuildHome();
         }
     }
+    /** 语言切换后重建所有已打开的仪表盘视图（全部文案重渲染，无需重载） */
+    refreshLanguage() {
+        void (async () => {
+            await this.app.workspace.detachLeavesOfType(VIEW_TYPE);
+            await this.activateView();
+        })();
+    }
     /** 设置页修改看板开关/名称/阶段配置后，立即刷新所有已打开视图的导航与看板页（无需重启） */
     refreshNav() {
         for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
             const view = leaf.view;
             if (view instanceof DashboardView)
                 view.refreshNav();
+        }
+    }
+    /** 设置页切换「完成后不消失」等开关后，立即刷新所有已打开首页的 TODO 与本周待办卡片（无需切页） */
+    refreshTodoHome() {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+            const view = leaf.view;
+            if (view instanceof DashboardView) {
+                view.refreshTodo();
+                view.refreshWeekly();
+            }
+        }
+    }
+    /** 设置页开关顶部横幅后，立即重建所有已打开仪表盘视图的横幅显隐 */
+    refreshBanner() {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+            const view = leaf.view;
+            if (view instanceof DashboardView)
+                view.refreshBanner();
         }
     }
     async activateView() {
@@ -7571,6 +9609,36 @@ class Dashboard extends obsidian.Plugin {
         void this.app.workspace.revealLeaf(leaf);
     }
 }
+
+class ConfirmModal extends obsidian.Modal {
+    constructor(opts) {
+        super(opts.app);
+        this.opts = opts;
+    }
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.addClass('ad-confirm-modal');
+        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.opts.title });
+        contentEl.createDiv({ cls: 'ad-modal-desc', text: this.opts.message });
+        const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
+        btns.createEl('button', { cls: 'ad-modal-btn', text: this.opts.cancelLabel })
+            .addEventListener('click', () => this.close());
+        const ok = btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--danger', text: this.opts.confirmLabel });
+        ok.addEventListener('click', () => {
+            this.close();
+            this.opts.onConfirm();
+        });
+        ok.focus();
+    }
+    onClose() {
+        this.contentEl.empty();
+    }
+}
+
+var ConfirmModal$1 = /*#__PURE__*/Object.freeze({
+	__proto__: null,
+	ConfirmModal: ConfirmModal
+});
 
 const COLORS = [
     '#3b82f6', '#6366f1', '#a855f7', '#ec4899',
@@ -7599,22 +9667,23 @@ class ProjectModal extends obsidian.Modal {
         const { contentEl } = this;
         const ed = this.opts.editData;
         contentEl.addClass('ad-task-modal');
-        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? '编辑项目' : '新建项目' });
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目名称 *' });
+        contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? MODAL_TEXT.projectEdit : MODAL_TEXT.projectNew });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectName });
         const nameInput = contentEl.createEl('input', {
             cls: 'ad-modal-input ad-input-name',
-            attr: { type: 'text', placeholder: '输入项目名称' },
+            attr: { type: 'text', placeholder: MODAL_TEXT.projectNamePlaceholder },
         });
         if (ed) {
             (nameInput).value = ed.name;
             (nameInput).disabled = true;
         }
         // Project type selector (阶段项目 / 非阶段项目)
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目类型' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectType });
         const typeWrap = contentEl.createDiv({ cls: 'ad-modal-row' });
         const typeSelect = typeWrap.createEl('select', { cls: 'ad-modal-input' });
+        const typeLabelOf = (v) => v === 'stage' ? MODAL_TEXT.projectTypeStage : MODAL_TEXT.projectTypeNoStage;
         for (const opt of PROJECT_TYPE_LIST) {
-            typeSelect.createEl('option', { value: opt.value, text: opt.label });
+            typeSelect.createEl('option', { value: opt.value, text: typeLabelOf(opt.value) });
         }
         typeSelect.value = this.selectedType;
         typeSelect.addEventListener('change', () => {
@@ -7622,7 +9691,7 @@ class ProjectModal extends obsidian.Modal {
             // Non-stage projects have no stage pipeline → hide the 项目阶段 field
             stageField.style.display = this.selectedType === 'stage' ? '' : 'none';
         });
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目颜色（用于甘特图）' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectColor });
         const colorWrap = contentEl.createDiv({ cls: 'ad-color-group' });
         for (const c of COLORS) {
             const swatch = colorWrap.createEl('button', {
@@ -7638,25 +9707,25 @@ class ProjectModal extends obsidian.Modal {
         }
         const row = contentEl.createDiv({ cls: 'ad-modal-row' });
         const startCol = row.createDiv({ cls: 'ad-modal-col' });
-        startCol.createEl('label', { cls: 'ad-modal-label', text: '开始日期 *' });
+        startCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.startDate });
         const startInput = startCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         (startInput).value = ed ? (ed.startDate || getToday$1()) : getToday$1();
         const endCol = row.createDiv({ cls: 'ad-modal-col' });
-        endCol.createEl('label', { cls: 'ad-modal-label', text: '结束日期' });
+        endCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.endDate });
         const endInput = endCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         if (ed)
             (endInput).value = ed.endDate || '';
-        contentEl.createEl('label', { cls: 'ad-modal-label', text: '项目描述' });
+        contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectDesc });
         const descArea = contentEl.createEl('textarea', {
             cls: 'ad-modal-input',
-            attr: { rows: '3', placeholder: '简要描述项目目标和范围…' },
+            attr: { rows: '3', placeholder: MODAL_TEXT.projectDescPlaceholder },
         });
         if (ed)
             (descArea).value = ed.description;
         // Stage dropdown (hidden for 非阶段项目)
-        const stages = this.opts.stages || ['立项', '规划', '开发', '测试', '上线'];
+        const stages = this.opts.stages || MODAL_TEXT.stagesDefault;
         const stageField = contentEl.createDiv({ cls: 'ad-modal-field' });
-        stageField.createEl('label', { cls: 'ad-modal-label', text: '项目阶段' });
+        stageField.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectStage });
         const stageWrap = stageField.createDiv({ cls: 'ad-modal-row' });
         const stageSelect = stageWrap.createEl('select', { cls: 'ad-modal-input' });
         stages.forEach((label, i) => {
@@ -7675,7 +9744,7 @@ class ProjectModal extends obsidian.Modal {
         const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
         btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
             .addEventListener('click', () => this.close());
-        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : '创建项目' })
+        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: this.isEdit ? UI_TEXT.save : MODAL_TEXT.createProject })
             .addEventListener('click', () => {
             const name = String((nameInput).value || '').trim();
             if (!name) {
@@ -7706,43 +9775,38 @@ var ProjectModal$1 = /*#__PURE__*/Object.freeze({
 	ProjectModal: ProjectModal
 });
 
-const PRIORITIES = [
-    { value: '重要且紧急', label: '🔴 重要且紧急' },
-    { value: '重要不紧急', label: '🟡 重要不紧急' },
-    { value: '紧急不重要', label: '🔵 紧急不重要' },
-    { value: '不重要不紧急', label: '⚪ 不重要不紧急' },
+const PRIORITIES = () => [
+    { value: '重要且紧急', label: UI_TEXT.prioText('重要且紧急') },
+    { value: '重要不紧急', label: UI_TEXT.prioText('重要不紧急') },
+    { value: '紧急不重要', label: UI_TEXT.prioText('紧急不重要') },
+    { value: '不重要不紧急', label: UI_TEXT.prioText('不重要不紧急') },
     { value: '', label: UI_TEXT.notSet },
 ];
-const STATUSES = [
-    { value: 'todo', label: '待办' },
-    { value: 'in-progress', label: '进行中' },
-    { value: 'blocked', label: '已阻塞' },
-    { value: 'done', label: '已完成' },
-    { value: 'cancelled', label: '已取消' },
+const STATUSES = () => [
+    { value: 'todo', label: MODAL_TEXT.stTodo },
+    { value: 'in-progress', label: MODAL_TEXT.stInProgress },
+    { value: 'blocked', label: MODAL_TEXT.stBlocked },
+    { value: 'done', label: MODAL_TEXT.stDone },
+    { value: 'cancelled', label: MODAL_TEXT.stCancelled },
 ];
-const TYPES = [
-    { value: 'task', label: '普通' },
-    { value: 'recurring', label: '重复' },
+const TYPES = () => [
+    { value: 'task', label: MODAL_TEXT.typeNormal },
+    { value: 'recurring', label: MODAL_TEXT.typeRecurring },
 ];
 // Repeat frequency — "每年" removed per product decision.
-const REPEAT_FREQS = [
-    { value: '', label: '选择频率' },
-    { value: 'daily', label: '每天' },
-    { value: 'weekly', label: '每周' },
-    { value: 'monthly', label: '每月' },
+const REPEAT_FREQS = () => [
+    { value: '', label: MODAL_TEXT.freqChoose },
+    { value: 'daily', label: MODAL_TEXT.freqDaily },
+    { value: 'weekly', label: MODAL_TEXT.freqWeekly },
+    { value: 'monthly', label: MODAL_TEXT.freqMonthly },
 ];
 // 周一..周日 with internal value 1..7 (1=Mon, 7=Sun)
-const WEEKDAYS = [
-    { value: 1, label: '周一' },
-    { value: 2, label: '周二' },
-    { value: 3, label: '周三' },
-    { value: 4, label: '周四' },
-    { value: 5, label: '周五' },
-    { value: 6, label: '周六' },
-    { value: 7, label: '周日' },
-];
-const REMINDER_OPTIONS = [
-    '任务当天', '提前 1 天', '提前 3 天', '提前 1 周',
+const WEEKDAYS = () => {
+    const names = MODAL_TEXT.weekdays;
+    return [1, 2, 3, 4, 5, 6, 7].map((v, i) => ({ value: v, label: names[i] ?? String(v) }));
+};
+const REMINDER_OPTIONS = () => [
+    MODAL_TEXT.remOnDay, MODAL_TEXT.rem1Day, MODAL_TEXT.rem3Day, MODAL_TEXT.rem1Week,
 ];
 const getToday = () => {
     const d = new Date();
@@ -7765,15 +9829,15 @@ class TaskModal extends obsidian.Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.addClass('ad-task-modal');
-        contentEl.createEl('h3', { cls: 'ad-modal-title', text: '新建任务' });
+        contentEl.createEl('h3', { cls: 'ad-modal-title', text: MODAL_TEXT.taskTitle });
         // ---- Title ----
-        this.field('任务名称 *', (wrap) => {
-            wrap.createEl('input', { cls: 'ad-modal-input ad-input-title', attr: { type: 'text', placeholder: '输入任务名称' } });
+        this.field(MODAL_TEXT.taskName, (wrap) => {
+            wrap.createEl('input', { cls: 'ad-modal-input ad-input-title', attr: { type: 'text', placeholder: MODAL_TEXT.taskNamePlaceholder } });
         });
         // ---- Project + Parent (side by side) ----
         const row1 = contentEl.createDiv({ cls: 'ad-modal-row' });
         const projCol = row1.createDiv({ cls: 'ad-modal-col' });
-        this.label(projCol, '所属项目 *');
+        this.label(projCol, MODAL_TEXT.project);
         const projSel = projCol.createEl('select', { cls: 'ad-modal-input' });
         for (const p of this.opts.projects) {
             projSel.createEl('option', { text: p.name, attr: { value: p.name } });
@@ -7787,9 +9851,9 @@ class TaskModal extends obsidian.Modal {
                 projSel.value = initialProject;
         }
         const parentCol = row1.createDiv({ cls: 'ad-modal-col' });
-        this.label(parentCol, '父任务');
+        this.label(parentCol, MODAL_TEXT.parent);
         const parentSel = parentCol.createEl('select', { cls: 'ad-modal-input' });
-        parentSel.createEl('option', { text: '无（顶级任务）', attr: { value: '' } });
+        parentSel.createEl('option', { text: MODAL_TEXT.noParent, attr: { value: '' } });
         const populateParents = (projectName) => {
             const filtered = (this.opts.allTasks || []).filter((t) => t.projectId === projectName);
             while (parentSel.options.length > 1)
@@ -7807,11 +9871,11 @@ class TaskModal extends obsidian.Modal {
         // ---- Dates (side by side) ----
         const row2 = contentEl.createDiv({ cls: 'ad-modal-row' });
         const startCol = row2.createDiv({ cls: 'ad-modal-col' });
-        const startLabel = startCol.createEl('label', { cls: 'ad-modal-label', text: '开始日期 *' });
+        const startLabel = startCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.startDate });
         const startInput = startCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         startInput.value = getToday();
         const endCol = row2.createDiv({ cls: 'ad-modal-col' });
-        const endLabel = endCol.createEl('label', { cls: 'ad-modal-label', text: '结束日期' });
+        const endLabel = endCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.endDate });
         const endInput = endCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
         endInput.value = getToday();
         // "No end date" — only relevant for recurring tasks
@@ -7819,7 +9883,7 @@ class TaskModal extends obsidian.Modal {
         const noEndCol = noEndWrap.createDiv({ cls: 'ad-modal-col' });
         const noEndLbl = noEndCol.createEl('label', { cls: 'ad-rem-item' });
         const noEndCb = noEndLbl.createEl('input', { attr: { type: 'checkbox' } });
-        noEndLbl.createSpan({ text: '无结束日期（无限重复）' });
+        noEndLbl.createSpan({ text: MODAL_TEXT.noEndDate });
         noEndCb.addEventListener('change', () => {
             endInput.disabled = noEndCb.checked;
             if (noEndCb.checked)
@@ -7828,26 +9892,26 @@ class TaskModal extends obsidian.Modal {
         // ---- Priority + Status + Type (side by side) ----
         const row3 = contentEl.createDiv({ cls: 'ad-modal-row' });
         const prioCol = row3.createDiv({ cls: 'ad-modal-col' });
-        this.label(prioCol, '优先级');
+        this.label(prioCol, MODAL_TEXT.priority);
         const prioSel = prioCol.createEl('select', { cls: 'ad-modal-input' });
-        for (const p of PRIORITIES)
+        for (const p of PRIORITIES())
             prioSel.createEl('option', { text: p.label, attr: { value: p.value } });
         const statusCol = row3.createDiv({ cls: 'ad-modal-col' });
-        this.label(statusCol, '状态 *');
+        this.label(statusCol, MODAL_TEXT.status);
         const statusSel = statusCol.createEl('select', { cls: 'ad-modal-input' });
-        for (const s of STATUSES)
+        for (const s of STATUSES())
             statusSel.createEl('option', { text: s.label, attr: { value: s.value } });
         const typeCol = row3.createDiv({ cls: 'ad-modal-col' });
-        this.label(typeCol, '类型 *');
+        this.label(typeCol, MODAL_TEXT.type);
         const typeSel = typeCol.createEl('select', { cls: 'ad-modal-input' });
-        for (const t of TYPES)
+        for (const t of TYPES())
             typeSel.createEl('option', { text: t.label, attr: { value: t.value } });
         // ---- Repeat (conditional, structured) ----
         const repeatWrap = contentEl.createDiv({ cls: 'ad-modal-row ad-repeat-section ad-hidden' });
         const freqCol = repeatWrap.createDiv({ cls: 'ad-modal-col' });
-        this.label(freqCol, '重复频率');
+        this.label(freqCol, MODAL_TEXT.repeatFreq);
         const freqSel = freqCol.createEl('select', { cls: 'ad-modal-input' });
-        for (const f of REPEAT_FREQS)
+        for (const f of REPEAT_FREQS())
             freqSel.createEl('option', { text: f.label, attr: { value: f.value } });
         // Dynamic options container (re-rendered on frequency change)
         const repeatOptsWrap = contentEl.createDiv({ cls: 'ad-repeat-opts ad-hidden' });
@@ -7862,20 +9926,20 @@ class TaskModal extends obsidian.Modal {
             if (f === 'daily') {
                 const row = repeatOptsWrap.createDiv({ cls: 'ad-modal-row' });
                 const c1 = row.createDiv({ cls: 'ad-modal-col' });
-                this.label(c1, '每 N 天');
+                this.label(c1, MODAL_TEXT.everyNDays);
                 c1.createEl('input', { cls: 'ad-modal-input ad-repeat-interval', attr: { type: 'number', min: '1', value: '1' } });
                 const c2 = row.createDiv({ cls: 'ad-modal-col' });
                 const wdLbl = c2.createEl('label', { cls: 'ad-rem-item' });
                 wdLbl.createEl('input', { cls: 'ad-repeat-workdays', attr: { type: 'checkbox' } });
-                wdLbl.createSpan({ text: '仅工作日' });
+                wdLbl.createSpan({ text: MODAL_TEXT.workdaysOnly });
             }
             else if (f === 'weekly') {
                 const row = repeatOptsWrap.createDiv({ cls: 'ad-modal-row' });
                 const c = row.createDiv({ cls: 'ad-modal-col' });
-                this.label(c, '重复星期（可多选）');
+                this.label(c, MODAL_TEXT.repeatWeekdays);
                 const wdRow = c.createDiv({ cls: 'ad-repeat-weekdays' });
                 const startDow = dateToDow(startInput.value);
-                for (const wd of WEEKDAYS) {
+                for (const wd of WEEKDAYS()) {
                     const lbl = wdRow.createEl('label', { cls: 'ad-rem-item' });
                     const cb = lbl.createEl('input', { cls: 'ad-repeat-weekday', attr: { type: 'checkbox', value: String(wd.value) } });
                     if (wd.value === startDow)
@@ -7886,7 +9950,7 @@ class TaskModal extends obsidian.Modal {
             else if (f === 'monthly') {
                 const row = repeatOptsWrap.createDiv({ cls: 'ad-modal-row' });
                 const c = row.createDiv({ cls: 'ad-modal-col' });
-                this.label(c, '每月几号');
+                this.label(c, MODAL_TEXT.monthDay);
                 const mdVal = startInput.value ? new Date(startInput.value + 'T00:00:00').getDate() : 1;
                 c.createEl('input', { cls: 'ad-modal-input ad-repeat-monthday', attr: { type: 'number', min: '1', max: '31', value: String(mdVal) } });
             }
@@ -7899,20 +9963,20 @@ class TaskModal extends obsidian.Modal {
             noEndWrap.toggleClass('ad-hidden', !isRecurring);
             statusCol.toggleClass('ad-hidden', isRecurring); // recurring is always 进行中
             if (isRecurring) {
-                startLabel.textContent = '首次发生日期 *';
-                endLabel.textContent = '结束日期（界限）';
+                startLabel.textContent = MODAL_TEXT.firstDate;
+                endLabel.textContent = MODAL_TEXT.endDateBound;
                 renderRepeatOpts();
             }
             else {
-                startLabel.textContent = '开始日期 *';
-                endLabel.textContent = '结束日期';
+                startLabel.textContent = MODAL_TEXT.startDate;
+                endLabel.textContent = MODAL_TEXT.endDate;
             }
         };
         typeSel.addEventListener('change', applyType);
         // ---- Reminders ----
-        this.label(contentEl, '提醒');
+        this.label(contentEl, MODAL_TEXT.reminder);
         const remWrap = contentEl.createDiv({ cls: 'ad-rem-group' });
-        for (const opt of REMINDER_OPTIONS) {
+        for (const opt of REMINDER_OPTIONS()) {
             const lbl = remWrap.createEl('label', { cls: 'ad-rem-item' });
             const cb = lbl.createEl('input', { attr: { type: 'checkbox' } });
             cb.addEventListener('change', () => {
@@ -7924,12 +9988,12 @@ class TaskModal extends obsidian.Modal {
             lbl.createSpan({ text: opt });
         }
         // ---- Tags ----
-        this.label(contentEl, '标签');
+        this.label(contentEl, MODAL_TEXT.tags);
         const tagWrap = contentEl.createDiv({ cls: 'ad-tag-wrap' });
         const tagChips = tagWrap.createDiv({ cls: 'ad-tag-chips' });
         const tagInput = tagWrap.createEl('input', {
             cls: 'ad-modal-input ad-tag-input',
-            attr: { type: 'text', placeholder: '输入后回车添加' },
+            attr: { type: 'text', placeholder: MODAL_TEXT.tagPlaceholder },
         });
         tagInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
@@ -7944,16 +10008,16 @@ class TaskModal extends obsidian.Modal {
         });
         this.tags.forEach((tag) => this.renderTagChip(tagChips, tag));
         // ---- Notes ----
-        this.label(contentEl, '备注');
+        this.label(contentEl, MODAL_TEXT.notes);
         const notesArea = contentEl.createEl('textarea', {
             cls: 'ad-modal-input',
-            attr: { rows: '5', placeholder: '补充说明…' },
+            attr: { rows: '5', placeholder: MODAL_TEXT.notesPlaceholder },
         });
         // ---- Buttons ----
         const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
         btns.createEl('button', { cls: 'ad-modal-btn', text: UI_TEXT.cancel })
             .addEventListener('click', () => this.close());
-        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: '创建任务' })
+        btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: MODAL_TEXT.createTask })
             .addEventListener('click', () => {
             contentEl.querySelectorAll('.ad-input-error').forEach((el) => el.removeClass('ad-input-error'));
             const titleEl = contentEl.querySelector('.ad-input-title');

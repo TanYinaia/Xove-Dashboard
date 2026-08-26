@@ -1,5 +1,6 @@
 import { App, Modal } from 'obsidian';
 import { UI_TEXT } from '../constants';
+import { t } from '../i18n';
 
 /**
  * BannerModal — 弹窗预览封面图片，拖拽调整垂直位置。
@@ -26,21 +27,21 @@ export class BannerModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.addClass('ad-modal');
-		contentEl.createEl('h3', { cls: 'ad-modal__title', text: '调整封面图片位置' });
+		contentEl.createEl('h3', { cls: 'ad-modal__title', text: t('modal.bannerTitle') });
 
 		// ---- preview container (16:3) ----
 		const preview = contentEl.createDiv({ cls: 'ad-modal__preview' });
 		const img = preview.createEl('img', { cls: 'ad-modal__img' });
 		img.src = this.imageDataUrl;
-		img.alt = 'Banner preview';
+		img.alt = t('modal.bannerTitle');
 
 		// ---- hint ----
-		contentEl.createDiv({ cls: 'ad-modal__hint', text: '上下拖拽图片调整显示区域，图片宽度自动铺满' });
+		contentEl.createDiv({ cls: 'ad-modal__hint', text: t('modal.bannerHint') });
 
 		// ---- buttons ----
 		const btns = contentEl.createDiv({ cls: 'ad-modal__btns' });
 		const cancelBtn = btns.createEl('button', { cls: 'ad-modal__btn', text: UI_TEXT.cancel });
-		const confirmBtn = btns.createEl('button', { cls: 'ad-modal__btn ad-modal__btn--primary', text: '确认' });
+		const confirmBtn = btns.createEl('button', { cls: 'ad-modal__btn ad-modal__btn--primary', text: t('modal.bannerConfirm') });
 
 		cancelBtn.addEventListener('click', () => this.close());
 		confirmBtn.addEventListener('click', () => {

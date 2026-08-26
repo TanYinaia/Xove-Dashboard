@@ -1,13 +1,19 @@
-import { App, Modal, TFile } from 'obsidian';
-import { TaskItem, TaskStatus, TaskPriority, STATUS_LIST, PRIORITY_LIST, NodeState, DailyNode, serializeDailyNodesBlock } from '../data/taskParser';
+import { App, Modal, Notice, TFile } from 'obsidian';
+import { TaskItem, TaskStatus, TaskPriority, STATUS_LIST, PRIORITY_LIST, NodeState, DailyNode, serializeDailyNodesBlock, ProjectInfo } from '../data/taskParser';
 import { yamlScalar } from '../data/frontmatterWriter';
-import { UI_TEXT } from '../constants';
+import { UI_TEXT, MODAL_TEXT } from '../constants';
+import { t } from '../i18n';
 
 interface TaskEditModalOptions {
 	app: App;
 	task: TaskItem;
 	onSave: () => void;
 	presetTodayNode?: NodeState;
+	projects: ProjectInfo[];
+	allTasks: TaskItem[];
+	projectsFolder: string;
+	/** 任务详情显示模式：detail（详细，显示全部字段）/ compact（简洁，隐藏项目/类型/父任务） */
+	taskDetailMode?: 'detail' | 'compact';
 }
 
 export class TaskEditModal extends Modal {
@@ -28,42 +34,81 @@ export class TaskEditModal extends Modal {
 		contentEl.createEl('h3', { cls: 'ad-modal-title', text: UI_TEXT.taskDetail });
 
 		// ---- Title (editable name) ----
-		this.field('任务名称 *', (wrap) => {
+		this.field(MODAL_TEXT.taskName, (wrap) => {
 			wrap.createEl('input', { cls: 'ad-modal-input ad-edit-title', attr: { type: 'text', value: task.content } });
 		});
 
+		// ---- 归属（可编辑，与新建任务弹窗一致）：项目 / 类型 一行，父任务一行 ----
+		const row0 = contentEl.createDiv({ cls: 'ad-modal-row' });
+		const projCol = row0.createDiv({ cls: 'ad-modal-col' });
+		this.label(projCol, MODAL_TEXT.project);
+		const projSel = projCol.createEl('select', { cls: 'ad-modal-input' });
+		for (const p of this.opts.projects) {
+			projSel.createEl('option', { text: p.name, attr: { value: p.name } });
+		}
+		if (task.projectId) projSel.value = task.projectId;
+
+		const typeCol = row0.createDiv({ cls: 'ad-modal-col' });
+		this.label(typeCol, MODAL_TEXT.type);
+		const typeSel = typeCol.createEl('select', { cls: 'ad-modal-input' });
+		typeSel.createEl('option', { text: MODAL_TEXT.typeNormal, attr: { value: '普通' } });
+		typeSel.createEl('option', { text: MODAL_TEXT.typeRecurring, attr: { value: '重复' } });
+		typeSel.value = task.type === '重复' ? '重复' : '普通';
+
+		const parentLabel = this.label(contentEl, MODAL_TEXT.parent);
+		const parentSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
+		parentSel.createEl('option', { text: MODAL_TEXT.noParent, attr: { value: '' } });
+		const populateParents = (projectName: string): void => {
+			// 父任务只能是同一项目下的其他任务（排除自身）
+			const filtered = (this.opts.allTasks || []).filter((t) => t.projectId === projectName && t.id !== task.id);
+			while (parentSel.options.length > 1) parentSel.remove(1);
+			for (const t of filtered) {
+				parentSel.createEl('option', { text: t.content, attr: { value: t.content } });
+			}
+		};
+		populateParents(projSel.value);
+		if (task.parent) parentSel.value = task.parent;
+		projSel.addEventListener('change', () => { populateParents(projSel.value); });
+
+		// ---- 简洁模式：隐藏所属项目 / 任务类型 / 父任务（仍保留编辑能力，仅不展示） ----
+		if (this.opts.taskDetailMode === 'compact') {
+			row0.hide();
+			parentLabel.hide();
+			parentSel.hide();
+		}
+
 		// ---- Status ----
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '状态' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editStatus });
 		const statusSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
 		for (const s of STATUS_LIST) {
-			const opt = statusSel.createEl('option', { text: s, attr: { value: s } });
+			const opt = statusSel.createEl('option', { text: UI_TEXT.statusLabel(s), attr: { value: s } });
 			if (s === task.status) opt.selected = true;
 		}
 
 		// ---- Priority ----
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '优先级' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editPriority });
 		const prioSel = contentEl.createEl('select', { cls: 'ad-modal-input' });
 		prioSel.createEl('option', { text: UI_TEXT.notSet, attr: { value: '' } });
 		for (const p of PRIORITY_LIST) {
 			if (!p) continue;
-			const opt = prioSel.createEl('option', { text: p, attr: { value: p } });
+			const opt = prioSel.createEl('option', { text: UI_TEXT.prioText(p), attr: { value: p } });
 			if (p === task.priority) opt.selected = true;
 		}
 
 		// ---- Dates ----
 		const row = contentEl.createDiv({ cls: 'ad-modal-row' });
 		const startCol = row.createDiv({ cls: 'ad-modal-col' });
-		startCol.createEl('label', { cls: 'ad-modal-label', text: '开始日期' });
+		startCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editStart });
 		const startInput = startCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
 		if (task.startDate) startInput.value = task.startDate;
 
 		const endCol = row.createDiv({ cls: 'ad-modal-col' });
-		endCol.createEl('label', { cls: 'ad-modal-label', text: '截止日期' });
+		endCol.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editDue });
 		const endInput = endCol.createEl('input', { cls: 'ad-modal-input', attr: { type: 'date' } });
 		if (task.dueDate) endInput.value = task.dueDate;
 
 		// ---- Notes ----
-		contentEl.createEl('label', { cls: 'ad-modal-label', text: '备注' });
+		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.editNotes });
 		const notesArea = contentEl.createEl('textarea', { cls: 'ad-modal-input', attr: { rows: '3' } });
 		if (task.notes) notesArea.value = task.notes;
 
@@ -79,11 +124,11 @@ export class TaskEditModal extends Modal {
 			.addEventListener('click', () => {
 				const titleEl = contentEl.querySelector('.ad-edit-title') as HTMLInputElement;
 				const nodeNoteEl = contentEl.querySelector('.ad-node-note') as HTMLTextAreaElement;
-				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, nodeNoteEl?.value ?? '');
+				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteEl?.value ?? '');
 			});
 	}
 
-	private async saveTask(title: string, status: string, priority: string, startDate: string, endDate: string, notes: string, nodeNote: string): Promise<void> {
+	private async saveTask(title: string, status: string, priority: string, startDate: string, endDate: string, notes: string, project: string, parent: string, type: string, nodeNote: string): Promise<void> {
 		const task = this.opts.task;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
@@ -101,6 +146,37 @@ export class TaskEditModal extends Modal {
 			}
 		}
 
+		// ---- Move to another project folder if changed ----
+		const rootPath = this.opts.projectsFolder || 'Projects';
+		const curFileName = file.path.split('/').pop() || '';
+		if (project && project !== task.projectId) {
+			const newPath = `${rootPath}/${project}/${curFileName}`;
+			if (!this.app.vault.getAbstractFileByPath(newPath)) {
+				await this.app.fileManager.renameFile(file, newPath);
+				task.projectId = project;
+				task.id = newPath;
+				task.sourceFile = newPath;
+			} else {
+				new Notice(t('modal.poNameExists', { name: curFileName }));
+				return;
+			}
+		}
+
+		// ---- 父任务防环：新父任务的祖先链不能包含本任务 ----
+		if (parent && parent !== task.content) {
+			let cur: string = parent;
+			let guard = 0;
+			while (cur) {
+				if (cur === task.content) {
+					new Notice(t('modal.poParentCycle'));
+					return;
+				}
+				const p = this.opts.allTasks.find((tt) => tt.content === cur);
+				cur = p ? (p.parent || '') : '';
+				if (++guard > 100) break;
+			}
+		}
+
 		const content = await this.app.vault.read(file);
 		const eol = content.includes('\r\n') ? '\r\n' : '\n';
 		const lines = content.split(/\r?\n/);
@@ -109,6 +185,8 @@ export class TaskEditModal extends Modal {
 		// Track whether priority already exists in frontmatter (frontmatter-scoped,
 		// avoids false positives from body content containing "优先级:").
 		let hasPriority = false;
+		let hasType = false;
+		let hasParent = false;
 		let statusLineIdx = -1;
 
 		for (let i = 0; i < lines.length; i++) {
@@ -123,6 +201,14 @@ export class TaskEditModal extends Modal {
 			} else if (line.startsWith('优先级:')) {
 				lines[i] = `优先级: ${yamlScalar(priority)}`;
 				hasPriority = true;
+			} else if (line.startsWith('类型:')) {
+				lines[i] = `类型: ${type}`;
+				hasType = true;
+			} else if (line.startsWith('父任务:')) {
+				lines[i] = parent ? `父任务: ${yamlScalar(parent)}` : '';
+				hasParent = true;
+			} else if (line.startsWith('项目:')) {
+				lines[i] = project ? `项目: ${yamlScalar(project)}` : '';
 			} else if (line.startsWith('开始日期:')) {
 				lines[i] = `开始日期: ${startDate}`;
 			} else if (line.startsWith('截止日期:')) {
@@ -136,6 +222,15 @@ export class TaskEditModal extends Modal {
 		// (statusLineIdx is frontmatter-scoped, so we never insert into the body.)
 		if (priority && !hasPriority && statusLineIdx >= 0) {
 			lines.splice(statusLineIdx + 1, 0, `优先级: ${yamlScalar(priority)}`);
+			statusLineIdx++;
+		}
+		if (type && !hasType && statusLineIdx >= 0) {
+			lines.splice(statusLineIdx + 1, 0, `类型: ${type}`);
+			statusLineIdx++;
+		}
+		if (parent && !hasParent && statusLineIdx >= 0) {
+			lines.splice(statusLineIdx + 1, 0, `父任务: ${yamlScalar(parent)}`);
+			statusLineIdx++;
 		}
 
 		// ---- Daily nodes (multi-day check-in) ----
@@ -247,12 +342,12 @@ export class TaskEditModal extends Modal {
 		const left = row.createDiv({ cls: 'ad-node-col' });
 		const right = row.createDiv({ cls: 'ad-node-col' });
 
-		left.createEl('label', { cls: 'ad-modal-label', text: '每日节点' });
+		left.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.dailyNode });
 		const axis = left.createDiv({ cls: 'ad-node-axis' });
 
 		// Weekday header (Mon=一 .. Sun=日)
 		const head = axis.createDiv({ cls: 'ad-node-axis__head' });
-		for (const w of ['一', '二', '三', '四', '五', '六', '日']) head.createSpan({ text: w });
+		for (const w of MODAL_TEXT.weekdayShort) head.createSpan({ text: w });
 
 		// Cells aligned to weekday columns
 		const grid = axis.createDiv({ cls: 'ad-node-axis__grid' });
@@ -269,18 +364,18 @@ export class TaskEditModal extends Modal {
 			const isCompleteDay = isDone && date === completeDate;
 			const cell = grid.createSpan({ cls: 'ad-node-cell' + this.cellClass(date, today, node, isOverdue, isCompleteDay) });
 			cell.setAttribute('data-date', date);
-			const note = node?.n ? node.n : '（无备注）';
-			const tag = isOverdue ? '（延期）' : '';
+			const note = node?.n ? node.n : MODAL_TEXT.noNote;
+			const tag = isOverdue ? MODAL_TEXT.overdueTag : '';
 			cell.setAttribute('title', `${date} ${weekdayLabel(date)}${tag}\n${note}`);
 		}
 
 		// Today controls (left column, under the axis)
 		const ctrl = left.createDiv({ cls: 'ad-node-ctrl' });
-		const doneBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: '今日完成' });
-		const skipBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: '今日不做' });
+		const doneBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todayDone });
+		const skipBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todaySkip });
 
 		// Today's note (right column)
-		right.createEl('label', { cls: 'ad-modal-label', text: `今日备注（${fmtMD(today)}）` });
+		right.createEl('label', { cls: 'ad-modal-label', text: t('modal.todayNote', { date: fmtMD(today) }) });
 		const noteArea = right.createEl('textarea', { cls: 'ad-modal-input ad-node-note', attr: { rows: '4' } });
 
 		const existing = task.dailyNodes[today];
@@ -295,8 +390,8 @@ export class TaskEditModal extends Modal {
 			if (todayCell) {
 				const synth = this.activeState ? { s: this.activeState, n: noteArea.value } : undefined;
 				todayCell.className = 'ad-node-cell' + this.cellClass(today, today, synth, today > due, isDone && today === completeDate);
-				const tag = today > due ? '（延期）' : '';
-				todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${noteArea.value ? noteArea.value : '（无备注）'}`);
+				const tag = today > due ? MODAL_TEXT.overdueTag : '';
+				todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${noteArea.value ? noteArea.value : MODAL_TEXT.noNote}`);
 			}
 		};
 		doneBtn.addEventListener('click', () => { this.activeState = this.activeState === 'done' ? undefined : 'done'; refresh(); });
@@ -326,8 +421,8 @@ export class TaskEditModal extends Modal {
 		build(wrap);
 	}
 
-	private label(parent: HTMLElement, text: string): void {
-		parent.createEl('label', { cls: 'ad-modal-label', text });
+	private label(parent: HTMLElement, text: string): HTMLElement {
+		return parent.createEl('label', { cls: 'ad-modal-label', text });
 	}
 
 	onClose(): void {
@@ -363,5 +458,5 @@ function eachDate(start: string, end: string): string[] {
 }
 function weekdayLabel(date: string): string {
 	const d = new Date(date + 'T00:00:00').getDay();
-	return ['日', '一', '二', '三', '四', '五', '六'][d] ?? '日';
+	return MODAL_TEXT.weekdayLabel[d] ?? '';
 }

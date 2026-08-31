@@ -52,6 +52,7 @@ export class ProjectModal extends Modal {
 		const { contentEl } = this;
 		const ed = this.opts.editData;
 		contentEl.addClass('ad-task-modal');
+		this.containerEl.closest('.modal-container')?.addClass('dashboard-modal');
 		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? MODAL_TEXT.projectEdit : MODAL_TEXT.projectNew });
 
 		contentEl.createEl('label', { cls: 'ad-modal-label', text: MODAL_TEXT.projectName });
@@ -157,6 +158,7 @@ export class ProjectModal extends Modal {
 	}
 
 	onClose(): void {
+		this.containerEl.closest('.modal-container')?.removeClass('dashboard-modal');
 		this.contentEl.empty();
 	}
 }

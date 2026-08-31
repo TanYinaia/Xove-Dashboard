@@ -30,6 +30,14 @@ export interface CountdownSettings {
 	targetDate: string;
 }
 
+/** 番茄钟时长（分钟） */
+export interface PomodoroSettings {
+	/** 工作时长（分钟），默认 25 */
+	workMin: number;
+	/** 休息时长（分钟），默认 5 */
+	breakMin: number;
+}
+
 /** 通用看板的一个阶段（看板列）— 结构定义见 src/data/opportunityParser.ts 的 BoardStage */
 export type { BoardStage } from './data/opportunityParser';
 
@@ -64,8 +72,15 @@ export interface DashboardSettings {
 	homeLayoutVersion?: number;
 	/** 倒计时卡片自定义事件（事件名称 + 目标日期），支持多个（最多 5 个） */
 	countdown: CountdownSettings[];
+	/** 番茄钟时长（分钟） */
+	pomodoro: PomodoroSettings;
 	/** 界面语言：zh（中英结合，默认）/ en（纯英文） */
 	language: 'zh' | 'en';
+	/**
+	 * 用户上次运行插件时看到的版本号（用于更新日志弹窗）。
+	 * 缺省/undefined = 首次安装：不弹窗，直接记为当前版本。
+	 */
+	lastSeenVersion?: string;
 }
 
 /**
@@ -126,6 +141,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	currentOppView: 'kanban',
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
 	countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
+	pomodoro: { workMin: 25, breakMin: 5 },
 	language: 'zh',
 	homeModules: [
 		{ id: 'quick-capture', enabled: true, order: 0, cols: 1, rows: 1 },
@@ -135,6 +151,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 		{ id: 'projects', enabled: true, order: 4, cols: 3, rows: 1 },
 		{ id: 'heatmap', enabled: true, order: 5, cols: 3, rows: 1 },
 		{ id: 'countdown', enabled: true, order: 6, cols: 1, rows: 1 },
+		{ id: 'pomodoro', enabled: true, order: 7, cols: 1, rows: 1 },
 	],
 };
 
@@ -147,6 +164,7 @@ export const DEFAULT_HOME_MODULES: HomeModuleConfig[] = [
 	{ id: 'projects', enabled: true, order: 4, cols: 3, rows: 1 },
 	{ id: 'heatmap', enabled: true, order: 5, cols: 3, rows: 1 },
 	{ id: 'countdown', enabled: true, order: 6, cols: 1, rows: 1 },
+	{ id: 'pomodoro', enabled: true, order: 7, cols: 1, rows: 1 },
 ];
 
 /* ---- helpers ---- */
@@ -368,6 +386,39 @@ export class DashboardSettingTab extends PluginSettingTab {
 				});
 			});
 
+		// 番茄钟时长
+		new Setting(containerEl)
+			.setName(t('settings.pomodoroWork'))
+			.setDesc(t('settings.pomodoroWorkDesc'))
+			.addText((tc) => tc
+				.setPlaceholder('25')
+				.setValue(String(this.plugin.settings.pomodoro?.workMin ?? 25))
+				.onChange(async (v) => {
+					const n = parseInt(v, 10);
+					if (Number.isFinite(n) && n > 0) {
+						this.plugin.settings.pomodoro = { ...this.plugin.settings.pomodoro, workMin: Math.min(180, n) };
+						await this.plugin.saveSettings();
+						this.plugin.refreshHome();
+					}
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName(t('settings.pomodoroBreak'))
+			.setDesc(t('settings.pomodoroBreakDesc'))
+			.addText((tc) => tc
+				.setPlaceholder('5')
+				.setValue(String(this.plugin.settings.pomodoro?.breakMin ?? 5))
+				.onChange(async (v) => {
+					const n = parseInt(v, 10);
+					if (Number.isFinite(n) && n > 0) {
+						this.plugin.settings.pomodoro = { ...this.plugin.settings.pomodoro, breakMin: Math.min(60, n) };
+						await this.plugin.saveSettings();
+						this.plugin.refreshHome();
+					}
+				}),
+			);
+
 		// 项目
 		addFolderDropdown(
 			new Setting(containerEl).setName(t('settings.projectFolder')).setDesc(t('settings.projectFolderDesc')),
@@ -528,6 +579,8 @@ export class DashboardSettingTab extends PluginSettingTab {
 					this.display();
 					// 改动数量后展开折叠组，便于继续编辑新阶段
 					this.containerEl.querySelector('.dashboard-collapse--pipeline')?.setAttribute('open', '');
+					// 刷新主页项目情况卡片（阶段名称/数量变化需同步）
+					this.plugin.refreshHome();
 				});
 			});
 
@@ -542,6 +595,8 @@ export class DashboardSettingTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						this.plugin.settings.npdpStages[idx] = v;
 						await this.plugin.saveSettings();
+						// 刷新主页项目情况卡片（阶段名称变化需同步）
+						this.plugin.refreshHome();
 					}),
 				);
 		}

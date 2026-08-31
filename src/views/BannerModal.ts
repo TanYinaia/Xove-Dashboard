@@ -27,6 +27,7 @@ export class BannerModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.addClass('ad-modal');
+		this.containerEl.closest('.modal-container')?.addClass('dashboard-modal');
 		contentEl.createEl('h3', { cls: 'ad-modal__title', text: t('modal.bannerTitle') });
 
 		// ---- preview container (16:3) ----
@@ -125,6 +126,7 @@ export class BannerModal extends Modal {
 	}
 
 	onClose(): void {
+		this.containerEl.closest('.modal-container')?.removeClass('dashboard-modal');
 		this.cleanup?.();
 		this.contentEl.empty();
 	}

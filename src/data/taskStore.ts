@@ -114,6 +114,7 @@ export class TaskStore {
 					const taskFiles = await this.scanTasksInFolder(child, meta.name || child.name, projColor);
 					acc.push(...taskFiles);
 					const activeCount = taskFiles.filter((t) => t.status !== '已完成' && t.status !== '已取消').length;
+					const doneCount = taskFiles.filter((t) => t.status === '已完成').length;
 					const projStage = meta.stage ?? 0;
 					const stages = this.getSettings().npdpStages;
 					projects.push({
@@ -124,7 +125,8 @@ export class TaskStore {
 						endDate: meta.endDate || null,
 						createDate: meta.createDate || null,
 						taskCount: taskFiles.length,
-						activeCount,
+					activeCount,
+					doneCount,
 						path: child.path,
 						stage: Math.min(projStage, stages.length - 1),
 						stages,

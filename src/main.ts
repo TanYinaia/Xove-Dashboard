@@ -2,10 +2,39 @@ import { Plugin } from 'obsidian';
 import { DEFAULT_SETTINGS, DEFAULT_HOME_MODULES, HOME_LAYOUT_VERSION, DashboardSettings, DashboardSettingTab, CountdownSettings } from './settings';
 import { DashboardView, VIEW_TYPE } from './views/DashboardView';
 import type { BoardStage } from './data/opportunityParser';
-import { setLang, getLang } from './i18n';
+import { setLang, getLang, type Lang } from './i18n';
+import { POMO_SOUND_B64 } from './data/pomoSound';
+import { CHANGELOG, CHANGELOG_ORDER } from './changelog';
+import { UpdateLogModal } from './views/UpdateLogModal';
+import { WelcomeModal } from './views/WelcomeModal';
+
+/** 番茄钟运行时状态（与主页卡片共享，状态栏实时显示） */
+export interface PomoState {
+	mode: 'work' | 'break';
+	/** 是否已开始过（开始后状态栏才显示） */
+	started: boolean;
+	running: boolean;
+	/** 运行中时的结束时间戳（ms） */
+	endTime: number;
+	/** 未运行时的剩余时长（ms） */
+	remaining: number;
+}
 
 export default class Dashboard extends Plugin {
 	settings!: DashboardSettings;
+
+	/** 番茄钟运行时状态（主页卡片与状态栏共用同一数据源） */
+	pomoState: PomoState = {
+		mode: 'work',
+		started: false,
+		running: false,
+		endTime: 0,
+		remaining: 25 * 60 * 1000,
+	};
+
+	private pomoStatusEl: HTMLElement | null = null;
+	/** 番茄钟提示音实例：在用户点击开始（有手势）时预热，规避浏览器的自动播放限制 */
+	private pomoAudio: HTMLAudioElement | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -25,9 +54,110 @@ export default class Dashboard extends Plugin {
 		});
 
 		this.addSettingTab(new DashboardSettingTab(this.app, this));
+
+		// 番茄钟状态栏：右下角显示 🍅/☕ + 剩余时间（未开始时不显示）
+		this.pomoStatusEl = this.addStatusBarItem();
+		this.pomoStatusEl.addClass('ad-pomo-status');
+		this.pomoStatusEl.hide();
+		this.registerInterval(window.setInterval(() => this.tickPomoStatusBar(), 500));
+
+		// 更新日志弹窗：非首次启动且版本有更新时提示（延迟到渲染完成后，不阻塞启动）
+		void this.maybeShowUpdateModal();
+	}
+
+	/** 状态栏每 500ms 刷新一次剩余时间 */
+	private tickPomoStatusBar(): void {
+		if (!this.pomoStatusEl) return;
+		const s = this.pomoState;
+		if (!s.started) {
+			this.pomoStatusEl.hide();
+			this.pomoStatusEl.setText('');
+			return;
+		}
+		const left = s.running ? s.endTime - Date.now() : s.remaining;
+		const icon = s.mode === 'work' ? '🍅' : '☕';
+		this.pomoStatusEl.show();
+		this.pomoStatusEl.setText(`${icon} ${this.pomoFmt(left)}`);
+	}
+
+	private pomoFmt(ms: number): string {
+		const total = Math.max(0, Math.ceil(ms / 1000));
+		const m = Math.floor(total / 60);
+		const sec = total % 60;
+		return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+	}
+
+	/** 用户在点击「开始」的交互手势中调用：预热音频实例，让后续到点提示音不被浏览器拦截 */
+	warmPomoAudio(): void {
+		try {
+			if (this.pomoAudio) return;
+			const audio = new Audio(`data:audio/mpeg;base64,${POMO_SOUND_B64}`);
+			audio.preload = 'auto';
+			audio.muted = true;
+			this.pomoAudio = audio;
+			// 在用户手势内静音播放一次以解锁后续自动播放，随后立即静音暂停（不打扰用户）
+			void audio.play().catch(() => { /* 预热失败静默：到点可能无声，但不影响计时 */ });
+			window.setTimeout(() => {
+				audio.muted = false;
+				audio.currentTime = 0;
+				audio.pause();
+			}, 150);
+		} catch { /* 无声环境直接忽略 */ }
+	}
+
+	/** 番茄钟到点播放提示音（内嵌 mp3，零网络依赖） */
+	playPomoSound(): void {
+		try {
+			if (!this.pomoAudio) this.warmPomoAudio();
+			if (!this.pomoAudio) return;
+			const audio = this.pomoAudio;
+			audio.currentTime = 0;
+			void audio.play().catch(() => { /* 播放失败静默 */ });
+		} catch { /* 声音是尽力而为，失败不影响计时 */ }
 	}
 
 	onunload(): void {}
+
+	/**
+	 * 更新日志弹窗：首次安装（无 lastSeenVersion）不弹；
+	 * 否则比较 (lastSeenVersion, 当前版本] 之间的 CHANGELOG 条目，有则弹窗展示并落盘最新版本。
+	 */
+	private async maybeShowUpdateModal(): Promise<void> {
+		const current = this.manifest.version;
+		const lastSeen = this.settings.lastSeenVersion;
+		if (!lastSeen) {
+			// 首次安装：延迟弹「欢迎」介绍功能与上手，并把版本号记为本版，之后不再弹
+			this.settings.lastSeenVersion = current;
+			await this.saveSettings();
+			window.setTimeout(() => {
+				new WelcomeModal(this.app).open();
+			}, 600);
+			return;
+		}
+		const lastIdx = CHANGELOG_ORDER.findIndex((v) => v === lastSeen);
+		const curIdx = CHANGELOG_ORDER.findIndex((v) => v === current);
+		if (lastIdx < 0 || curIdx < 0 || curIdx <= lastIdx) {
+			// 版本不在已知变更表中（如 lastSeen 晚于当前）→ 无需弹窗，只更新记号
+			if (this.settings.lastSeenVersion !== current) {
+				this.settings.lastSeenVersion = current;
+				await this.saveSettings();
+			}
+			return;
+		}
+		const entries: { version: string; text: string }[] = [];
+		const lang = getLang();
+		for (const v of CHANGELOG_ORDER.slice(lastIdx + 1, curIdx + 1)) {
+			const entry = CHANGELOG[v];
+			if (!entry) continue;
+			entries.push({ version: v, text: lang === 'en' ? entry.en : entry.zh });
+		}
+		// 延迟到插件渲染完成后弹出，避免阻塞启动（对应「插件加载速度慢」提示）
+		window.setTimeout(() => {
+			new UpdateLogModal(this.app, entries, current).open();
+		}, 600);
+		this.settings.lastSeenVersion = current;
+		await this.saveSettings();
+	}
 
 	async loadSettings(): Promise<void> {
 		const loaded = ((await this.loadData()) ?? {}) as Partial<DashboardSettings> & {
@@ -50,10 +180,43 @@ export default class Dashboard extends Plugin {
 		this.normalizeHomeModules(storedLayoutVersion);
 		// 迁移看板阶段结构：旧数据用 kind(终态)，新结构用 hasInput(是否启用输入框)。
 		this.normalizeBoardStages();
-		// 同步 i18n 模块的语言状态（zh=中英结合默认 / en=纯英文）
-		setLang(this.settings.language ?? 'zh');
+		// 同步 i18n 模块的语言状态（zh=中英结合默认 / en=纯英文）。
+		// 首次安装（data.json 无 language 字段）跟随 Obsidian 界面语言，而非固定中文。
+		this.applyStartupLang(loaded.language);
 		// 向后兼容迁移：倒计时单对象→数组、banner 增加 enabled、看板默认名随语言
 		this.normalizeSettings();
+	}
+
+	/**
+	 * 初始化 i18n 语言：
+	 * - 用户在设置中已选择过语言（data.json 含 language 字段）→ 沿用该选择；
+	 * - 首次安装（无 language 字段）→ 跟随 Obsidian 界面语言，
+	 *   中文界面用 zh，其余一律用 en；检测为 en 时落盘，避免下次启动回退。
+	 */
+	private applyStartupLang(storedLang: unknown): void {
+		if (storedLang === 'zh' || storedLang === 'en') {
+			setLang(storedLang);
+			return;
+		}
+		const detected: Lang = this.detectObsidianLang();
+		this.settings.language = detected;
+		setLang(detected);
+		if (detected !== 'zh') void this.saveSettings();
+	}
+
+	/**
+	 * 探测 Obsidian 界面语言。
+	 * navigator.language 反映的是系统/浏览器语言，可能是中文系统 + 英文 Obsidian 的错位组合，
+	 * 不可作唯一依据。Obsidian 内置 moment 的 locale 跟随实际界面语言，优先使用；navigator 仅作回退。
+	 */
+	private detectObsidianLang(): Lang {
+		try {
+			const momentLocale = (window as unknown as { moment?: { locale?: () => string } }).moment?.locale?.();
+			if (typeof momentLocale === 'string' && momentLocale) {
+				return /^zh/i.test(momentLocale) ? 'zh' : 'en';
+			}
+		} catch { /* moment 未挂载时走回退 */ }
+		return /^zh/i.test(navigator.language || '') ? 'zh' : 'en';
 	}
 
 	/**

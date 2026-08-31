@@ -51,6 +51,8 @@ export interface ProjectInfo {
 	createDate: string | null;
 	taskCount: number;
 	activeCount: number;
+	/** 已完成任务数（供「完成数/总数」统计展示；旧数据缺失时可用 taskCount - activeCount 兜底） */
+	doneCount?: number;
 	path: string;
 	stage: number;          // 0-based index into stages (0 = first stage)
 	stages?: string[];      // NPDP stage labels from settings

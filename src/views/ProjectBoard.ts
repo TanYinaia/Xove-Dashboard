@@ -265,12 +265,12 @@ export class ProjectBoard {
 
 		// "全部项目" item
 		const totalTasks = this.currentProjects.reduce((s, p) => s + p.taskCount, 0);
-		const totalActive = this.currentProjects.reduce((s, p) => s + p.activeCount, 0);
+		const totalDone = this.currentProjects.reduce((s, p) => s + (p.doneCount ?? (p.taskCount - p.activeCount)), 0);
 
 		const allItem = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === null ? ' is-active' : '') });
 		allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#7BA7FF;color:#7BA7FF' } });
 		allItem.createSpan({ text: t('home.nav.allProjects') });
-		allItem.createSpan({ cls: 'po-count', text: totalActive + '/' + totalTasks });
+		allItem.createSpan({ cls: 'po-count', text: totalDone + '/' + totalTasks });
 		allItem.addEventListener('click', () => {
 			this.selectedProject = null;
 			this.renderSidebar(sidebar);
@@ -282,7 +282,7 @@ export class ProjectBoard {
 			const item = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === p.name ? ' is-active' : '') });
 			item.createSpan({ cls: 'po-dot', attr: { style: 'background:' + p.color + ';color:' + p.color } });
 			item.createSpan({ text: p.name });
-			item.createSpan({ cls: 'po-count', text: p.activeCount + '/' + p.taskCount });
+			item.createSpan({ cls: 'po-count', text: (p.doneCount ?? (p.taskCount - p.activeCount)) + '/' + p.taskCount });
 			item.addEventListener('click', () => {
 				this.selectedProject = p.name;
 				this.renderSidebar(sidebar);

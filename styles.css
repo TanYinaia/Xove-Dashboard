@@ -113,7 +113,7 @@
   --ad-limit:      oklch(0.58 0.21 25);   /* 缩放触达限制的警示红（浅色下压深，保证对比） */
 
   color-scheme: light;
-  background-color: var(--ad-bg) !important;
+  background-color: var(--ad-bg);
   background-image: none;
   box-shadow: none;
   color: var(--ad-text);
@@ -127,9 +127,9 @@
 :is(body.theme-light .dashboard-plugin:not([data-theme="dark"]),
     body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-cd__bar .ad-fill { background: linear-gradient(90deg, var(--ad-text), var(--ad-danger)); }
 :is(body.theme-light .dashboard-plugin:not([data-theme="dark"]),
-    body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-proj__row[data-type="ga"] .ad-proj__dot { background: oklch(0.40 0 0) !important; box-shadow: 0 0 0 3px rgba(0,0,0,0.07) !important; }
+    body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-proj__row[data-type="ga"] .ad-proj__dot { background: oklch(0.40 0 0); box-shadow: 0 0 0 3px rgba(0,0,0,0.07); }
 :is(body.theme-light .dashboard-plugin:not([data-theme="dark"]),
-    body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-proj__dot { background: oklch(0.13 0 0) !important; box-shadow: 0 0 0 3px rgba(0,0,0,0.07) !important; }
+    body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-proj__dot { background: oklch(0.13 0 0); box-shadow: 0 0 0 3px rgba(0,0,0,0.07); }
 :is(body.theme-light .dashboard-plugin:not([data-theme="dark"]),
     body.theme-dark .dashboard-plugin[data-theme="light"]) .ad-proj__row[data-type="ga"] .ad-proj__stage.is-done .ad-pip,
 :is(body.theme-light .dashboard-plugin:not([data-theme="dark"]),
@@ -976,7 +976,7 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-ns__cells {
   display: grid; grid-auto-flow: column;
   grid-template-rows: repeat(7, 15px);
-  column-gap: var(--hm-cgap, 5px); row-gap: var(--hm-rgap, 5px);
+  gap: var(--hm-rgap, 5px) var(--hm-cgap, 5px);
   width: max-content;
 }
 .ad-ns__cell {
@@ -1246,11 +1246,48 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-cd-add { align-self: flex-start; }
 .ad-cd-add:disabled { opacity: 0.5; cursor: not-allowed; }
 .ad-cd-empty { color: var(--ad-text-dim); font-size: 13px; }
+
+/* ============================================================ pomodoro */
+.ad-pomo {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+}
+.ad-pomo__mode {
+  font-size: clamp(11px, 4cqi, 13px); font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ad-accent); cursor: pointer; user-select: none;
+  padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--ad-line); background: var(--ad-s2);
+  transition: border-color .12s, color .12s;
+}
+.ad-pomo__mode:hover { border-color: var(--ad-accent); }
+.ad-pomo__time {
+  font-family: var(--ad-font-mono);
+  font-size: clamp(38px, 22cqi, 72px);
+  line-height: 0.95; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--ad-text); font-variant-numeric: tabular-nums;
+}
+.ad-pomo__btns { display: flex; align-items: center; gap: 8px; }
+.ad-pomo__btn {
+  padding: 5px 16px; border-radius: var(--ad-r1);
+  border: 1px solid var(--ad-line); background: var(--ad-s2);
+  color: var(--ad-text); cursor: pointer; font-size: 12px;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.ad-pomo__btn:hover { border-color: var(--ad-accent); color: var(--ad-accent); }
+.ad-pomo__start { background: var(--ad-accent); color: var(--ad-on-accent); border-color: var(--ad-accent); font-weight: 600; }
+.ad-pomo__start:hover { background: var(--ad-accent); color: var(--ad-on-accent); filter: brightness(1.08); }
+
+/* 状态栏番茄钟：右下角 🍅/☕ + 剩余时间 */
+.ad-pomo-status { cursor: default; user-select: none; margin-left: 8px; font-variant-numeric: tabular-nums; }
+
 .ad-accent { color: var(--ad-accent); }
 
 /* ============================================================ utility */
-.ad-hidden { display: none !important; }
-.ad-input-error { border-color: var(--ad-danger) !important; }
+/* 双类提升特异性，压过组件自身的 display 规则，无需 important 关键字 */
+.ad-hidden.ad-hidden { display: none; }
+.ad-modal-input.ad-input-error { border-color: var(--ad-danger); }
 
 /* ============================================================ todo card head */
 .ad-b-todo .ad-card__head {
@@ -1266,6 +1303,19 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 /* ============================================================ task/project modals */
 .ad-task-modal {}
 .ad-modal-title { font-size: 15px; font-weight: 600; color: var(--ad-text); margin: 0 0 16px; }
+
+/* ============================================================ update log modal */
+.ad-update-block { margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--ad-line); border-radius: var(--ad-r1); background: var(--ad-s1); }
+.ad-update-version { font-size: 12px; font-weight: 700; color: var(--ad-accent); margin-bottom: 6px; }
+.ad-update-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--ad-text); }
+.ad-update-list li + li { margin-top: 3px; }
+.ad-update-modal .setting-item { border-top: none; }
+
+/* ============================================================ welcome modal */
+.ad-welcome-intro { font-size: 13px; line-height: 1.6; color: var(--ad-text-dim); margin-bottom: 10px; }
+.ad-welcome-h { font-size: 12px; font-weight: 700; color: var(--ad-accent); letter-spacing: 0.05em; margin: 14px 0 6px; }
+.ad-welcome-modal .ad-update-list { margin-bottom: 6px; }
+.ad-welcome-modal .setting-item { border-top: none; }
 .ad-task-modal label {
   display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--ad-text-mute); margin: 12px 0 6px;
@@ -1448,9 +1498,9 @@ input[type="date"].ad-modal-input { cursor: pointer; }
   opacity: 0.35;
 }
 
-/* Project overview in-dashboard */
-.po-board { display: flex !important; flex-direction: column; gap: 0 !important; }
-.op-board { display: flex !important; flex-direction: column; gap: 0 !important; }
+/* Project overview in-dashboard（双类提升特异性，压过其它 display 规则） */
+.po-board.po-board { display: flex; flex-direction: column; gap: 0; }
+.op-board.op-board { display: flex; flex-direction: column; gap: 0; }
 
 /* ============================================================ opportunity board */
 /* Kanban */
@@ -1536,7 +1586,7 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 .po-weekday { color: var(--ad-text-mute); }
 
 /* Container */
-.po-container { flex: 1; display: flex; gap: 10px; min-height: 0; border-radius: var(--ad-r3); overflow: hidden; border: 1px solid var(--ad-line); background: var(--ad-s1); margin-top: 14px; height: calc(200vh - 200px); min-height: 800px; }
+.po-container { flex: 1; display: flex; gap: 10px; border-radius: var(--ad-r3); overflow: hidden; border: 1px solid var(--ad-line); background: var(--ad-s1); margin-top: 14px; height: calc(200vh - 200px); min-height: 800px; }
 
 /* Sidebar */
 .po-sidebar { width: 228px; flex-shrink: 0; background: var(--ad-s1); border-right: 1px solid var(--ad-line); display: flex; flex-direction: column; padding: 10px 0; overflow-y: auto; }
@@ -1817,7 +1867,7 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 
 /* Table row highlight (linked with gantt) */
 .po-table tbody tr.po-row--highlight {
-  background: var(--ad-accent-dim) !important;
+  background: var(--ad-accent-dim);
   box-shadow: inset 3px 0 0 var(--ad-accent);
 }
 
@@ -1837,14 +1887,14 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 .po-cal__range { font-size: 10px; color: var(--ad-text-dim); background: var(--ad-s2); border: 1px solid var(--ad-line); border-radius: 4px; padding: 0 5px; flex-shrink: 0; font-family: var(--ad-font); white-space: nowrap; }
 .po-cal__over { font-size: 10px; color: var(--ad-danger); font-weight: 600; flex-shrink: 0; font-family: var(--ad-font); }
 
-/* Calendar drag-over day */
-.po-cal__day--drag-over { background: var(--ad-accent-dim) !important; border-color: var(--ad-accent) !important; }
+/* Calendar drag-over day（双类提升，压过 .po-cal__day 默认背景/边框） */
+.po-cal__day.po-cal__day--drag-over { background: var(--ad-accent-dim); border-color: var(--ad-accent); }
 
 /* Empty state for views */
 .po-empty { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--ad-text-dim); font-size: 13px; }
 
 /* Gantt resized (after drag) */
-.po-gantt--resized { flex: none !important; }
+.po-gantt--resized.po-gantt--resized { flex: none; }
 
 /* Sortable table header */
 .po-th--sortable { cursor: pointer; }
@@ -2055,6 +2105,20 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 .op-kanban--single .op-kanban__col { flex: 0 0 320px; max-width: 360px; }
 .op-detail { flex: 1 1 auto; min-width: 280px; align-self: stretch; }
 .op-detail__inner { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--ad-line); border-radius: var(--ad-r2); background: var(--ad-card); }
+/* 本插件所有弹窗 / 详情面板内的 textarea：允许垂直拖动调整高度（宽度不变）。
+   需 !important：Obsidian 内置对 modal/textarea 默认 resize:none，普通特异性规则压不过它。
+   flex:none 防止 .ad-task-modal(flex column) 干扰 height（内容多时 flex 会压住拖高）；
+   box-sizing:border-box 避免 width:100%+padding 使 textarea 溢出容器。 */
+.ad-modal textarea.ad-modal-input,
+.ad-task-modal textarea.ad-modal-input,
+.op-detail textarea.ad-modal-input {
+  resize: vertical !important;
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  overflow: auto;
+}
 .op-detail__hd { font-weight: 600; font-size: 14px; color: var(--ad-text); margin-bottom: 2px; }
 .op-detail__stage-label { margin-top: 4px; font-weight: 600; font-size: 12px; color: var(--ad-muted); letter-spacing: 0.02em; }
 .op-detail__row { display: flex; align-items: center; gap: 6px; color: var(--ad-muted); font-size: 12px; }
@@ -2113,15 +2177,14 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 /* 缩放中：抑制抖动动画，避免比例反馈被视觉噪声淹没 */
 .ad-card--resizing { animation: none; outline: 2px solid var(--ad-accent); transition: outline-color .12s ease, box-shadow .12s ease; }
 /* 缩放触达上/下限：边框转红 + 抖动 + 红光脉冲，明确「到头了」。
-   ⚠️ 必须 !important：编辑态抖动规则 `.dashboard-plugin.ad-edit .ad-card`（3 类）
-   与 hover 描边 `.dashboard-plugin.ad-edit .ad-card:hover`（4 类）特异性更高，
-   会压住本规则，导致「只红字、不红框不抖动」。Obsidian(Chromium) 支持这些属性，属覆盖问题非兼容问题。 */
-.ad-card--resizing.is-limit {
-  outline: 2px solid var(--ad-limit) !important;
+   用 .dashboard-plugin.ad-edit 前缀把特异性提到 4 类（与 hover 描边 0-4-0 平级、
+   且本规则定义在其后），压过编辑态 base / hover 规则，无需 important 关键字。 */
+.dashboard-plugin.ad-edit .ad-card--resizing.is-limit {
+  outline: 2px solid var(--ad-limit);
   animation: ad-limit-shake .42s cubic-bezier(.36,.07,.19,.97) both,
-             ad-limit-glow .9s ease-in-out .42s infinite !important;
+             ad-limit-glow .9s ease-in-out .42s infinite;
 }
-.ad-card--resizing.is-limit .ad-card__ratio { color: var(--ad-limit) !important; }
+.dashboard-plugin.ad-edit .ad-card--resizing.is-limit .ad-card__ratio { color: var(--ad-limit); }
 @keyframes ad-limit-shake {
   10%, 90% { translate: -3px 0; }
   20%, 80% { translate:  5px 0; }
@@ -2135,7 +2198,7 @@ input[type="date"].ad-modal-input { cursor: pointer; }
   50%      { box-shadow: 0 0 0 2px var(--ad-limit), 0 0 16px 5px color-mix(in oklab, var(--ad-limit) 65%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ad-card--resizing.is-limit { animation: none !important; }
+  .dashboard-plugin.ad-edit .ad-card--resizing.is-limit { animation: none; }
 }
 /* 缩放时居中显示的实时比例，如「2 × 1」 */
 .ad-card__ratio {
@@ -2164,7 +2227,7 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .dashboard-plugin.ad-edit .ad-card,
   .ad-ph { animation: none; }
-  .ad-card { transition: none !important; }
+  .dashboard-plugin .ad-card { transition: none; }
 }
 
 /* 底部编辑工具条（sticky，含删除/添加/完成） */
@@ -2221,22 +2284,23 @@ input[type="date"].ad-modal-input { cursor: pointer; }
     body.theme-dark .ad-popover[data-theme="light"]) {
   background: rgba(0,0,0,0.30);
 }
-/* 强制覆盖：缩放/添加两个弹窗的 backdrop 绝不允许被主题或片段改回纯白 */
-.ad-popover.ad-propmenu-backdrop,
-.ad-popover.ad-addmenu-backdrop {
-  background: rgba(0,0,0,0.34) !important;
-  backdrop-filter: blur(10px) saturate(120%) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(120%) !important;
+/* 强制覆盖：缩放/添加两个弹窗的 backdrop 绝不允许被主题或片段改回纯白
+   （双重复类提升到 3 类，压过单类主题规则，无需 important 关键字） */
+.ad-popover.ad-propmenu-backdrop.ad-propmenu-backdrop,
+.ad-popover.ad-addmenu-backdrop.ad-addmenu-backdrop {
+  background: rgba(0,0,0,0.34);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
 }
 body.theme-light .ad-popover.ad-propmenu-backdrop:not([data-theme="dark"]),
 body.theme-dark .ad-popover.ad-propmenu-backdrop[data-theme="light"],
 body.theme-light .ad-popover.ad-addmenu-backdrop:not([data-theme="dark"]),
 body.theme-dark .ad-popover.ad-addmenu-backdrop[data-theme="light"] {
-  background: rgba(0,0,0,0.30) !important;
+  background: rgba(0,0,0,0.30);
 }
-/* 背景虚化同样适用于本插件的 Obsidian 弹窗 */
-.modal-container:has(.ad-modal) .modal-bg,
-.modal-container:has(.ad-task-modal) .modal-bg {
+/* 背景虚化同样适用于本插件的 Obsidian 弹窗
+   （不用 :has：由 main.ts 在 modal-open 时给 .modal-container 打 .dashboard-modal 标记） */
+.modal-container.dashboard-modal .modal-bg {
   backdrop-filter: blur(8px) saturate(118%);
   -webkit-backdrop-filter: blur(8px) saturate(118%);
 }

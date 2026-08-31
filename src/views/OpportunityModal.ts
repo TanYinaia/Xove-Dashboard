@@ -81,6 +81,7 @@ export class OpportunityModal extends Modal {
 		const ed = this.opts.editData;
 		const title = this.opts.title;
 		contentEl.addClass('ad-task-modal');
+		this.containerEl.closest('.modal-container')?.addClass('dashboard-modal');
 		contentEl.createEl('h3', { cls: 'ad-modal-title', text: this.isEdit ? t('modal.oppEdit', { title }) : t('modal.opNew', { title }) });
 
 		// 名称
@@ -112,6 +113,8 @@ export class OpportunityModal extends Modal {
 		const notesArea = contentEl.createEl('textarea', {
 			cls: 'ad-modal-input', attr: { rows: '3', placeholder: MODAL_TEXT.oppNotesPlaceholder },
 		});
+		// 内联强制允许垂直调整（此弹窗的 textarea 有时会被 Obsidian 的 resize:none 压住）
+		notesArea.setAttr('style', 'resize: vertical; overflow-y: auto;');
 		if (ed) notesArea.value = ed.notes;
 
 		// 阶段输入框：仅渲染「启用输入框」的阶段，输入框标题与该阶段名一致联动
@@ -122,6 +125,7 @@ export class OpportunityModal extends Modal {
 			const area = contentEl.createEl('textarea', {
 				cls: 'ad-modal-input', attr: { rows: '2', placeholder: MODAL_TEXT.opStagePh },
 			});
+			area.setAttr('style', 'resize: vertical; overflow-y: auto;');
 			area.value = this.stageNotes[s.label] || '';
 			stageInputs.push({ label: s.label, area });
 		}
@@ -208,6 +212,7 @@ export class OpportunityModal extends Modal {
 	}
 
 	onClose(): void {
+		this.containerEl.closest('.modal-container')?.removeClass('dashboard-modal');
 		this.linkSuggest?.close();
 		this.linkSuggest = null;
 		this.contentEl.empty();

@@ -8,6 +8,33 @@ export const zh: Dict = {
 		open: '打开', close: '关闭', confirm: '确认', reset: '重置',
 		add: '添加', expand: '展开', collapse: '收起',
 	},
+	// 更新日志弹窗
+	update: {
+		title: '✨ Xove Dashboard 已更新到 v{v}',
+	},
+	// 新用户欢迎弹窗
+	welcome: {
+		title: '👋 欢迎使用 Xove Dashboard',
+		intro: '把 Obsidian 首页变成你的个人工作控制台：任务、项目、灵感与统计，一屏尽收。',
+		featuresTitle: '核心功能',
+		features: [
+			'📥 快速捕捉：一闪而过的想法，一键存入笔记',
+			'✅ 任务体系：TODO / 本周待办 / 多日节点 / 重复任务',
+			'📊 项目总览：列表、看板、日历、甘特图四种视角',
+			'💡 灵感看板：阶段流转，集中收集创意',
+			'🍅 番茄钟：专注计时，到点声音提醒',
+			'🌙 主题自适应：深色 / 浅色自动跟随',
+		],
+		usageTitle: '快速上手',
+		usage: [
+			'打开设置，配置「存储与模板」中的路径',
+			'在主页工具栏点「＋ 新建项目」创建项目',
+			'左侧快速捕捉框输入想法，回车即保存',
+			'点顶栏切换首页 / 项目 / 灵感看板',
+			'长按卡片边缘进入编辑模式，拖动调整布局',
+		],
+		cta: '开始使用',
+	},
 	// 原 constants.ts UI_TEXT 的镜像
 	ui: {
 		save: '保存', cancel: '取消', edit: '编辑', delete: '删除',
@@ -43,7 +70,7 @@ export const zh: Dict = {
 		modules: {
 			quickCapture: '快速捕捉', progress: '工作进度',
 			weekly: '本周待办 & 逾期', projects: '项目情况',
-			heatmap: '笔记统计', countdown: '倒计时',
+			heatmap: '笔记统计', countdown: '倒计时', pomodoro: '番茄钟',
 		},
 		bannerPlaceholder: '[ banner ]  ·  点击右上角按钮插入封面图片',
 		changeImage: '更换图片',
@@ -134,6 +161,9 @@ export const zh: Dict = {
 		heatmapAllYear: '{year} 全年',
 		heatmapRecent: '近 {n} 周',
 		restoreLayout: '↺ 已恢复默认布局',
+		pomoWork: '工作', pomoBreak: '休息',
+		pomoStart: '开始', pomoPause: '暂停', pomoReset: '重置',
+		pomoDoneWork: '🍅 番茄完成！休息一下吧', pomoDoneBreak: '☕ 休息结束，开始下一个番茄吧',
 	},
 	modal: {
 		taskTitle: '新建任务', taskName: '任务名称 *', taskNamePlaceholder: '输入任务名称', project: '所属项目 *', parent: '父任务',
@@ -173,7 +203,7 @@ export const zh: Dict = {
 		remOnDay: '任务当天', rem1Day: '提前 1 天', rem3Day: '提前 3 天', rem1Week: '提前 1 周',
 		editStatus: '状态', editPriority: '优先级', editStart: '开始日期', editDue: '截止日期',
 		editNotes: '备注', dailyNode: '每日节点', todayDone: '今日完成', todaySkip: '今日不做',
-		todayNote: '今日备注（{date}）', noNote: '（无备注）', overdueTag: '（延期）',
+		todayNote: '今日备注（{date}）', nodeNoteFor: '{date} 备注', noNote: '（无备注）', overdueTag: '（延期）',
 		cdTitle: '倒计时事件', cdTitleSingle: '编辑倒计时', cdEventName: '事件名称', cdTargetDate: '目标日期',
 		cdEventPlaceholder: '如：高考', cdHint: '卡片显示「距离 {event} 还有」及剩余天数，进度条随目标日期动态变化。',
 		cdAdd: '＋ 添加倒计时', cdMax: '最多 5 个倒计时', cdEmpty: '暂无倒计时，点击下方添加',
@@ -210,6 +240,8 @@ export const zh: Dict = {
 		taskDetailModeDesc: '简洁模式隐藏所属项目、任务类型与父任务',
 		taskDetailDetailed: '详细（显示全部字段）',
 		taskDetailCompact: '简洁（隐藏项目/类型/父任务）',
+		pomodoroWork: '工作时长（分钟）', pomodoroWorkDesc: '番茄钟工作时长，默认 25 分钟',
+		pomodoroBreak: '休息时长（分钟）', pomodoroBreakDesc: '番茄钟休息时长，默认 5 分钟',
 		captureStoragePath: '捕捉存储路径', storagePathDesc: '捕捉笔记的存放位置',
 		captureNamingRule: '捕捉命名规则',
 		namingRuleDesc: '支持变量：YYYY 年、MM 月(2位)、MMM 月缩写(如 8月)、DD 日；ddd 周日、dddd 星期日；HH 24时、hh 12时、mm 分、ss/SS 秒、A 上午/下午',

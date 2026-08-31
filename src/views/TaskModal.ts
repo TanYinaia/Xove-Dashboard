@@ -102,6 +102,7 @@ export class TaskModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.addClass('ad-task-modal');
+		this.containerEl.closest('.modal-container')?.addClass('dashboard-modal');
 		contentEl.createEl('h3', { cls: 'ad-modal-title', text: MODAL_TEXT.taskTitle });
 
 		// ---- Title ----
@@ -377,6 +378,7 @@ export class TaskModal extends Modal {
 	}
 
 	onClose(): void {
+		this.containerEl.closest('.modal-container')?.removeClass('dashboard-modal');
 		this.contentEl.empty();
 	}
 }

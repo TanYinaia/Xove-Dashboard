@@ -251,6 +251,7 @@ export class DashboardView extends ItemView {
 		{ id: 'projects', title: t('home.modules.projects'), cardCls: 'ad-card ad-b-project', render: (b) => void this.renderProjects(b) },
 		{ id: 'heatmap', title: t('home.modules.heatmap'), cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
 		{ id: 'countdown', title: t('home.modules.countdown'), cardCls: 'ad-card ad-b-countdown', live: false, render: () => {} },
+		{ id: 'pomodoro', title: t('home.modules.pomodoro'), cardCls: 'ad-card ad-b-pomodoro', live: false, render: (b) => this.renderPomodoro(b) },
 	];
 
 	// Project overview state (renderer extracted into ProjectBoard)
@@ -265,9 +266,14 @@ export class DashboardView extends ItemView {
 	private oppBoard: OpportunityBoard;
 	private projectBoard: ProjectBoard;
 
+	/* ---- 番茄钟（状态提升到 plugin.pomoState，主页卡片与状态栏共用） ---- */
+	private adPomoTimer: number | null = null;
+
 	constructor(leaf: WorkspaceLeaf, plugin: Dashboard) {
 		super(leaf);
 		this.plugin = plugin;
+		// 首次使用时按当前设置初始化工作时长（开始过后保持实际剩余，不覆盖）
+		if (!this.plugin.pomoState.started) this.plugin.pomoState.remaining = this.pomoWorkMs();
 		this.bannerState = { ...DEFAULT_SETTINGS.banner, ...plugin.settings.banner };
 		this.taskStore = new TaskStore(this.app, () => this.plugin.settings, (msg) => this.showToast(msg));
 		this.dashboardStore = new DashboardStore(this.taskStore);
@@ -384,6 +390,7 @@ export class DashboardView extends ItemView {
 		if (this.adRowHObs) { this.adRowHObs.disconnect(); this.adRowHObs = undefined; }
 		if (this.adHmObs) { this.adHmObs.disconnect(); this.adHmObs = undefined; this.adHmObsTarget = undefined; }
 		if (this.adLimitTimer !== null) { window.clearTimeout(this.adLimitTimer); this.adLimitTimer = null; }
+		if (this.adPomoTimer !== null) { window.clearInterval(this.adPomoTimer); this.adPomoTimer = null; }
 		this.oppBoard.dispose();
 		if (this.storeUnsub) { this.storeUnsub(); this.storeUnsub = null; }
 		this.dashboardStore.dispose();
@@ -1438,6 +1445,7 @@ export class DashboardView extends ItemView {
 		const { ProjectModal } = await import('./ProjectModal');
 		new ProjectModal({
 			app: this.app,
+			stages: this.plugin.settings.npdpStages,
 			onSave: (data) => {
 				void this.createProjectFolder(data.name, data.color, data.startDate, data.endDate, data.description, data.type);
 			},
@@ -2653,10 +2661,13 @@ export class DashboardView extends ItemView {
 			const todayTasks = getTodayTasks(tasks, today, keepDone);
 
 			// 视为「已完成」的行：状态已完成，或重复任务在今日完成推进（默认推进后仍保留待办状态，
-			// 但画布上用变灰呈现）。用于排序沉底与 is-done 样式。
-			const isDoneRow = (t: TaskItem): boolean =>
-				t.status === '\u5DF2\u5B8C\u6210'
-				|| (t.type === '\u91CD\u590D' && !!t.completeTime && t.completeTime.startsWith(today));
+			// 但画布上用变灰呈现），或多日任务今日节点已打卡。用于排序沉底与 is-done 样式。
+			const isDoneRow = (t: TaskItem): boolean => {
+				if (t.status === '\u5DF2\u5B8C\u6210') return true;
+				if (t.type === '\u91CD\u590D' && !!t.completeTime && t.completeTime.startsWith(today)) return true;
+				const node = t.dailyNodes && t.dailyNodes[today];
+				return !!node && node.s === 'done';
+			};
 
 			// Sort: 已完成沉底（仅开启保留时才有已完成行）、逾期优先、再按优先级
 			const sorted = todayTasks.sort((a, b) => {
@@ -3338,6 +3349,116 @@ export class DashboardView extends ItemView {
 		if (win) win.setText(weeks >= total ? t('home.heatmapAllYear', { year: this.adHmYear }) : t('home.heatmapRecent', { n: weeks }));
 	}
 
+
+	/* ---- Pomodoro（番茄钟：单实例卡片） ---- */
+	private renderPomodoro(board: HTMLElement): void {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-pomodoro');
+		const w = (this.plugin.settings.pomodoro?.workMin ?? 25);
+		const b = (this.plugin.settings.pomodoro?.breakMin ?? 5);
+		this.cardHead(card, '\u25F7', t('home.modules.pomodoro'), `${w} / ${b}`);
+		const p = card.createDiv({ cls: 'ad-pomo' });
+		const modeEl = p.createDiv({ cls: 'ad-pomo__mode', text: this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak') });
+		p.createDiv({ cls: 'ad-pomo__time', text: this.pomoTimeText() });
+		const btns = p.createDiv({ cls: 'ad-pomo__btns' });
+		const startBtn = btns.createEl('button', { cls: 'ad-pomo__btn ad-pomo__start', text: this.plugin.pomoState.running ? t('home.pomoPause') : t('home.pomoStart') });
+		const resetBtn = btns.createEl('button', { cls: 'ad-pomo__btn', text: t('home.pomoReset') });
+
+		startBtn.addEventListener('click', () => {
+			if (this.plugin.pomoState.running) {
+				this.plugin.pomoState.remaining = Math.max(0, this.plugin.pomoState.endTime - Date.now());
+				this.plugin.pomoState.running = false;
+				this.plugin.pomoState.endTime = 0;
+			} else {
+				this.plugin.pomoState.started = true;
+				this.plugin.pomoState.endTime = Date.now() + this.plugin.pomoState.remaining;
+				this.plugin.pomoState.running = true;
+				this.plugin.warmPomoAudio(); // 用户手势内预热音频，确保到点提示音可播放
+			}
+			this.ensurePomoTimer();
+			this.syncPomoDom();
+		});
+		resetBtn.addEventListener('click', () => {
+			this.plugin.pomoState.started = false;
+			this.plugin.pomoState.running = false;
+			this.plugin.pomoState.endTime = 0;
+			this.plugin.pomoState.mode = 'work';
+			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.ensurePomoTimer();
+			this.syncPomoDom();
+		});
+		// 点击模式名：工作 ⇄ 休息
+		modeEl.addEventListener('click', () => {
+			this.plugin.pomoState.started = false;
+			this.plugin.pomoState.mode = this.plugin.pomoState.mode === 'work' ? 'break' : 'work';
+			this.plugin.pomoState.running = false;
+			this.plugin.pomoState.endTime = 0;
+			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.ensurePomoTimer();
+			this.syncPomoDom();
+		});
+
+		this.ensurePomoTimer();
+	}
+
+	private pomoWorkMs(): number {
+		return Math.max(1, (this.plugin.settings.pomodoro?.workMin ?? 25)) * 60 * 1000;
+	}
+
+	private pomoBreakMs(): number {
+		return Math.max(1, (this.plugin.settings.pomodoro?.breakMin ?? 5)) * 60 * 1000;
+	}
+
+	private pomoDuration(): number {
+		return this.plugin.pomoState.mode === 'work' ? this.pomoWorkMs() : this.pomoBreakMs();
+	}
+
+	private pomoTimeText(): string {
+		const totalSec = Math.max(0, Math.ceil(
+			(this.plugin.pomoState.running ? this.plugin.pomoState.endTime - Date.now() : this.plugin.pomoState.remaining) / 1000,
+		));
+		const m = Math.floor(totalSec / 60);
+		const s = totalSec % 60;
+		return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+	}
+
+	/** 运行中则确保 interval 在跑，停止则清理，避免多视图/重建泄漏计时器 */
+	private ensurePomoTimer(): void {
+		if (this.plugin.pomoState.running && this.adPomoTimer === null) {
+			this.adPomoTimer = window.setInterval(() => this.tickPomodoro(), 1000);
+		} else if (!this.plugin.pomoState.running && this.adPomoTimer !== null) {
+			window.clearInterval(this.adPomoTimer);
+			this.adPomoTimer = null;
+		}
+	}
+
+	private tickPomodoro(): void {
+		if (!this.plugin.pomoState.running) return;
+		const left = this.plugin.pomoState.endTime - Date.now();
+		if (left <= 0) {
+			// 完成一段 → 声音提醒 + 自动切到下一段并停止，等待用户手动开始
+			const wasWork = this.plugin.pomoState.mode === 'work';
+			this.plugin.pomoState.mode = wasWork ? 'break' : 'work';
+			this.plugin.pomoState.running = false;
+			this.plugin.pomoState.endTime = 0;
+			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.ensurePomoTimer();
+			this.plugin.playPomoSound();
+			this.showToast(wasWork ? t('home.pomoDoneWork') : t('home.pomoDoneBreak'));
+		} else {
+			this.plugin.pomoState.remaining = left;
+		}
+		this.syncPomoDom();
+	}
+
+	private syncPomoDom(): void {
+		if (!this.boardEl) return;
+		const timeEl = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__time');
+		if (timeEl) timeEl.textContent = this.pomoTimeText();
+		const modeEl = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__mode');
+		if (modeEl) modeEl.textContent = this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak');
+		const startBtn = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__start');
+		if (startBtn) startBtn.textContent = this.plugin.pomoState.running ? t('home.pomoPause') : t('home.pomoStart');
+	}
 
 	/* ---- Countdown（多实例：每张独立卡片） ---- */
 	/** 渲染「倒计时」多实例中的某一张独立卡片；idx 为 settings.countdown 下标，-1 表示占位卡 */

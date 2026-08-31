@@ -8,6 +8,33 @@ export const en: Dict = {
 		open: 'Open', close: 'Close', confirm: 'Confirm', reset: 'Reset',
 		add: 'Add', expand: 'Expand', collapse: 'Collapse',
 	},
+	// What's new modal
+	update: {
+		title: '✨ Xove Dashboard updated to v{v}',
+	},
+	// First-run welcome modal
+	welcome: {
+		title: '👋 Welcome to Xove Dashboard',
+		intro: 'Turn your Obsidian home tab into a personal command center: tasks, projects, ideas and stats in one place.',
+		featuresTitle: 'Highlights',
+		features: [
+			'📥 Quick capture: save passing thoughts into a note with one click',
+			'✅ Tasks: TODO, this week, multi-day nodes and recurring tasks',
+			'📊 Project overview: list, kanban, calendar and Gantt views',
+			'💡 Idea board: move ideas through stages and collect them',
+			'🍅 Pomodoro: focus timer with a finish sound',
+			'🌙 Theme adaptive: follows dark / light mode',
+		],
+		usageTitle: 'Quick start',
+		usage: [
+			'Open Settings and configure paths under "Storage & Templates"',
+			'Click "+ New project" in the home toolbar to create a project',
+			'Type into the quick capture box and press Enter to save',
+			'Use the top bar to switch between home / projects / idea board',
+			'Long-press a card edge to enter edit mode and drag to rearrange',
+		],
+		cta: 'Get started',
+	},
 	ui: {
 		save: 'Save', cancel: 'Cancel', edit: 'Edit', delete: 'Delete',
 		openSource: 'Open source file', taskDetail: 'Task detail', notSet: 'Not set', all: 'All',
@@ -42,7 +69,7 @@ export const en: Dict = {
 		modules: {
 			quickCapture: 'Quick capture', progress: 'Progress',
 			weekly: 'This week & overdue', projects: 'Projects',
-			heatmap: 'Note stats', countdown: 'Countdown',
+			heatmap: 'Note stats', countdown: 'Countdown', pomodoro: 'Pomodoro',
 		},
 		bannerPlaceholder: '[ banner ]  ·  Click the top-right button to insert a cover image',
 		changeImage: 'Change image',
@@ -133,6 +160,9 @@ export const en: Dict = {
 		heatmapAllYear: '{year} full year',
 		heatmapRecent: 'Recent {n} weeks',
 		restoreLayout: '↺ Layout reset',
+		pomoWork: 'Work', pomoBreak: 'Break',
+		pomoStart: 'Start', pomoPause: 'Pause', pomoReset: 'Reset',
+		pomoDoneWork: '🍅 Pomodoro done! Take a break', pomoDoneBreak: '☕ Break over, start the next pomodoro',
 	},
 	modal: {
 		taskTitle: 'New task', taskName: 'Task name *', taskNamePlaceholder: 'Enter task name', project: 'Project *', parent: 'Parent task',
@@ -172,7 +202,7 @@ export const en: Dict = {
 		remOnDay: 'On the day', rem1Day: '1 day before', rem3Day: '3 days before', rem1Week: '1 week before',
 		editStatus: 'Status', editPriority: 'Priority', editStart: 'Start date', editDue: 'Due date',
 		editNotes: 'Notes', dailyNode: 'Daily nodes', todayDone: 'Done today', todaySkip: 'Skip today',
-		todayNote: "Today's note ({date})", noNote: '(no note)', overdueTag: '(overdue)',
+		todayNote: "Today's note ({date})", nodeNoteFor: '{date} note', noNote: '(no note)', overdueTag: '(overdue)',
 		cdTitle: 'Countdown events', cdTitleSingle: 'Edit countdown', cdEventName: 'Event name', cdTargetDate: 'Target date',
 		cdEventPlaceholder: 'e.g. Gaokao', cdHint: 'The card shows "until {event}" and the remaining days; the progress bar reflects the target date.',
 		cdAdd: '＋ Add countdown', cdMax: 'Up to 5 countdowns', cdEmpty: 'No countdowns yet; click below to add',
@@ -209,6 +239,8 @@ export const en: Dict = {
 		taskDetailModeDesc: 'Compact mode hides project, type and parent task',
 		taskDetailDetailed: 'Detailed (all fields)',
 		taskDetailCompact: 'Compact (hide project/type/parent)',
+		pomodoroWork: 'Work duration (min)', pomodoroWorkDesc: 'Pomodoro work duration, default 25 min',
+		pomodoroBreak: 'Break duration (min)', pomodoroBreakDesc: 'Pomodoro break duration, default 5 min',
 		captureStoragePath: 'Capture storage path', storagePathDesc: 'Where captured notes are stored',
 		captureNamingRule: 'Capture naming rule',
 		namingRuleDesc: 'Variables: YYYY year, MM month (2-digit), MMM month abbr (e.g. Aug), DD day; ddd Sun, dddd Sunday; HH 24h, hh 12h, mm min, ss/SS sec, A AM/PM',

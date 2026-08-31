@@ -20,6 +20,8 @@ export class TaskEditModal extends Modal {
 	private opts: TaskEditModalOptions;
 	private presetTodayNode?: NodeState;
 	private activeState?: NodeState;
+	/** 每日节点轴当前查看的日期（默认今日）；点击其它节点时切换，仅今日可编辑 */
+	private viewDate = '';
 
 	constructor(opts: TaskEditModalOptions) {
 		super(opts.app);
@@ -31,6 +33,7 @@ export class TaskEditModal extends Modal {
 		const { contentEl } = this;
 		const task = this.opts.task;
 		contentEl.addClass('ad-task-modal');
+		this.containerEl.closest('.modal-container')?.addClass('dashboard-modal');
 		contentEl.createEl('h3', { cls: 'ad-modal-title', text: UI_TEXT.taskDetail });
 
 		// ---- Title (editable name) ----
@@ -124,7 +127,12 @@ export class TaskEditModal extends Modal {
 			.addEventListener('click', () => {
 				const titleEl = contentEl.querySelector('.ad-edit-title') as HTMLInputElement;
 				const nodeNoteEl = contentEl.querySelector('.ad-node-note') as HTMLTextAreaElement;
-				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteEl?.value ?? '');
+				// 仅当当前查看的是今日时才把备注区内容作为今日备注写入；查看其它日期时不改动今日备注
+				const today = todayStr();
+				const nodeNoteVal = this.viewDate === today
+					? (nodeNoteEl?.value ?? '')
+					: (task.dailyNodes[today]?.n ?? '');
+				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteVal);
 			});
 	}
 
@@ -327,6 +335,7 @@ export class TaskEditModal extends Modal {
 
 	private renderNodeAxis(parent: HTMLElement, task: TaskItem): void {
 		const today = todayStr();
+		this.viewDate = today;
 		const due = task.dueDate!;
 		// Axis end depends on completion:
 		//  - completed → completion date only: stop at the day it was done.
@@ -337,7 +346,7 @@ export class TaskEditModal extends Modal {
 		const axisEnd = isDone ? completeDate : (today > due ? today : due);
 		const dates = eachDate(task.startDate!, axisEnd);
 
-		// Side-by-side layout: axis + buttons on the left, today's note on the right
+		// Side-by-side layout: axis + buttons on the left, day note on the right
 		const row = parent.createDiv({ cls: 'ad-node-row' });
 		const left = row.createDiv({ cls: 'ad-node-col' });
 		const right = row.createDiv({ cls: 'ad-node-col' });
@@ -353,6 +362,21 @@ export class TaskEditModal extends Modal {
 		const grid = axis.createDiv({ cls: 'ad-node-axis__grid' });
 		const firstDow = (new Date(task.startDate! + 'T00:00:00').getDay() + 6) % 7;
 		for (let i = 0; i < firstDow; i++) grid.createSpan({ cls: 'ad-node-cell ad-node-cell--empty' });
+
+		// Day note (right column) — 标题与内容随「当前查看日期」变化；默认今日
+		const noteLabel = right.createEl('label', { cls: 'ad-modal-label' });
+		const noteArea = right.createEl('textarea', { cls: 'ad-modal-input ad-node-note', attr: { rows: '4' } });
+		const renderNoteFor = (date: string): void => {
+			this.viewDate = date;
+			noteLabel.textContent = date === today
+				? t('modal.todayNote', { date: fmtMD(date) })
+				: t('modal.nodeNoteFor', { date: fmtMD(date) });
+			const n = task.dailyNodes[date];
+			noteArea.value = n ? n.n : '';
+			// 仅今日可编辑（保存时写入今日节点）；其它日期只读查看
+			noteArea.readOnly = date !== today;
+		};
+
 		for (const date of dates) {
 			let node = task.dailyNodes[date];
 			// For a completed task, the completion day itself counts as done
@@ -367,6 +391,8 @@ export class TaskEditModal extends Modal {
 			const note = node?.n ? node.n : MODAL_TEXT.noNote;
 			const tag = isOverdue ? MODAL_TEXT.overdueTag : '';
 			cell.setAttribute('title', `${date} ${weekdayLabel(date)}${tag}\n${note}`);
+			// 点击节点 → 右侧查看该日期的备注（默认今日）
+			cell.addEventListener('click', () => renderNoteFor(date));
 		}
 
 		// Today controls (left column, under the axis)
@@ -374,13 +400,9 @@ export class TaskEditModal extends Modal {
 		const doneBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todayDone });
 		const skipBtn = ctrl.createEl('button', { cls: 'ad-node-btn', text: MODAL_TEXT.todaySkip });
 
-		// Today's note (right column)
-		right.createEl('label', { cls: 'ad-modal-label', text: t('modal.todayNote', { date: fmtMD(today) }) });
-		const noteArea = right.createEl('textarea', { cls: 'ad-modal-input ad-node-note', attr: { rows: '4' } });
-
 		const existing = task.dailyNodes[today];
 		this.activeState = this.presetTodayNode ?? (existing ? existing.s : undefined);
-		if (existing) noteArea.value = existing.n;
+		renderNoteFor(today);
 		if (this.presetTodayNode) window.setTimeout(() => noteArea.focus(), 50);
 
 		const refresh = () => {
@@ -388,10 +410,12 @@ export class TaskEditModal extends Modal {
 			skipBtn.toggleClass('is-active', this.activeState === 'skip');
 			const todayCell = grid.querySelector(`.ad-node-cell[data-date="${today}"]`) as HTMLElement;
 			if (todayCell) {
-				const synth = this.activeState ? { s: this.activeState, n: noteArea.value } : undefined;
+				// 备注区若正查看其它日期，则不参与今日单元格的更新
+				const todayNoteVal = this.viewDate === today ? noteArea.value : (task.dailyNodes[today]?.n ?? '');
+				const synth = this.activeState ? { s: this.activeState, n: todayNoteVal } : undefined;
 				todayCell.className = 'ad-node-cell' + this.cellClass(today, today, synth, today > due, isDone && today === completeDate);
 				const tag = today > due ? MODAL_TEXT.overdueTag : '';
-				todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${noteArea.value ? noteArea.value : MODAL_TEXT.noNote}`);
+				todayCell.setAttribute('title', `${today} ${weekdayLabel(today)}${tag}\n${todayNoteVal ? todayNoteVal : MODAL_TEXT.noNote}`);
 			}
 		};
 		doneBtn.addEventListener('click', () => { this.activeState = this.activeState === 'done' ? undefined : 'done'; refresh(); });
@@ -426,6 +450,7 @@ export class TaskEditModal extends Modal {
 	}
 
 	onClose(): void {
+		this.containerEl.closest('.modal-container')?.removeClass('dashboard-modal');
 		this.contentEl.empty();
 	}
 }

@@ -39,6 +39,7 @@ export interface TaskItem {
 	remindDate: string | null; // next remind date YYYY-MM-DD
 	parent: string;          // parent task name (父任务)
 	archived: boolean;       // 所属项目是否已归档（扫描时由项目 meta 注入）
+	deps: string[];          // predecessor task names (前置任务) — drives the dependency graph
 }
 
 export type ProjectType = 'stage' | 'nostage';
@@ -240,6 +241,7 @@ export function taskFromFm(
 		isOverdue,
 		remindDate: getString(fm, '提醒日期'),
 		parent: getString(fm, '父任务') || '',
+		deps: getStringArray(fm, '前置任务'),
 		completeTime: getString(fm, '完成时间'),
 		archived: false,
 		dailyNodes: (() => {

@@ -25,11 +25,19 @@ test('taskFromFm yields safe defaults on empty frontmatter', () => {
 	assert.equal(t.dueDate, null);
 	assert.equal(t.remindDate, null);
 	assert.equal(t.parent, '');
+	assert.deepEqual(t.deps, []);
 	assert.equal(t.completeTime, null);
 	assert.equal(t.isOverdue, false);
 	assert.equal(t.projectId, 'proj');
 	assert.equal(t.color, '#3b82f6');
 	assert.deepEqual(t.dailyNodes, {});
+});
+
+/* ---- taskFromFm: deps (前置任务) ---- */
+
+test('taskFromFm parses 前置任务 list into deps', () => {
+	const t = taskFromFm({ '前置任务': ['需求评审', '设计稿'] }, '', 'proj/dev.md', 'proj');
+	assert.deepEqual(t.deps, ['需求评审', '设计稿']);
 });
 
 test('taskFromFm strips extension and nested path to the file name', () => {

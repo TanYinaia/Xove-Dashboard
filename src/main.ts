@@ -8,6 +8,10 @@ import { CHANGELOG, CHANGELOG_ORDER } from './changelog';
 import { UpdateLogModal } from './views/UpdateLogModal';
 import { WelcomeModal } from './views/WelcomeModal';
 import { todayStr } from './data/taskLogic';
+import {
+	appendPomoRecord, nextRoundFor, readPomoRecords, writePomoRecords,
+	type PomoFileAdapter, type PomoRecord,
+} from './data/pomoStats';
 
 /** 番茄钟运行时状态（与主页卡片共享，状态栏实时显示） */
 export interface PomoState {
@@ -19,13 +23,14 @@ export interface PomoState {
 	endTime: number;
 	/** 未运行时的剩余时长（ms） */
 	remaining: number;
-	/**
-	 * 已结算的工作段序号。每进入一个新的工作段就 +1；
-	 * settlePomoWork 只对「尚未结算的序号」生效，避免多视图重复计数。
-	 */
-	seg: number;
-	/** 已结算过的段序号（等于 seg 表示当前段已结算完） */
-	settledSeg: number;
+}
+
+/** 持久化所需的最小文件系统能力（Obsidian 的 DataAdapter 结构性满足） */
+interface VaultFs {
+	exists(path: string): Promise<boolean>;
+	read(path: string): Promise<string>;
+	write(path: string, data: string): Promise<void>;
+	mkdir(path: string): Promise<void>;
 }
 
 export default class Dashboard extends Plugin {
@@ -41,13 +46,16 @@ export default class Dashboard extends Plugin {
 		running: false,
 		endTime: 0,
 		remaining: 25 * 60 * 1000,
-		seg: 0,
-		settledSeg: -1,
 	};
 
 	private pomoStatusEl: HTMLElement | null = null;
 	/** 番茄钟提示音实例：在用户点击开始（有手势）时预热，规避浏览器的自动播放限制 */
 	private pomoAudio: HTMLAudioElement | null = null;
+	/** 专注记录内存缓存（会话内共享，避免每轮番茄都重读 pomodoro.json） */
+	private pomoRecords: PomoRecord[] | null = null;
+	private pomoRecordsLoading: Promise<PomoRecord[]> | null = null;
+	/** 记录写入串行化：上一笔尚未落盘时，下一笔排队等待，避免交错覆盖 */
+	private pomoWriteChain: Promise<void> = Promise.resolve();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -131,47 +139,64 @@ export default class Dashboard extends Plugin {
 		} catch { /* 声音是尽力而为，失败不影响计时 */ }
 	}
 
+	/** 插件目录（pomodoro.json 与 data.json 同层）；manifest.dir 缺失时按 configDir 推导 */
+	pluginDir(): string {
+		if (this.manifest.dir) return this.manifest.dir;
+		const configDir = (this.app.vault as unknown as { configDir?: string }).configDir ?? '.obsidian';
+		return `${configDir}/plugins/${this.manifest.id}`;
+	}
+
+	private pomoFs(): VaultFs {
+		return this.app.vault.adapter as unknown as VaultFs;
+	}
+
 	/**
-	 * 结算当前工作段的净专注时间，写入 pomoDaily[今天]。
-	 * - 幂等：用 pomoState.settledSeg 记录已结算的段序号；多视图重复调用只生效一次
-	 * - full=true：整段自然跑完 → ms += 完整时长，且段数 +1
-	 * - full=false：中途重置/切换模式 → 只计入已过时间，不加段数
-	 * @param full 是否整段完成
-	 * @param elapsedMs 该段的实际已过时间（ms）
+	 * 读取专注记录（首次读取后走内存缓存，供统计页使用）。
+	 * 无历史文件 / 文件损坏 → 空数组，从零开始积累，无迁移负担。
 	 */
-	settlePomoWork(full: boolean, elapsedMs: number): void {
-		const s = this.pomoState;
-		if (s.settledSeg >= s.seg) return; // 本段已结算过 → 跳过（多视图保护）
-		if (!full && elapsedMs <= 0) return; // 中途放弃但一秒都没专注 → 不记录
-		s.settledSeg = s.seg;
-
-		const key = todayStr();
-		const daily = this.settings.pomoDaily ??= {};
-		const cur = daily[key] ?? { ms: 0, n: 0 };
-		daily[key] = {
-			ms: cur.ms + Math.max(0, Math.round(elapsedMs)),
-			n: cur.n + (full ? 1 : 0),
-		};
-		void this.saveSettings();
-	}
-
-	/** 进入一个新的工作段：段序号 +1，使后续 settlePomoWork 可以再次生效 */
-	nextPomoSeg(): void {
-		this.pomoState.seg++;
-	}
-
-	/** 剪枝：番茄钟每日记录只保留最近 N 天，避免 data.json 无限增长 */
-	private prunePomoDaily(keepDays = 35): void {
-		const daily = this.settings.pomoDaily;
-		if (!daily || typeof daily !== 'object') return;
-		const cutoff = new Date();
-		cutoff.setDate(cutoff.getDate() - keepDays);
-		const cutKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
-		let changed = false;
-		for (const k of Object.keys(daily)) {
-			if (k < cutKey) { delete daily[k]; changed = true; }
+	async getPomoRecords(): Promise<PomoRecord[]> {
+		if (this.pomoRecords) return this.pomoRecords;
+		if (!this.pomoRecordsLoading) {
+			this.pomoRecordsLoading = readPomoRecords(this.pomoFs() as PomoFileAdapter, this.pluginDir())
+				.then((r) => {
+					this.pomoRecords = r;
+					return r;
+				})
+				.catch(() => {
+					this.pomoRecords = [];
+					return this.pomoRecords;
+				});
 		}
-		if (changed) void this.saveSettings();
+		return this.pomoRecordsLoading;
+	}
+
+	/**
+	 * 完成一轮工作 → 追加一条专注记录到插件目录 pomodoro.json（保留最近 365 天）。
+	 * best-effort：失败只打日志，不影响计时与提示。
+	 *
+	 * @param ms     本次专注时长（ms）
+	 * @param ts     完成时刻（默认取当前时间；补记跨关闭的会话时传实际结束时间）
+	 * @returns 本次记录（供调用方刷新统计），失败时返回 null
+	 */
+	async recordPomoSession(ms: number, ts: number = Date.now()): Promise<PomoRecord | null> {
+		try {
+			if (!(ms > 0)) return null;
+			const records = await this.getPomoRecords();
+			const record: PomoRecord = { ts, ms, round: nextRoundFor(records, ts) };
+			const next = appendPomoRecord(records, record, new Date(ts));
+			this.pomoRecords = next;
+			// 串行写：并发完成（极端场景）时排队落盘，避免后写覆盖先写
+			const fs = this.pomoFs() as PomoFileAdapter;
+			const dir = this.pluginDir();
+			this.pomoWriteChain = this.pomoWriteChain
+				.then(() => writePomoRecords(fs, dir, next))
+				.catch((err) => console.error('[Dashboard] failed to save pomodoro.json', err));
+			await this.pomoWriteChain;
+			return record;
+		} catch (err) {
+			console.error('[Dashboard] failed to record pomodoro session', err);
+			return null;
+		}
 	}
 
 	onunload(): void {}
@@ -243,8 +268,6 @@ export default class Dashboard extends Plugin {
 		this.applyStartupLang(loaded.language);
 		// 向后兼容迁移：倒计时单对象→数组、banner 增加 enabled、看板默认名随语言
 		this.normalizeSettings();
-		// 剪枝番茄钟每日记录（只保留最近 35 天）
-		this.prunePomoDaily();
 	}
 
 	/**
@@ -297,6 +320,11 @@ export default class Dashboard extends Plugin {
 			this.settings.homeModules = hm;
 			changed = true;
 		}
+
+		// 剪枝已下线的模块（如旧版「专注统计」周卡 pomostat，其能力已并入番茄统计页）
+		const beforePrune = hm.length;
+		hm = hm.filter((m) => defaults.has(m.id));
+		if (hm.length !== beforePrune) { this.settings.homeModules = hm; changed = true; }
 
 		// 补齐 data.json 中缺失的模块（版本升级新增卡片时不丢卡）
 		for (const d of DEFAULT_HOME_MODULES) {

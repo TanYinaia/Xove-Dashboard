@@ -9,6 +9,10 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: Record<string, ChangelogEntry> = {
+	'0.4.0': {
+		zh: '项目总览新增三个视图：依赖图（按层级自动布局的有向依赖链，支持「前置任务」）、文件（项目文件树 + 搜索/重新扫描）、统计（完成率、状态/优先级/标签分布、工时统计）\n任务详情新增「前置任务」编辑（写入 frontmatter，含循环依赖校验）',
+		en: 'Three new project views: dependency graph (auto layer layout, with predecessors), files (project file tree with search & rescan), stats (completion rate, status/priority/tag breakdown, work hours)\nTask details now support editing predecessors (frontmatter field with cycle detection)',
+	},
 	'0.3.1': {
 		zh: '新增番茄钟卡片（自定义时长 / 完成声音提醒 / 状态栏实时显示）\n优化 TODO 卡片与项目完成状态展示\n新增每日节点回看：在任务详情中点击任意日期节点，即可查看当日备注\n修复灵感看板弹窗输入框高度不可调、项目阶段修改后主页不同步等问题',
 		en: 'New Pomodoro card (custom durations, finish sound, live status bar)\nPolished TODO card and project completion display\nNew daily node review: click any day in task details to view its note\nFixed resizable textarea in opportunity modal and phase sync with the home page',
@@ -20,4 +24,4 @@ export const CHANGELOG: Record<string, ChangelogEntry> = {
 };
 
 /** 版本号按时间升序排列，用于遍历 (lastSeen, 当前] 之间的更新记录 */
-export const CHANGELOG_ORDER: string[] = ['0.3.0', '0.3.1'];
+export const CHANGELOG_ORDER: string[] = ['0.3.0', '0.3.1', '0.4.0'];

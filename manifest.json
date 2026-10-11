@@ -1,9 +1,9 @@
 {
-	"id": "xove-dashboard",
-	"name": "Xove Dashboard",
-	"version": "0.3.1",
-	"minAppVersion": "1.8.0",
-	"description": "Turn your home tab into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
-	"author": "xw",
-	"isDesktopOnly": true
+  "id": "xove-dashboard",
+  "name": "Xove Dashboard",
+  "version": "0.4.0",
+  "minAppVersion": "1.8.0",
+  "description": "Turn your home tab into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
+  "author": "xw",
+  "isDesktopOnly": true
 }

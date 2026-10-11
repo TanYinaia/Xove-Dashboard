@@ -22,12 +22,17 @@ export interface DiarySettings {
 	templateFile: string;
 }
 
-/** 倒计时卡片自定义事件：事件名称与目标日期 */
+/** 倒计时卡片自定义事件：事件名称、目标日期与倒计时粒度 */
 export interface CountdownSettings {
 	/** 事件名称，如「高考」「新年」；文案显示「距离 {eventName} 还有」 */
 	eventName: string;
 	/** 目标日期，ISO yyyy-mm-dd；非法或留空时回退到「下一年 1 月 1 日」 */
 	targetDate: string;
+	/** 倒计时粒度（缺省按年）：
+	 *  - year：固定目标日，大数字为剩余天数，进度条覆盖「目标日前一年」；
+	 *  - month：目标日只取「日」作为每月周期日，自动滚动到下一次（大月不足收敛到月末）；
+	 *  - day：以「今天」为周期，大数字为今日剩余小时，进度条为当日已过比例。 */
+	mode?: 'year' | 'month' | 'day';
 }
 
 /** 番茄钟时长（分钟） */
@@ -36,14 +41,6 @@ export interface PomodoroSettings {
 	workMin: number;
 	/** 休息时长（分钟），默认 5 */
 	breakMin: number;
-}
-
-/** 番茄钟「专注统计」卡片：某一天的累计数据 */
-export interface PomoDayStat {
-	/** 净专注毫秒（自然完成的整段 + 中途放弃段的已过时间） */
-	ms: number;
-	/** 完成的工作段数（仅自然跑完的整段计入） */
-	n: number;
 }
 
 /** 通用看板的一个阶段（看板列）— 结构定义见 src/data/opportunityParser.ts 的 BoardStage */
@@ -84,8 +81,6 @@ export interface DashboardSettings {
 	countdown: CountdownSettings[];
 	/** 番茄钟时长（分钟） */
 	pomodoro: PomodoroSettings;
-	/** 番茄钟每日专注记录：YYYY-MM-DD → { ms 净专注毫秒, n 完成段数 }；仅保留最近 35 天 */
-	pomoDaily: Record<string, PomoDayStat>;
 	/** 笔记统计卡片视图：2d = 平面热力图，3d = 等距天际线（默认） */
 	heatmapView: '2d' | '3d';
 	/** 笔记统计 3D 聚焦：开启后进入 3D 时由整年全景连续放大到最近 16 周 */
@@ -163,7 +158,6 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
 	countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
 	pomodoro: { workMin: 25, breakMin: 5 },
-	pomoDaily: {},
 	heatmapView: '3d',
 	heatmapFocus: false,
 	heatmapRange: 'rolling',
@@ -181,7 +175,6 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 		{ id: 'anchors', enabled: true, order: 8, cols: 1, rows: 1 },
 		{ id: 'recent', enabled: true, order: 9, cols: 1, rows: 2 },
 		{ id: 'calweek', enabled: true, order: 10, cols: 4, rows: 1 },
-		{ id: 'pomostat', enabled: true, order: 11, cols: 2, rows: 1 },
 	],
 };
 
@@ -198,7 +191,6 @@ export const DEFAULT_HOME_MODULES: HomeModuleConfig[] = [
 	{ id: 'anchors', enabled: true, order: 8, cols: 1, rows: 1 },
 	{ id: 'recent', enabled: true, order: 9, cols: 1, rows: 2 },
 	{ id: 'calweek', enabled: true, order: 10, cols: 4, rows: 1 },
-	{ id: 'pomostat', enabled: true, order: 11, cols: 2, rows: 1 },
 ];
 
 /* ---- helpers ---- */

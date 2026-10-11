@@ -10,6 +10,15 @@ export function defaultEventName(): string {
 	return getLang() === 'en' ? 'New Year' : '新年';
 }
 
+/** 倒计时粒度选项（顺序即下拉顺序；label 在调用时随当前语言求值，卡片右上角下拉与编辑弹窗共用） */
+export function countdownModes(): Array<{ v: NonNullable<CountdownSettings['mode']>; label: string }> {
+	return [
+		{ v: 'year', label: t('modal.cdModeYear') },
+		{ v: 'month', label: t('modal.cdModeMonth') },
+		{ v: 'day', label: t('modal.cdModeDay') },
+	];
+}
+
 /**
  * CountdownModal — 管理主页「倒计时」卡片的多个自定义事件（最多 5 个）。
  * 每个事件含事件名称 + 目标日期；可增 / 删 / 改，保存后回写 settings 并刷新卡片。
@@ -67,11 +76,31 @@ export class CountdownModal extends Modal {
 				this.list[i] = { ...cur, eventName: name.value.trim() || defaultEventName() };
 			});
 
+			// 倒计时粒度：按年（默认，保持旧数据行为）/ 按月 / 按日
+			const mode = row.createEl('select', { cls: 'ad-modal-input ad-cd-mode' }) as HTMLSelectElement;
+			for (const m of countdownModes()) {
+				const opt = mode.createEl('option', { text: m.label });
+				opt.value = m.v;
+			}
+			mode.value = cfg.mode ?? 'year';
+
 			const date = row.createEl('input', { cls: 'ad-modal-input ad-cd-date', type: 'date' });
 			date.value = cfg.targetDate;
 			date.addEventListener('input', () => {
 				const cur = this.list[i]!;
 				this.list[i] = { ...cur, targetDate: date.value || '2027-01-01' };
+			});
+			// 按日以「今天」为周期无需日期；按月只取日期中的「日」
+			const syncDateHint = () => {
+				if (mode.value === 'day') { date.disabled = true; date.title = t('modal.cdDayNoDate'); }
+				else if (mode.value === 'month') { date.disabled = false; date.title = t('modal.cdMonthDayOnly'); }
+				else { date.disabled = false; date.title = ''; }
+			};
+			syncDateHint();
+			mode.addEventListener('change', () => {
+				const cur = this.list[i]!;
+				this.list[i] = { ...cur, mode: mode.value as CountdownSettings['mode'] };
+				syncDateHint();
 			});
 
 			// 单卡编辑模式：禁止删除（右键「删除此卡片」入口已独立提供）

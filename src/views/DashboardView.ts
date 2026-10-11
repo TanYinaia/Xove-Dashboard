@@ -2,7 +2,7 @@ import { ItemView, Menu, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { MOCK_DATA, DashboardData } from '../data/mockData';
 import { BannerSettings, DEFAULT_SETTINGS, CountdownSettings } from '../settings';
 import { BannerModal } from './BannerModal';
-import { CountdownModal, defaultEventName } from './CountdownModal';
+import { CountdownModal, defaultEventName, countdownModes } from './CountdownModal';
 import { TaskEditModal } from './TaskEditModal';
 import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule, serializeDailyNodesBlock, parseDailyNodesFromBody } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
@@ -11,6 +11,7 @@ import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
+import { PomoStatsBoard, type DashboardPage } from './PomoStats';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays } from '../data/taskLogic';
 import { t, tArr, isEnglish } from '../i18n';
 import { UI_TEXT } from '../constants';
@@ -257,17 +258,20 @@ export class DashboardView extends ItemView {
 	// Project overview state (renderer extracted into ProjectBoard)
 	public selectedProject: string | null = null;
 
-	// Which top-level page is currently shown (home / project overview / opportunity board)
-	public currentPage: 'home' | 'project' | 'opportunity' = 'home';
+	// Which top-level page is currently shown (home / project overview / opportunity board / pomodoro stats)
+	public currentPage: DashboardPage = 'home';
 
 	public taskStore: TaskStore;
 	private dashboardStore: DashboardStore;
 	private storeUnsub: (() => void) | null = null;
 	private oppBoard: OpportunityBoard;
 	private projectBoard: ProjectBoard;
+	private pomoStats: PomoStatsBoard;
 
 	/* ---- 番茄钟（状态提升到 plugin.pomoState，主页卡片与状态栏共用） ---- */
 	private adPomoTimer: number | null = null;
+	/* 倒计时自刷新记录的「今天」：用于判断跨天（按年/按月卡只在跨天时重建） */
+	private adCdLastDay = '';
 
 	constructor(leaf: WorkspaceLeaf, plugin: Dashboard) {
 		super(leaf);
@@ -279,6 +283,7 @@ export class DashboardView extends ItemView {
 		this.dashboardStore = new DashboardStore(this.taskStore);
 		this.oppBoard = new OpportunityBoard(this);
 		this.projectBoard = new ProjectBoard(this);
+		this.pomoStats = new PomoStatsBoard(this);
 	}
 
 	/** Theme actually in effect for the dashboard right now. */
@@ -371,6 +376,22 @@ export class DashboardView extends ItemView {
 			if (this.currentPage !== 'home' || !this.boardEl) return;
 			void this.refreshHomeCards();
 		});
+
+		// 倒计时卡片定时自刷新：按日模式（剩余小时/分钟）必须周期更新；按年/按月只有跨天才会变化，
+		// 不做无谓重建（重建会收起正展开的下拉框、丢编辑态「比例」按钮）。
+		this.registerInterval(window.setInterval(() => {
+			if (this.currentPage !== 'home' || !this.boardEl) return;
+			const board = this.boardEl;
+			const list = this.plugin.settings.countdown ?? [];
+			if (!list.length) return;
+			const dayChanged = todayStr() !== this.adCdLastDay;
+			if (!dayChanged && !list.some((c) => c?.mode === 'day')) return;
+			this.adCdLastDay = todayStr();
+			for (let i = 0; i < list.length; i++) {
+				if (dayChanged || list[i]!.mode === 'day') this.renderCountdownCard(board, i);
+			}
+			if (this.adEditMode) this.injectCardResizeButtons();
+		}, 30000));
 
 		// Initial scan populates parse diagnostics asynchronously; refresh the
 		// banner warning once the first scans have completed.
@@ -524,7 +545,8 @@ export class DashboardView extends ItemView {
 	private refreshHeatmap(): void {
 		// 直接复用现有卡片（getOrCreateCard 会命中并清空旧卡子节点），不要先 remove 再重建——
 		// 重建会丢掉卡片的 --cols/--rows（回退 1×1），且造成无谓的重排闪烁。
-		if (!this.boardEl) return;
+		// 仅在首页时刷新：统计页（pomodoro）等其它页面共用 boardEl，不能往里建首页卡片。
+		if (!this.boardEl || this.currentPage !== 'home') return;
 		this.renderHeatmap(this.boardEl);
 	}
 
@@ -1248,13 +1270,14 @@ export class DashboardView extends ItemView {
 		await this.projectBoard.refresh();
 	}
 
-	private async showDashboard(): Promise<void> {
+	async showDashboard(): Promise<void> {
 		if (!this.boardEl) return;
 		// 进入首页前确保退出可能的编辑态（修复「切页未退出编辑态」残留）
 		this.exitEditMode();
 		this.boardEl.empty();
 		this.boardEl.removeClass('po-board');
 		this.boardEl.removeClass('op-board');
+		this.boardEl.removeClass('ps-board');
 		this.boardEl.addClass('ad-board');
 		this.currentPage = 'home';
 		// 按注册表渲染全部启用模块（顺序/显隐由 settings.homeModules 决定）
@@ -1683,9 +1706,13 @@ export class DashboardView extends ItemView {
 			// 倒计时多实例：同一 class 有多张卡，必须按 data-cd-idx 精确命中，否则会全命中第一张
 			if (u.cdIdx !== undefined && el) {
 				const exact = board.querySelector(`${sel}[data-cd-idx="${u.cdIdx}"]`) as HTMLElement | null;
-				if (exact) { el = exact; el.empty(); } else { el = null; }
+				// onlyLive 刷新路径只复用现有壳、不清空：内容填充会跳过 live:false 的倒计时，
+				// 若此处 empty()，每次数据刷新都会把倒计时卡清成空白且无人补写（表现为「经常无显示」）
+				if (exact) { el = exact; if (!opts?.onlyLive) el.empty(); } else { el = null; }
 			}
 			if (!el) {
+				// onlyLive 下不补建缺失的倒计时壳（内容填充会跳过 → 空白卡），留给下一次完整渲染
+				if (opts?.onlyLive && u.cdIdx !== undefined) continue;
 				el = board.createDiv({ cls: u.mod.cardCls });
 				if (u.cdIdx !== undefined) el.setAttribute('data-cd-idx', String(u.cdIdx));
 			}
@@ -3355,7 +3382,15 @@ export class DashboardView extends ItemView {
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-pomodoro');
 		const w = (this.plugin.settings.pomodoro?.workMin ?? 25);
 		const b = (this.plugin.settings.pomodoro?.breakMin ?? 5);
-		this.cardHead(card, '\u25F7', t('home.modules.pomodoro'), `${w} / ${b}`);
+		// 卡头右侧：「工作 / 休息」分钟数提示 +「统计」按钮（进入番茄钟统计页）
+		const headExtra = createDiv({ cls: 'ad-pomo__headextra' });
+		headExtra.createSpan({ cls: 'ad-card__hint', text: `${w} / ${b}` });
+		const statsBtn = headExtra.createEl('button', { cls: 'ad-pomo__stats', text: t('home.pomoStatsBtn') });
+		statsBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			void this.pomoStats.show();
+		});
+		this.cardHead(card, '\u25F7', t('home.modules.pomodoro'), undefined, headExtra);
 		const p = card.createDiv({ cls: 'ad-pomo' });
 		const modeEl = p.createDiv({ cls: 'ad-pomo__mode', text: this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak') });
 		p.createDiv({ cls: 'ad-pomo__time', text: this.pomoTimeText() });
@@ -3437,6 +3472,12 @@ export class DashboardView extends ItemView {
 		if (left <= 0) {
 			// 完成一段 → 声音提醒 + 自动切到下一段并停止，等待用户手动开始
 			const wasWork = this.plugin.pomoState.mode === 'work';
+			// 完成一轮工作 → 追加专注记录（best-effort），统计页正打开时同步刷新
+			if (wasWork) {
+				const workMs = this.pomoWorkMs();
+				const doneAt = this.plugin.pomoState.endTime;
+				void this.plugin.recordPomoSession(workMs, doneAt).then(() => this.pomoStats.refreshIfVisible());
+			}
 			this.plugin.pomoState.mode = wasWork ? 'break' : 'work';
 			this.plugin.pomoState.running = false;
 			this.plugin.pomoState.endTime = 0;
@@ -3475,8 +3516,29 @@ export class DashboardView extends ItemView {
 			return;
 		}
 		const cfg = list[idx]!;
-		// 卡片标题固定为模块名「倒计时」（与注册表 homeModules 一致），事件名只出现在副标题「距离 {事件}」
-		this.cardHead(card, '\u25C7', t('home.modules.countdown'), 'Days Left');
+		// 卡片标题固定为模块名「倒计时」（与注册表 homeModules 一致），事件名只出现在副标题「距离 {事件}」；
+		// 右上角用「粒度下拉」替代纯文字提示，点击即切换 按年/按月/按日
+		const modeSel = document.createElement('select');
+		modeSel.className = 'ad-cd-mode-inline';
+		for (const m of countdownModes()) {
+			const opt = modeSel.createEl('option', { text: m.label });
+			opt.value = m.v;
+		}
+		modeSel.value = cfg.mode ?? 'year';
+		modeSel.title = t('modal.cdModeTitle');
+		// 阻断向卡片的冒泡，避免触发拖拽/其它点击行为（与「比例」按钮同一套处理）
+		modeSel.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+		modeSel.addEventListener('click', (ev) => ev.stopPropagation());
+		modeSel.addEventListener('change', () => {
+			const cur = this.plugin.settings.countdown ?? [];
+			const item = cur[idx];
+			if (!item) return;
+			item.mode = modeSel.value as CountdownSettings['mode'];
+			this.plugin.settings.countdown = cur;
+			void this.plugin.saveSettings();
+			this.renderCountdownCard(board, idx);
+		});
+		this.cardHead(card, '\u25C7', t('home.modules.countdown'), undefined, modeSel);
 		const cd = card.createDiv({ cls: 'ad-cd' });
 		this.renderOneCountdown(cd, cfg);
 	}
@@ -3510,6 +3572,11 @@ export class DashboardView extends ItemView {
 	}
 
 	private renderOneCountdown(cd: HTMLElement, cfg: CountdownSettings): void {
+		// 三种粒度：year=固定目标日（缺省，兼容旧数据）；month=每月周期日自动滚动；day=今日剩余时间
+		const mode = cfg.mode === 'month' || cfg.mode === 'day' ? cfg.mode : 'year';
+		if (mode === 'month') { this.renderMonthCountdown(cd, cfg); return; }
+		if (mode === 'day') { this.renderDayCountdown(cd, cfg); return; }
+
 		const target = this.parseCountdownDate(cfg.targetDate);
 		const now = new Date();
 		const today = this.startOfDay(now);
@@ -3536,7 +3603,7 @@ export class DashboardView extends ItemView {
 			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
 			const row = bottom.createDiv({ cls: 'ad-cd__row' });
 			row.createSpan({ text: t('home.weeksLeft') }).createEl('strong', { text: String(Math.ceil(diffDays / 7)) });
-			row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
+			this.cdDot(row);
 			row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
 
 			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
@@ -3544,19 +3611,101 @@ export class DashboardView extends ItemView {
 			fill.style.width = pct + '%';
 		} else if (diffDays === 0) {
 			// 当天到达目标日期：隐藏数字与 DAYS，居中显示「此时此刻」
-			item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownArrived') });
-			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
-			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
-			const fill = barWrap.createDiv({ cls: 'ad-fill' });
-			fill.style.width = '100%';
+			this.renderCountdownArrived(item, t('home.countdownArrived'));
 		} else {
 			// 已过期：居中显示「旅程已然到达」
-			item.createDiv({ cls: 'ad-cd__arrived', text: t('home.countdownReached') });
+			this.renderCountdownArrived(item, t('home.countdownReached'));
+		}
+	}
+
+	/** 按月：目标日期只取「日」作为每月周期日，自动滚动到下一次（如 31 日在小月收敛到月末）；
+	 *  大数字 = 距下一周期的天数（不含今天：周期日当天即「本月还剩 N 天」，如 10/1 → 距 11/1 显示 30），
+	 *  进度条 = 本轮周期（上一周期日 → 下一周期日）已过比例；按月永远倒计时，不出现到达态。 */
+	private renderMonthCountdown(cd: HTMLElement, cfg: CountdownSettings): void {
+		const anchor = this.parseCountdownDate(cfg.targetDate).getDate();
+		const now = new Date();
+		const { prev, next } = this.monthlyCycle(anchor, now);
+		const diffDays = Math.max(1, Math.round((this.startOfDay(next).getTime() - this.startOfDay(now).getTime()) / 86400000) - 1);
+
+		const item = cd.createDiv({ cls: 'ad-cd__item' });
+		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
+
+		const total = Math.max(1, next.getTime() - prev.getTime());
+		const pct = Math.max(0, Math.min(100, ((now.getTime() - prev.getTime()) / total) * 100));
+
+		const big = item.createDiv({ cls: 'ad-cd__big' });
+		big.createSpan({ text: String(diffDays) });
+		big.createSpan({ cls: 'ad-unit', text: 'DAYS' });
+
+		const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
+		const row = bottom.createDiv({ cls: 'ad-cd__row' });
+		// 月周期约 30 天，用「剩余天数」比「剩余周数」更直观（与大数字一致）
+		row.createSpan({ text: t('home.daysLeft') }).createEl('strong', { text: String(diffDays) });
+		this.cdDot(row);
+		row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
+
+		const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+		const fill = barWrap.createDiv({ cls: 'ad-fill' });
+		fill.style.width = pct + '%';
+	}
+
+	/** 按日：以「今天」为周期，大数字 = 今日剩余小时，进度条 = 当日已过比例（30s 定时刷新保新）。 */
+	private renderDayCountdown(cd: HTMLElement, cfg: CountdownSettings): void {
+		const now = new Date();
+		const midnight = this.startOfDay(now);
+		const msLeft = Math.max(0, midnight.getTime() + 86400000 - now.getTime());
+		const pct = Math.max(0, Math.min(100, ((now.getTime() - midnight.getTime()) / 86400000) * 100));
+
+		const item = cd.createDiv({ cls: 'ad-cd__item' });
+		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
+
+		if (msLeft > 0) {
+			const big = item.createDiv({ cls: 'ad-cd__big' });
+			big.createSpan({ text: String(Math.max(1, Math.ceil(msLeft / 3600000))) });
+			big.createSpan({ cls: 'ad-unit', text: 'HRS' });
+
 			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
+			const row = bottom.createDiv({ cls: 'ad-cd__row' });
+			row.createSpan({ text: t('home.minutesLeft') }).createEl('strong', { text: String(Math.floor(msLeft / 60000)) });
+			this.cdDot(row);
+			row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
+
 			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
 			const fill = barWrap.createDiv({ cls: 'ad-fill' });
-			fill.style.width = '100%';
+			fill.style.width = pct + '%';
+		} else {
+			this.renderCountdownArrived(item, t('home.countdownArrived'));
 		}
+	}
+
+	/** 到达态（三种模式共用）：居中文案 + 100% 进度条 */
+	private renderCountdownArrived(item: HTMLElement, text: string): void {
+		item.createDiv({ cls: 'ad-cd__arrived', text });
+		const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
+		const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+		const fill = barWrap.createDiv({ cls: 'ad-fill' });
+		fill.style.width = '100%';
+	}
+
+	/** 行内小圆点分隔符（倒计时底部小字行共用） */
+	private cdDot(row: HTMLElement): void {
+		row.createSpan({ cls: 'ad-dot', attr: { style: 'display:inline-block;width:3px;height:3px;background:var(--ad-text-dim);border-radius:50%;' } });
+	}
+
+	/** 以「每月 anchor 日」为周期日，返回上一个/下一个周期时刻；anchor 超出当月天数时收敛到月末；
+	 *  今天恰为周期日时视为「新一轮周期从今天开始」：prev=今天、next=下月周期日（不显示到达态）。 */
+	private monthlyCycle(anchor: number, now: Date): { prev: Date; next: Date } {
+		const today = this.startOfDay(now);
+		const y = now.getFullYear();
+		const m = now.getMonth();
+		const dayIn = (yy: number, mm: number) => Math.min(anchor, new Date(yy, mm + 1, 0).getDate());
+		const thisMonth = new Date(y, m, dayIn(y, m));
+		if (today.getTime() < thisMonth.getTime()) {
+			const pm = m - 1;
+			return { prev: new Date(y, pm, dayIn(y, pm)), next: thisMonth };
+		}
+		const nm = m + 1;
+		return { prev: thisMonth, next: new Date(y, nm, dayIn(y, nm)) };
 	}
 
 	/** 解析 ISO yyyy-mm-dd 为目标 Date（当地 0 点）；非法或留空回退到「下一年 1 月 1 日」 */

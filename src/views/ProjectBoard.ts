@@ -9,7 +9,9 @@ import { fmtDate } from '../data/taskLogic';
 import { computeWindow, filterWithOrig } from '../data/virtualList';
 import { UI_TEXT, MODAL_TEXT } from '../constants';
 import { t, tArr } from '../i18n';
-import { ICON_gantt, ICON_list, ICON_calendar, ICON_kanban, injectSvg } from '../icons';
+import { ICON_gantt, ICON_list, ICON_calendar, ICON_kanban, ICON_deps, ICON_files, ICON_stats, injectSvg } from '../icons';
+import { DepGraphPanel, FilesPanel, StatsPanel } from './ProjectPanels';
+import type { DashboardPage } from './PomoStats';
 
 /** 宿主接口：ProjectBoard 渲染器所需的宿主依赖。 */
 export interface ProjectHost {
@@ -27,7 +29,7 @@ export interface ProjectHost {
 		saveSettings(): Promise<void>;
 	};
 	boardEl: HTMLElement | null;
-	currentPage: 'home' | 'project' | 'opportunity';
+	currentPage: DashboardPage;
 	exitEditMode(): void;
 	selectedProject: string | null;
 	showToast(message: string, kind?: 'success' | 'error'): void;
@@ -69,7 +71,7 @@ export class ProjectBoard {
 	private get plugin() { return this.host.plugin; }
 	private get boardEl() { return this.host.boardEl; }
 	private get currentPage() { return this.host.currentPage; }
-	private set currentPage(v: 'home' | 'project' | 'opportunity') { this.host.currentPage = v; }
+	private set currentPage(v: DashboardPage) { this.host.currentPage = v; }
 	private get selectedProject() { return this.host.selectedProject; }
 	private set selectedProject(v: string | null) { this.host.selectedProject = v; }
 	private get showToast() { return this.host.showToast.bind(this.host); }
@@ -85,7 +87,16 @@ export class ProjectBoard {
 
 	constructor(host: ProjectHost) {
 		this.host = host;
+		// 三个扩展面板（依赖图 / 文件 / 统计）与看板共用宿主能力
+		this.depsPanel = new DepGraphPanel(host);
+		this.filesPanel = new FilesPanel(host);
+		this.statsPanel = new StatsPanel(host);
 	}
+
+	// 扩展面板实例（跨 tab 切换保留内部状态：展开的文件夹、过滤词等）
+	private depsPanel: DepGraphPanel;
+	private filesPanel: FilesPanel;
+	private statsPanel: StatsPanel;
 
 	/** 从首页卡片进入：定位到某项目并切换到甘特视图。 */
 	async openProjectGantt(proj: ProjectInfo): Promise<void> {
@@ -116,6 +127,7 @@ export class ProjectBoard {
 		this.boardEl.addClass('po-board');
 		this.boardEl.removeClass('ad-board');
 		this.boardEl.removeClass('op-board');
+		this.boardEl.removeClass('ps-board');
 		this.currentPage = 'project';
 
 		this.currentProjects = projects;
@@ -159,6 +171,9 @@ export class ProjectBoard {
 			{ key: 'list', label: UI_TEXT.poList, icon: ICON_list },
 			{ key: 'calendar', label: UI_TEXT.poCalendar, icon: ICON_calendar },
 			{ key: 'kanban', label: UI_TEXT.poKanban, icon: ICON_kanban },
+			{ key: 'deps', label: UI_TEXT.poDeps, icon: ICON_deps },
+			{ key: 'files', label: UI_TEXT.poFiles, icon: ICON_files },
+			{ key: 'stats', label: UI_TEXT.poStats, icon: ICON_stats },
 		];
 		const content = this.poMainEl.createDiv({ cls: 'po-content' });
 		const panels: Record<string, HTMLElement> = {};
@@ -179,8 +194,8 @@ export class ProjectBoard {
 			}
 		}
 
-		// Render only the ACTIVE panel up front. The other three are built lazily when
-		// their tab is first opened — avoids building Gantt SVG + calendar + kanban all
+		// Render only the ACTIVE panel up front. The other tabs are built lazily when
+		// first opened — avoids building Gantt SVG + calendar + kanban all
 		// at once on every open (perf).
 		this.renderPanel(this.currentView, panels[this.currentView]!, filteredTasks);
 
@@ -210,6 +225,9 @@ export class ProjectBoard {
 		else if (key === 'list') this.renderTaskTable(panel, 'po-tb2', tasks, this.currentProjects);
 		else if (key === 'calendar') this.renderCalendarPanel(panel, tasks, this.currentProjects);
 		else if (key === 'kanban') this.renderKanbanPanel(panel, tasks, this.currentProjects);
+		else if (key === 'deps') this.depsPanel.render(panel, tasks, this.currentProjects);
+		else if (key === 'files') this.filesPanel.render(panel, tasks, this.currentProjects);
+		else if (key === 'stats') this.statsPanel.render(panel, tasks, this.currentProjects);
 	}
 
 

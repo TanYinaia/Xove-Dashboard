@@ -22,12 +22,17 @@ export interface DiarySettings {
 	templateFile: string;
 }
 
-/** 倒计时卡片自定义事件：事件名称与目标日期 */
+/** 倒计时卡片自定义事件：事件名称、目标日期与倒计时粒度 */
 export interface CountdownSettings {
 	/** 事件名称，如「高考」「新年」；文案显示「距离 {eventName} 还有」 */
 	eventName: string;
 	/** 目标日期，ISO yyyy-mm-dd；非法或留空时回退到「下一年 1 月 1 日」 */
 	targetDate: string;
+	/** 倒计时粒度（缺省按年）：
+	 *  - year：固定目标日，大数字为剩余天数，进度条覆盖「目标日前一年」；
+	 *  - month：目标日只取「日」作为每月周期日，自动滚动到下一次（大月不足收敛到月末）；
+	 *  - day：以「今天」为周期，大数字为今日剩余小时，进度条为当日已过比例。 */
+	mode?: 'year' | 'month' | 'day';
 }
 
 /** 番茄钟时长（分钟） */

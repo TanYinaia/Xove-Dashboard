@@ -73,6 +73,36 @@ export class TaskEditModal extends Modal {
 		if (task.parent) parentSel.value = task.parent;
 		projSel.addEventListener('change', () => { populateParents(projSel.value); });
 
+		// ---- 前置任务（依赖，驱动「依赖图」）：同项目内多选 chips ----
+		const depLabel = this.label(contentEl, MODAL_TEXT.editDeps);
+		const depWrap = contentEl.createDiv({ cls: 'ad-dep-chips' });
+		const depSel = new Set<string>(task.deps || []);
+		const renderDepChips = (projectName: string): void => {
+			depWrap.empty();
+			const candidates = (this.opts.allTasks || []).filter((t) => t.projectId === projectName && t.id !== task.id);
+			if (!candidates.length) {
+				depWrap.createSpan({ cls: 'ad-dep-chips__empty', text: t('modal.depsEmpty') });
+				return;
+			}
+			for (const t of candidates) {
+				const chip = depWrap.createEl('button', {
+					cls: 'ad-dep-chip' + (depSel.has(t.content) ? ' is-active' : ''),
+					text: t.content,
+				});
+				chip.addEventListener('click', () => {
+					if (depSel.has(t.content)) depSel.delete(t.content);
+					else depSel.add(t.content);
+					chip.toggleClass('is-active', depSel.has(t.content));
+				});
+			}
+		};
+		renderDepChips(projSel.value);
+		projSel.addEventListener('change', () => {
+			// 切换项目后清掉其它项目的前置选择（前置任务与本项目同名任务才有效，避免脏数据）
+			depSel.clear();
+			renderDepChips(projSel.value);
+		});
+
 		// ---- 简洁模式：隐藏所属项目 / 任务类型 / 父任务（仍保留编辑能力，仅不展示） ----
 		if (this.opts.taskDetailMode === 'compact') {
 			row0.hide();
@@ -132,11 +162,11 @@ export class TaskEditModal extends Modal {
 				const nodeNoteVal = this.viewDate === today
 					? (nodeNoteEl?.value ?? '')
 					: (task.dailyNodes[today]?.n ?? '');
-				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteVal);
+				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteVal, [...depSel]);
 			});
 	}
 
-	private async saveTask(title: string, status: string, priority: string, startDate: string, endDate: string, notes: string, project: string, parent: string, type: string, nodeNote: string): Promise<void> {
+	private async saveTask(title: string, status: string, priority: string, startDate: string, endDate: string, notes: string, project: string, parent: string, type: string, nodeNote: string, deps: string[] = []): Promise<void> {
 		const task = this.opts.task;
 		const file = this.app.vault.getAbstractFileByPath(task.sourceFile);
 		if (!(file instanceof TFile)) return;
@@ -185,6 +215,25 @@ export class TaskEditModal extends Modal {
 			}
 		}
 
+		// ---- 前置任务防环：沿依赖链 BFS，若能绕回本任务则成环 ----
+		if (deps.length) {
+			const seen = new Set<string>();
+			const queue = [...deps];
+			let cyclic = false;
+			while (queue.length) {
+				const name = queue.shift()!;
+				if (name === task.content) { cyclic = true; break; }
+				if (seen.has(name)) continue;
+				seen.add(name);
+				const dep = this.opts.allTasks.find((tt) => tt.content === name);
+				if (dep) queue.push(...(dep.deps || []));
+			}
+			if (cyclic) {
+				new Notice(t('modal.depsCycle'));
+				return;
+			}
+		}
+
 		const content = await this.app.vault.read(file);
 		const eol = content.includes('\r\n') ? '\r\n' : '\n';
 		const lines = content.split(/\r?\n/);
@@ -195,6 +244,7 @@ export class TaskEditModal extends Modal {
 		let hasPriority = false;
 		let hasType = false;
 		let hasParent = false;
+		let hasDeps = false;
 		let statusLineIdx = -1;
 
 		for (let i = 0; i < lines.length; i++) {
@@ -215,6 +265,9 @@ export class TaskEditModal extends Modal {
 			} else if (line.startsWith('父任务:')) {
 				lines[i] = parent ? `父任务: ${yamlScalar(parent)}` : '';
 				hasParent = true;
+			} else if (line.startsWith('前置任务:')) {
+				lines[i] = deps.length ? `前置任务: ${JSON.stringify(deps)}` : '';
+				hasDeps = true;
 			} else if (line.startsWith('项目:')) {
 				lines[i] = project ? `项目: ${yamlScalar(project)}` : '';
 			} else if (line.startsWith('开始日期:')) {
@@ -238,6 +291,10 @@ export class TaskEditModal extends Modal {
 		}
 		if (parent && !hasParent && statusLineIdx >= 0) {
 			lines.splice(statusLineIdx + 1, 0, `父任务: ${yamlScalar(parent)}`);
+			statusLineIdx++;
+		}
+		if (deps.length && !hasDeps && statusLineIdx >= 0) {
+			lines.splice(statusLineIdx + 1, 0, `前置任务: ${JSON.stringify(deps)}`);
 			statusLineIdx++;
 		}
 
@@ -321,6 +378,7 @@ export class TaskEditModal extends Modal {
 		task.startDate = startDate || null;
 		task.dueDate = endDate || null;
 		task.notes = notes;
+		task.deps = deps;
 		task.dailyNodes = nodes;
 		if (willDone && !wasDone) {
 			task.completeTime = nowFmt();

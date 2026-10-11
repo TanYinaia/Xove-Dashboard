@@ -9,7 +9,7 @@ function makeTask(id: string): TaskItem {
 		startDate: null, dueDate: null, tags: [], type: '普通',
 		repeatRule: null, reminder: [], notes: '', completeTime: null,
 		dailyNodes: {}, projectId: 'p', color: '#fff', sourceFile: id,
-		isOverdue: false, remindDate: null, parent: '',
+		isOverdue: false, remindDate: null, parent: '', deps: [],
 	};
 }
 

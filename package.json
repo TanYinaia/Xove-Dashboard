@@ -1,0 +1,24 @@
+{
+  "name": "xove-dashboard",
+  "version": "0.4.0",
+  "description": "Turn your home tab into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "tsx --test src/data/pomoStats.test.ts src/data/dashboardStore.test.ts src/data/taskLogic.test.ts src/data/taskParseCore.test.ts src/data/virtualList.test.ts"
+  },
+  "keywords": [],
+  "author": "xw",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "obsidian": "latest",
+    "tslib": "2.8.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.2"
+  }
+}

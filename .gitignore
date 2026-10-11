@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+*.map
+
+# Obsidian plugin data (local settings)
+data.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml

@@ -10,6 +10,7 @@ import {
 } from '../data/opportunityParser';
 import { UI_TEXT, MODAL_TEXT } from '../constants';
 import { t } from '../i18n';
+import type { DashboardPage } from './PomoStats';
 
 /** Host surface the OpportunityBoard needs from its owner view. */
 export interface OpportunityHost {
@@ -19,7 +20,7 @@ export interface OpportunityHost {
 		saveSettings(): Promise<void>;
 	};
 	boardEl: HTMLElement | null;
-	currentPage: 'home' | 'project' | 'opportunity';
+	currentPage: DashboardPage;
 	exitEditMode(): void;
 	showToast(message: string, kind?: 'success' | 'error'): void;
 }
@@ -106,6 +107,7 @@ export class OpportunityBoard {
 		this.host.boardEl.empty();
 		this.host.boardEl.removeClass('ad-board');
 		this.host.boardEl.removeClass('po-board');
+		this.host.boardEl.removeClass('ps-board');
 		this.host.boardEl.addClass('op-board');
 		this.host.currentPage = 'opportunity';
 

@@ -7,6 +7,10 @@ import { POMO_SOUND_B64 } from './data/pomoSound';
 import { CHANGELOG, CHANGELOG_ORDER } from './changelog';
 import { UpdateLogModal } from './views/UpdateLogModal';
 import { WelcomeModal } from './views/WelcomeModal';
+import {
+	appendPomoRecord, nextRoundFor, readPomoRecords, writePomoRecords,
+	type PomoFileAdapter, type PomoRecord,
+} from './data/pomoStats';
 
 /** 番茄钟运行时状态（与主页卡片共享，状态栏实时显示） */
 export interface PomoState {
@@ -18,6 +22,14 @@ export interface PomoState {
 	endTime: number;
 	/** 未运行时的剩余时长（ms） */
 	remaining: number;
+}
+
+/** 持久化所需的最小文件系统能力（Obsidian 的 DataAdapter 结构性满足） */
+interface VaultFs {
+	exists(path: string): Promise<boolean>;
+	read(path: string): Promise<string>;
+	write(path: string, data: string): Promise<void>;
+	mkdir(path: string): Promise<void>;
 }
 
 export default class Dashboard extends Plugin {
@@ -35,6 +47,11 @@ export default class Dashboard extends Plugin {
 	private pomoStatusEl: HTMLElement | null = null;
 	/** 番茄钟提示音实例：在用户点击开始（有手势）时预热，规避浏览器的自动播放限制 */
 	private pomoAudio: HTMLAudioElement | null = null;
+	/** 专注记录内存缓存（会话内共享，避免每轮番茄都重读 pomodoro.json） */
+	private pomoRecords: PomoRecord[] | null = null;
+	private pomoRecordsLoading: Promise<PomoRecord[]> | null = null;
+	/** 记录写入串行化：上一笔尚未落盘时，下一笔排队等待，避免交错覆盖 */
+	private pomoWriteChain: Promise<void> = Promise.resolve();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -114,6 +131,66 @@ export default class Dashboard extends Plugin {
 			audio.currentTime = 0;
 			void audio.play().catch(() => { /* 播放失败静默 */ });
 		} catch { /* 声音是尽力而为，失败不影响计时 */ }
+	}
+
+	/** 插件目录（pomodoro.json 与 data.json 同层）；manifest.dir 缺失时按 configDir 推导 */
+	pluginDir(): string {
+		if (this.manifest.dir) return this.manifest.dir;
+		const configDir = (this.app.vault as unknown as { configDir?: string }).configDir ?? '.obsidian';
+		return `${configDir}/plugins/${this.manifest.id}`;
+	}
+
+	private pomoFs(): VaultFs {
+		return this.app.vault.adapter as unknown as VaultFs;
+	}
+
+	/**
+	 * 读取专注记录（首次读取后走内存缓存，供统计页使用）。
+	 * 无历史文件 / 文件损坏 → 空数组，从零开始积累，无迁移负担。
+	 */
+	async getPomoRecords(): Promise<PomoRecord[]> {
+		if (this.pomoRecords) return this.pomoRecords;
+		if (!this.pomoRecordsLoading) {
+			this.pomoRecordsLoading = readPomoRecords(this.pomoFs() as PomoFileAdapter, this.pluginDir())
+				.then((r) => {
+					this.pomoRecords = r;
+					return r;
+				})
+				.catch(() => {
+					this.pomoRecords = [];
+					return this.pomoRecords;
+				});
+		}
+		return this.pomoRecordsLoading;
+	}
+
+	/**
+	 * 完成一轮工作 → 追加一条专注记录到插件目录 pomodoro.json（保留最近 365 天）。
+	 * best-effort：失败只打日志，不影响计时与提示。
+	 *
+	 * @param ms     本次专注时长（ms）
+	 * @param ts     完成时刻（默认取当前时间；补记跨关闭的会话时传实际结束时间）
+	 * @returns 本次记录（供调用方刷新统计），失败时返回 null
+	 */
+	async recordPomoSession(ms: number, ts: number = Date.now()): Promise<PomoRecord | null> {
+		try {
+			if (!(ms > 0)) return null;
+			const records = await this.getPomoRecords();
+			const record: PomoRecord = { ts, ms, round: nextRoundFor(records, ts) };
+			const next = appendPomoRecord(records, record, new Date(ts));
+			this.pomoRecords = next;
+			// 串行写：并发完成（极端场景）时排队落盘，避免后写覆盖先写
+			const fs = this.pomoFs() as PomoFileAdapter;
+			const dir = this.pluginDir();
+			this.pomoWriteChain = this.pomoWriteChain
+				.then(() => writePomoRecords(fs, dir, next))
+				.catch((err) => console.error('[Dashboard] failed to save pomodoro.json', err));
+			await this.pomoWriteChain;
+			return record;
+		} catch (err) {
+			console.error('[Dashboard] failed to record pomodoro session', err);
+			return null;
+		}
 	}
 
 	onunload(): void {}

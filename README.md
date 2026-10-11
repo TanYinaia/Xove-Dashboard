@@ -80,6 +80,12 @@ Xove Dashboard is more than another to-do list. It's a **home-tab-first personal
 
 > If it doesn't appear immediately, run **Reload app without saving** (`Ctrl+R`) from the command palette.
 
+#### Install & auto-update with BRAT
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from Obsidian's community plugins.
+2. Run **BRAT: Add a beta plugin for testing** from the command palette, enter `tingke/Xove-Dashboard`, then enable **Xove Dashboard**.
+3. From now on every new Release is picked up automatically — BRAT notifies you about updates (or run **BRAT: Update plugins** / enable its auto-update).
+
 #### Upgrade from an older version (v0.2.x → 0.3.0)
 
 > Since 0.3.0 the plugin was renamed from `dashboard` to `xove-dashboard` (both the plugin ID and the install folder changed).
@@ -153,7 +159,7 @@ Xove Dashboard 不是又一个任务清单插件，而是一套**以首页为核
 - **真正的「首页即控制台」**：不打开任何弹窗页面，问候语、TODO、本周待办、项目进度、笔记热力图、倒计时，全部聚合在首页一张画布上。
 - **首页模块自由布局**：长按卡片即可拖拽排序、调整宽高比例、增删模块、一键重置布局——你的首页你说了算。
 - **任务体系完整**：优先级四象限、开始/截止日期、父子任务、重复任务（自动推进下次提醒）、每日节点打卡轴、逾期置顶。
-- **项目总览四视图**：甘特图 / 列表 / 日历 / 看板，同一个项目四种视角，跨视图联动。
+- **项目总览七视图**：甘特图 / 列表 / 日历 / 看板 / 依赖图 / 文件 / 统计，同一个项目七种视角，跨视图联动。
 - **灵感收集看板**：独立的「收集 → 推进 → 归档」工作流，星标标重要，拖拽改阶段。
 - **倒计时多实例**：同时跟踪最多 5 个重要事件，实时进度条。
 - **中英双语**：界面一键切换中文 / English。
@@ -216,6 +222,12 @@ Xove Dashboard 不是又一个任务清单插件，而是一套**以首页为核
 4. 启用 **Xove Dashboard**。
 
 > 若安装后未立即出现，在命令面板执行 **重新加载应用，不保存**（`Ctrl+R`）。
+
+#### 通过 BRAT 安装（自动更新）
+
+1. 在第三方插件中安装 [BRAT](https://github.com/TfTHacker/obsidian42-brat)。
+2. 命令面板执行 **BRAT: Add a beta plugin for testing**，输入 `tingke/Xove-Dashboard`，然后启用 **Xove Dashboard**。
+3. 之后每次发布新版本 BRAT 会自动提示更新（也可手动执行 **BRAT: Update plugins** 或开启其自动更新）。
 
 #### 从旧版升级（v0.2.x → 0.3.0）
 

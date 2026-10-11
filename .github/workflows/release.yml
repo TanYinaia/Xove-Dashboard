@@ -1,0 +1,46 @@
+# 发版流程：改动 → 在 manifest/package/versions/changelog 四处同步版本号 → 提交
+# → git tag 0.5.0 && git push origin 0.5.0 → 本流水线自动测试、构建并发布 Release。
+# tag（可带 v 前缀）必须与 manifest.json 的 version 一致，否则构建直接失败。
+name: Release
+
+on:
+  push:
+    tags: ['*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./manifest.json').version")"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' (= ${TAG}) does not match manifest.json version '${VERSION}'."
+            exit 1
+          fi
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            main.js manifest.json styles.css

@@ -36,6 +36,7 @@ export interface ProjectHost {
 	writeFrontmatter(file: TFile, updates: Record<string, string | null>): Promise<void>;
 	deleteTask(task: TaskItem): Promise<void>;
 	editProject(proj: ProjectInfo): Promise<void>;
+	setProjectArchived(proj: ProjectInfo, archived: boolean): Promise<void>;
 	createProjectFile(): Promise<void>;
 	openTaskModalWithParent(parentName: string, projectName: string): Promise<void>;
 	toggleTask(task: TaskItem, row: HTMLElement): Promise<void>;
@@ -63,6 +64,10 @@ export class ProjectBoard {
 	private highlightedRow: HTMLElement | null = null;
 	private ganttZoom: 'day' | 'week' | 'month' | 'quarter' = 'week';
 	private ganttStatusFilter: TaskStatus[] = [];
+	/** 侧栏「已归档项目」展开态：true = 未归档列表收起、已归档列表展开 */
+	private archiveMode = false;
+	/** 右侧面板串行淡入淡出的令牌：切项目时递增，旧的过渡回调自动失效 */
+	private fadeToken = 0;
 
 	// ---- host 依赖别名（保持搬移方法体原样） ----
 	private get app() { return this.host.app; }
@@ -78,6 +83,7 @@ export class ProjectBoard {
 	private get writeFrontmatter() { return this.host.writeFrontmatter.bind(this.host); }
 	private get deleteTask() { return this.host.deleteTask.bind(this.host); }
 	private get editProject() { return this.host.editProject.bind(this.host); }
+	private get setProjectArchived() { return this.host.setProjectArchived.bind(this.host); }
 	private get createProjectFile() { return this.host.createProjectFile.bind(this.host); }
 	private get openTaskModalWithParent() { return this.host.openTaskModalWithParent.bind(this.host); }
 	private get toggleTask() { return this.host.toggleTask.bind(this.host); }
@@ -110,7 +116,7 @@ export class ProjectBoard {
 		// fires mid-render. We only mutate the DOM after data is ready, which keeps
 		// the project-overview build atomic and avoids stale/doubled home cards.
 		const projects = await this.taskStore.scanAllProjects();
-		const allTasks = await this.taskStore.scanAllTasks();
+		const allTasks = await this.taskStore.scanAllTasksIncludingArchived();
 
 		this.boardEl.empty();
 		this.boardEl.addClass('po-board');
@@ -148,9 +154,10 @@ export class ProjectBoard {
 		if (!this.poMainEl) return;
 		this.poMainEl.empty();
 
+		// 全部项目聚合时排除已归档项目的任务；选中具体项目时（含已归档）显示其全部任务
 		const filteredTasks = this.selectedProject
 			? this.currentTasks.filter((t) => t.projectId === this.selectedProject)
-			: this.currentTasks;
+			: this.currentTasks.filter((t) => !t.archived);
 
 		// Tabs
 		const tabs = this.poMainEl.createDiv({ cls: 'po-tabs' });
@@ -258,62 +265,184 @@ export class ProjectBoard {
 
 
 
+	/** 切换选中项目（侧栏点击）：右侧面板做串行淡入淡出——旧内容先退场、再入场新内容，中间不重叠。
+	 *  点「全部项目」或未归档项目时，若归档区正展开则自动带动画收起（与参考 demo 一致）。 */
+	private selectProject(name: string | null, sidebar: HTMLElement): void {
+		const changed = this.selectedProject !== name;
+		this.selectedProject = name;
+		if (this.archiveMode && (name === null || !this.isProjectArchived(name))) {
+			this.setArchiveOpen(false, sidebar);
+		}
+		this.paintSidebarActive(sidebar);
+		if (changed) void this.fadeSwitchPanels();
+	}
+
+	private isProjectArchived(name: string): boolean {
+		return this.currentProjects.some((p) => p.name === name && p.archived);
+	}
+
+	/** 仅刷新侧栏选中态，不重建 DOM（保证归档展开/收起动效不被打断） */
+	private paintSidebarActive(sidebar: HTMLElement): void {
+		const current = this.selectedProject ?? '__all__';
+		sidebar.querySelectorAll<HTMLElement>('.po-sidebar__item').forEach((el) => {
+			el.toggleClass('is-active', (el.dataset.proj ?? '') === current);
+		});
+	}
+
+	/** 展开/收起归档区：仅切换类名 + 写入条目交错延迟，不重建列表 */
+	private setArchiveOpen(open: boolean, sidebar: HTMLElement): void {
+		if (this.archiveMode === open) return;
+		this.archiveMode = open;
+		const activeItems = Array.from(sidebar.querySelectorAll<HTMLElement>('.po-side-region--active .po-sidebar__item'));
+		const archItems = Array.from(sidebar.querySelectorAll<HTMLElement>('.po-side-archived-list .po-sidebar__item'));
+		// 展开：归档项自下而上依次滑入；收起：未归档项依次落回
+		activeItems.forEach((el, i) => { el.style.transitionDelay = open ? '0ms' : String(i * 40) + 'ms'; });
+		archItems.forEach((el, i) => { el.style.transitionDelay = open ? String(140 + i * 55) + 'ms' : '0ms'; });
+		sidebar.toggleClass('is-archive-open', open);
+		const btn = sidebar.querySelector<HTMLElement>('.po-archive-btn');
+		btn?.toggleClass('is-open', open);
+		btn?.setAttribute('aria-expanded', String(open));
+	}
+
+	/** 串行淡入淡出：po-main 淡出到位后再重建内容，然后淡入。 */
+	private async fadeSwitchPanels(): Promise<void> {
+		const main = this.poMainEl;
+		if (!main || this.prefersReducedMotion()) {
+			this.renderPanels();
+			return;
+		}
+		const token = ++this.fadeToken;
+		main.addClass('po-main--fading-out');
+		await new Promise<void>((resolve) => window.setTimeout(resolve, 170));
+		if (token !== this.fadeToken) return;   // 期间又切了项目 → 交给最新一次处理
+		this.renderPanels();
+		main.removeClass('po-main--fading-out');
+		main.addClass('po-main--fading-in');
+		window.setTimeout(() => {
+			if (token === this.fadeToken) main.removeClass('po-main--fading-in');
+		}, 240);
+	}
+
+	private prefersReducedMotion(): boolean {
+		return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+			&& window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	}
+
 	/** Render the project sidebar with filtering */
 	private renderSidebar(sidebar: HTMLElement): void {
 		sidebar.empty();
-		const list = sidebar.createDiv({ cls: 'po-sidebar__list' });
+		const activeProjects = this.currentProjects.filter((p) => !p.archived);
+		const archivedProjects = this.currentProjects.filter((p) => p.archived);
 
-		// "全部项目" item
-		const totalTasks = this.currentProjects.reduce((s, p) => s + p.taskCount, 0);
-		const totalDone = this.currentProjects.reduce((s, p) => s + (p.doneCount ?? (p.taskCount - p.activeCount)), 0);
+		// 若当前选中的项目已变为未归档（如刚取消归档），归档区应处于收起态
+		if (this.archiveMode && this.selectedProject !== null) {
+			const sel = this.currentProjects.find((p) => p.name === this.selectedProject);
+			if (sel && !sel.archived) this.archiveMode = false;
+		}
+		sidebar.toggleClass('is-archive-open', this.archiveMode);
 
-		const allItem = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === null ? ' is-active' : '') });
-		allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#7BA7FF;color:#7BA7FF' } });
-		allItem.createSpan({ text: t('home.nav.allProjects') });
-		allItem.createSpan({ cls: 'po-count', text: totalDone + '/' + totalTasks });
-		allItem.addEventListener('click', () => {
-			this.selectedProject = null;
-			this.renderSidebar(sidebar);
-			this.renderPanels();
+		// 固定在顶部的「全部项目」
+		const fixed = sidebar.createDiv({ cls: 'po-side-fixed' });
+		const totalTasks = activeProjects.reduce((s, p) => s + p.taskCount, 0);
+		const totalDone = activeProjects.reduce((s, p) => s + (p.doneCount ?? (p.taskCount - p.activeCount)), 0);
+		const allItem = fixed.createDiv({
+			cls: 'po-sidebar__item' + (this.selectedProject === null ? ' is-active' : ''),
+			attr: { 'data-proj': '__all__' },
 		});
+		allItem.createSpan({ cls: 'po-dot', attr: { style: 'background:#7BA7FF;color:#7BA7FF' } });
+		allItem.createSpan({ cls: 'po-sidebar__name', text: t('home.nav.allProjects') });
+		allItem.createSpan({ cls: 'po-count', text: totalDone + '/' + totalTasks });
+		allItem.addEventListener('click', () => this.selectProject(null, sidebar));
 
-		// Individual projects with right-click menu
-		this.currentProjects.forEach((p) => {
-			const item = list.createDiv({ cls: 'po-sidebar__item' + (this.selectedProject === p.name ? ' is-active' : '') });
-			item.createSpan({ cls: 'po-dot', attr: { style: 'background:' + p.color + ';color:' + p.color } });
-			item.createSpan({ text: p.name });
-			item.createSpan({ cls: 'po-count', text: (p.doneCount ?? (p.taskCount - p.activeCount)) + '/' + p.taskCount });
-			item.addEventListener('click', () => {
-				this.selectedProject = p.name;
-				this.renderSidebar(sidebar);
-				this.renderPanels();
-			});
-			// Right-click context menu
-			item.addEventListener('contextmenu', (e) => {
-				e.preventDefault();
-				const menu = new Menu();
-				menu.addItem((menuItem) => {
-					menuItem.setTitle(t('modal.projectCtxEdit')).setIcon('pencil').onClick(() => {
-						void this.editProject(p);
-					});
+		// 上下两块互补伸缩区：未归档 100%↔0%，已归档 0%↔100%
+		const stack = sidebar.createDiv({ cls: 'po-side-stack' });
+		const activeRegion = stack.createDiv({ cls: 'po-side-region po-side-region--active' });
+		const activeScroll = activeRegion.createDiv({ cls: 'po-side-scroll' });
+		activeProjects.forEach((p) => this.buildSidebarItem(activeScroll, p, false, sidebar));
+
+		const archRegion = stack.createDiv({ cls: 'po-side-region po-side-region--archived' });
+		const archScroll = archRegion.createDiv({ cls: 'po-side-scroll' });
+		const archBox = archScroll.createDiv({ cls: 'po-archive-box' });
+		const archLabel = archBox.createDiv({ cls: 'po-archive-label' });
+		archLabel.createSpan({ text: t('ui.archivedProjects') });
+		archLabel.createSpan({ cls: 'po-archive-label-line' });
+		if (archivedProjects.length) archLabel.createSpan({ text: String(archivedProjects.length) });
+		const archList = archBox.createDiv({ cls: 'po-side-archived-list' });
+		if (archivedProjects.length) {
+			archivedProjects.forEach((p) => this.buildSidebarItem(archList, p, true, sidebar));
+		} else {
+			archList.createDiv({ cls: 'po-sidebar__empty', text: t('ui.noArchivedProjects') });
+		}
+
+		// 底部：已归档切换按钮（箭头翻转 + 数量 pill）+ 新建项目
+		const bottom = sidebar.createDiv({ cls: 'po-side-bottom' });
+		const archBtn = bottom.createEl('button', {
+			cls: 'po-archive-btn' + (this.archiveMode ? ' is-open' : ''),
+			attr: { 'aria-expanded': String(this.archiveMode), 'aria-label': t('ui.archivedProjects') },
+		});
+		const chev = archBtn.createSvg('svg');
+		chev.setAttr('viewBox', '0 0 16 16');
+		chev.setAttr('fill', 'none');
+		chev.setAttr('stroke', 'currentColor');
+		chev.setAttr('stroke-width', '1.7');
+		chev.setAttr('stroke-linecap', 'round');
+		chev.setAttr('stroke-linejoin', 'round');
+		chev.addClass('po-archive-chev');
+		chev.createSvg('path').setAttr('d', 'M4 10l4-4 4 4');
+		archBtn.createSpan({ cls: 'po-archive-btn__text', text: t('ui.archivedProjects') });
+		archBtn.createSpan({ cls: 'po-archive-pill', text: String(archivedProjects.length) });
+		archBtn.addEventListener('click', () => this.setArchiveOpen(!this.archiveMode, sidebar));
+	}
+
+	/** 构建单个项目侧栏项（含选中、右键菜单、拖拽排序/跨项目移动） */
+	private buildSidebarItem(list: HTMLElement, p: ProjectInfo, isArchived: boolean, sidebar: HTMLElement): void {
+		const item = list.createDiv({
+			cls: 'po-sidebar__item' + (this.selectedProject === p.name ? ' is-active' : '') + (isArchived ? ' po-sidebar__item--archived' : ''),
+			attr: { 'data-proj': p.name },
+		});
+		item.createSpan({ cls: 'po-dot', attr: { style: 'background:' + p.color + ';color:' + p.color } });
+		item.createSpan({ cls: 'po-sidebar__name', text: p.name });
+		item.createSpan({ cls: 'po-count', text: (p.doneCount ?? (p.taskCount - p.activeCount)) + '/' + p.taskCount });
+		item.addEventListener('click', () => {
+			this.selectProject(p.name, sidebar);
+		});
+		// Right-click context menu
+		item.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			const menu = new Menu();
+			menu.addItem((menuItem) => {
+				menuItem.setTitle(t('modal.projectCtxEdit')).setIcon('pencil').onClick(() => {
+					void this.editProject(p);
 				});
-				menu.addItem((menuItem) => {
-					menuItem.setTitle(t('modal.projectCtxDelete')).setIcon('trash').onClick(() => {
-						void this.deleteProject(p, sidebar);
+			});
+			menu.addItem((menuItem) => {
+				if (isArchived) {
+					menuItem.setTitle(t('home.unarchiveProject')).setIcon('archive-restore').onClick(() => {
+						void this.setProjectArchived(p, false);
 					});
+				} else {
+					menuItem.setTitle(t('home.archiveProject')).setIcon('archive').onClick(() => {
+						void this.setProjectArchived(p, true);
+					});
+				}
+			});
+			menu.addItem((menuItem) => {
+				menuItem.setTitle(t('modal.projectCtxDelete')).setIcon('trash').onClick(() => {
+					void this.deleteProject(p, sidebar);
 				});
-				menu.showAtMouseEvent(e);
 			});
-			// Drag & drop reorder
-			item.draggable = true;
-			item.dataset.projIdx = String(this.currentProjects.indexOf(p));
-			item.addEventListener('dragstart', (e) => {
-				e.dataTransfer?.setData('text/proj-idx', String(this.currentProjects.indexOf(p)));
-				item.addClass('po-sidebar__item--dragging');
-			});
-			item.addEventListener('dragend', () => item.removeClass('po-sidebar__item--dragging'));
-			item.addEventListener('dragover', (e) => { e.preventDefault(); item.addClass('po-sidebar__item--drag-over'); });
-			item.addEventListener('dragleave', () => item.removeClass('po-sidebar__item--drag-over'));
+			menu.showAtMouseEvent(e);
+		});
+		// Drag & drop reorder
+		item.draggable = true;
+		item.dataset.projIdx = String(this.currentProjects.indexOf(p));
+		item.addEventListener('dragstart', (e) => {
+			e.dataTransfer?.setData('text/proj-idx', String(this.currentProjects.indexOf(p)));
+			item.addClass('po-sidebar__item--dragging');
+		});
+		item.addEventListener('dragend', () => item.removeClass('po-sidebar__item--dragging'));
+		item.addEventListener('dragover', (e) => { e.preventDefault(); item.addClass('po-sidebar__item--drag-over'); });
+		item.addEventListener('dragleave', () => item.removeClass('po-sidebar__item--drag-over'));
 		item.addEventListener('drop', (e) => {
 			e.preventDefault();
 			item.removeClass('po-sidebar__item--drag-over');
@@ -326,28 +455,20 @@ export class ProjectBoard {
 			const fromIdx = parseInt(e.dataTransfer?.getData('text/proj-idx') || '-1');
 			const toIdx = this.currentProjects.indexOf(p);
 			if (fromIdx < 0 || fromIdx === toIdx) return;
-		const moved = this.currentProjects.splice(fromIdx, 1)[0];
-		if (moved) {
-			// Account for the shift after removal: when dragging down
-			// (fromIdx < toIdx) the target's index moved one left, so we
-			// insert at toIdx - 1 to land in the intended slot.
-			const insertAt = fromIdx < toIdx ? toIdx - 1 : toIdx;
-			this.currentProjects.splice(insertAt, 0, moved);
-		}
+			const moved = this.currentProjects.splice(fromIdx, 1)[0];
+			if (moved) {
+				// Account for the shift after removal: when dragging down
+				// (fromIdx < toIdx) the target's index moved one left, so we
+				// insert at toIdx - 1 to land in the intended slot.
+				const insertAt = fromIdx < toIdx ? toIdx - 1 : toIdx;
+				this.currentProjects.splice(insertAt, 0, moved);
+			}
 			this.renderSidebar(sidebar);
 			this.renderPanels();
 			// Persist the new project order so it survives switching views
-			this.plugin.settings.poProjectOrder = this.currentProjects.map((p) => p.name);
+			this.plugin.settings.poProjectOrder = this.currentProjects.map((pp) => pp.name);
 			void this.plugin.saveSettings();
 		});
-		});
-
-		// New project button
-		const addBtn = sidebar.createEl('button', { cls: 'po-add-btn', text: UI_TEXT.newProjectBtn });
-		addBtn.addEventListener('click', () => {
-			void this.createProjectFile();
-		});
-
 	}
 
 
@@ -383,7 +504,7 @@ export class ProjectBoard {
 		this.showToast(t('modal.poMoved', { project: targetProject }));
 		// 重新扫描项目与任务，刷新计数与视图
 		this.currentProjects = await this.taskStore.scanAllProjects();
-		this.currentTasks = await this.taskStore.scanAllTasks();
+		this.currentTasks = await this.taskStore.scanAllTasksIncludingArchived();
 		this.applyProjectOrder();
 		this.renderSidebar(sidebar);
 		this.renderPanels();
@@ -434,7 +555,7 @@ export class ProjectBoard {
 		// Only meaningful while the project overview is the active board.
 		if (this.currentPage !== 'project') return;
 		const projects = await this.taskStore.scanAllProjects();
-		const allTasks = await this.taskStore.scanAllTasks();
+		const allTasks = await this.taskStore.scanAllTasksIncludingArchived();
 		// 异步扫描期间用户可能已切页；渲染前重校验，避免把项目页内容渲染进其它页面。
 		if (this.currentPage !== 'project' || !this.boardEl) return;
 		this.currentProjects = projects;
@@ -1004,6 +1125,8 @@ export class ProjectBoard {
 			x, y: barY, width, height: barH, rx: 4, class: barCls,
 		}) as SVGRectElement;
 		bar.setAttribute('fill', color);
+		// 供 CSS 光晕使用（filter: drop-shadow 取项目色）
+		bar.style.setProperty('--bar-color', color);
 		bar.dataset.taskId = t.id;
 		(bar as SVGElement & { _dragged?: boolean })._dragged = false;
 		if (t.startDate && t.dueDate) bar.classList.add('po-gantt__bar--movable');

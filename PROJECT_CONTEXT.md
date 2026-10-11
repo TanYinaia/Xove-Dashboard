@@ -1,14 +1,16 @@
 # Dashboard — 项目上下文文档
 
 > 本文档供 AI Agent 在新对话中阅读，快速了解项目全貌和开发历史。
-> 最近更新：2026-08-18（取消通用版，仅保留单一版本 `src/`；删除 `build-generic.py` 派生程序）
+> 最近更新：2026-08-22（同步 v0.3.0：新增 i18n 双语、倒计时多实例（≤5）、通用看板「灵感收集」、
+> `frontmatterWriter.ts` / `parserDiagnostics.ts`；修正版本号、目录结构、设置项与运行环境说明）
 
 ## 项目概述
 
 - **类型**: Obsidian 社区插件 (TypeScript)
 - **插件 ID**: `dashboard`（内部 id / CSS class / 视图 id 均保留此名，勿改）
-- **显示名称**: Dashboard（v0.2.6 起由 Dashboard 改名，仅改 `manifest.name`）
-- **版本**: 0.2.7（以 `manifest.json` 为准）
+- **显示名称**: Xove Dashboard（v0.3.0 起，仅改 `manifest.name`）
+- **版本**: 0.3.0（以 `manifest.json` 为准；`package.json` 的 0.2.8 为未同步的历史遗留，
+  发布 bump 时三处应一并更新）
 - **最低 Obsidian 版本**: 1.8.0
 - **目标**: 在 Obsidian 中提供个人工作控制台，包含任务管理、项目跟踪、机会点管理、笔记统计等功能
 
@@ -26,46 +28,52 @@
 
 ### 运行环境（当前）
 
-- **开发机（鸿蒙 HarmonyOS）**：源码编辑在此完成。
-  注意：**本机 node 完全跑不起来**（`node -e "1"` 即 V8 致命崩溃），因此任何生成 `main.js`
-  的打包（rollup / esbuild / tsc）都必须到 **Windows** 上执行。
-- **构建机（Windows）**：`npm install` 后跑 `npm run build:js`，产出 `main.js` 后拷回鸿蒙的
-  Obsidian 插件目录。
-- 开发目录（鸿蒙）：`/storage/Users/currentUser/My Dashboard`（与 Obsidian 插件目录
-  `<Vault>/.obsidian/plugins/dashboard/` 通过同步盘分离；构建后手动复制三件套并执行 Reload）
-- 构建与验证（Windows）：`npm run check`（typecheck + lint + build:js + test）一键门禁；
-  `npm run verify` 为更完整的一键校验脚本
-- 版本控制：本地 git（仅 `personal` 分支），只在本机使用、不配置远程
+- **开发机（Windows）**：源码编辑、类型检查、打包均在本机完成。
+- **构建**：`npm run build:js`（rollup 3 + 内联 TS 转译，纯 JS、无原生二进制依赖，**首选**）；
+  `npm run build`（tsc + esbuild）需要 esbuild 原生二进制，受限环境（如 noexec 文件系统）可能跑不通。
+  npm 不可用时可直接调 node 二进制：
+  `node node_modules/rollup/dist/bin/rollup -c rollup.config.mjs`
+- **⚠️ node 兼容性**：node 24 在部分受限内核（如鸿蒙 OHOS，曾现 V8 启动即崩溃
+  `Check failed: 12 == (*__errno_location())`）上需加 `--jitless` 运行（禁用 JIT 的同时禁用
+  WebAssembly，Node 内置 TS 类型剥离依赖 WASM，故 `.ts` 单测此时跑不了）。普通 Windows/Linux 开发机无需。
+- **部署**：插件最终目录（`<Vault>/.obsidian/plugins/dashboard/`）只需 `main.js` + `manifest.json` +
+  `styles.css` 三件套；复制后需在 Obsidian 命令面板执行 **Reload app without saving**（不会热重载 JS/CSS）。
+- 版本控制：本地 git（仅 `personal` 分支），不配置远程、不推送。
 
 ## 目录结构
 
 ```
 My Dashboard/
 ├── src/                          ← 唯一源码
-│   ├── main.ts                  # 插件入口：注册视图、ribbon、命令、设置页，主题联动
-│   ├── settings.ts              # 设置接口、默认值、设置面板 UI
-│   ├── constants.ts             # 跨文件统一 UI 文案（UI_TEXT）
+│   ├── main.ts                  # 插件入口：注册视图、ribbon、命令、设置页，主题联动，语言应用
+│   ├── settings.ts              # 设置接口、默认值、设置面板 UI（含语言、倒计时、看板阶段、首页模块布局）
+│   ├── constants.ts             # 跨文件统一 UI 文案（UI_TEXT / MODAL_TEXT）
 │   ├── icons.ts                 # 内联 SVG 图标常量（currentColor 自适应主题）
+│   ├── i18n/                    # 极简 i18n 基础设施：index.ts（t/tArr/getLang/setLang/isEnglish）
+│   │                            # + zh.ts（默认，中英结合）/ en.ts（纯英文）字典
 │   ├── data/
 │   │   ├── taskParser.ts        # 任务 frontmatter 解析入口（委托 taskParseCore / taskLogic）
 │   │   ├── taskParseCore.ts     # frontmatter 解析核心（纯函数 + 单测）
 │   │   ├── taskLogic.ts         # 任务状态 / 优先级 / 逾期等逻辑（纯函数 + 单测）
 │   │   ├── taskStore.ts         # 任务读写编排（scanAllTasks 等）
 │   │   ├── dashboardStore.ts    # 仪表盘数据聚合（纯函数 + 单测）
-│   │   ├── opportunityParser.ts # 机会点数据层（frontmatter 数组读写 + 正文投影）
+│   │   ├── opportunityParser.ts # 通用看板数据层（frontmatter 数组读写 + 正文投影；BoardStage 结构）
+│   │   ├── frontmatterWriter.ts # 统一 frontmatter 写入器（yamlScalar 转义 + CRLF 安全，全插件唯一实现）
+│   │   ├── parserDiagnostics.ts # 解析异常收集（yaml/read/parse 三类，供「N 个文件解析异常」banner）
 │   │   ├── virtualList.ts       # 长列表虚拟化纯函数（含 7 单测）
 │   │   └── mockData.ts          # UI 骨架用的类型定义与占位数据
 │   └── views/
-│       ├── DashboardView.ts     # 唯一 ItemView：主页 + 全部项目 + 机会点三页（currentPage 三态）
-│       ├── ProjectBoard.ts      # 项目总览渲染器（甘特/列表/日历/看板），v0.2.7 从 DashboardView 拆出
-│       ├── OpportunityBoard.ts  # 机会点看板 / 列表渲染器
+│       ├── DashboardView.ts     # 唯一 ItemView：主页 + 全部项目 + 看板三页（currentPage 三态）
+│       ├── ProjectBoard.ts      # 项目总览渲染器（甘特/列表/日历/看板）
+│       ├── OpportunityBoard.ts  # 通用看板（灵感收集）渲染器
 │       ├── TaskModal.ts         # 新建任务弹窗（含 defaultProject / defaultParent 预填）
 │       ├── TaskEditModal.ts     # 任务详情 / 编辑弹窗（支持改名 + 每日节点轴）
 │       ├── ProjectModal.ts      # 新建 / 编辑项目弹窗
-│       ├── OpportunityModal.ts  # 新建 / 编辑机会点弹窗
-│       └── BannerModal.ts       # 封面图片位置调整弹窗（拖拽）
+│       ├── OpportunityModal.ts  # 新建 / 编辑看板条目弹窗
+│       ├── BannerModal.ts       # 封面图片位置调整弹窗（拖拽）
+│       └── CountdownModal.ts    # 倒计时事件管理弹窗（多实例 ≤5：增删改；single 模式=单卡右键编辑）
 ├── styles.css                   # 插件全局样式（设计令牌 --ad-* 驱动）
-├── manifest.json                # 插件清单（id=dashboard, name=Dashboard）
+├── manifest.json                # 插件清单（id=dashboard, name=Xove Dashboard）
 ├── package.json / versions.json / tsconfig.json
 ├── rollup.config.mjs            # 纯 JS 打包配置（build:js，首选）
 ├── esbuild.config.mjs           # 官方模板构建配置（dev / build）
@@ -74,8 +82,9 @@ My Dashboard/
 ├── scripts/
 │   └── verify.mjs               # 一键校验脚本（npm run verify）
 ├── README.md / AGENTS.md / CLAUDE.md   # 文档（AGENTS.md 与 CLAUDE.md 一致，改动需同步）
-├── 项目整理报告.md / 代码审查报告.md / 代码改进建议.md / 架构对比与统一建议.md / 设计规范说明.md
+├── i18n-language-switch-spec.md         # i18n 语言切换功能规格说明
 ├── 插件图标/                     # 图标 SVG 素材
+├── dashboard v0.2.9/ + .zip     # 历史构建产物归档（非当前版本）
 ├── tools/                       # 历史 HTML 预览 / 编辑器（已弃用，UI 改动直接在 src/ 进行）
 ├── prototype/                   # 早期 HTML 原型（历史参考）
 └── 参考项目/                     # 第三方参考插件源码（非本项目代码）
@@ -166,30 +175,36 @@ tags: [配置]
 
 ### 关键文件说明
 
-> 行数为 2026-08-11 实测值（v0.2.7 重构后）。
+> 行数为 2026-08-22 实测值（v0.3.0）。
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `main.ts` | 96 | 插件生命周期：注册视图、ribbon 图标、命令面板、设置面板；`setObsidianTheme` 联动 Obsidian 全局外观，`refreshThemeButtons` / `refreshDashboardTitle` 向所有已开视图广播刷新 |
-| `settings.ts` | 375 | 设置接口定义、默认值、设置面板 UI（快速捕捉、TODO、项目、机会点、新日记、外观、NPDP 阶段） |
-| `constants.ts` | 31 | 跨文件统一 UI 文案常量 `UI_TEXT`（v0.2.7 新增，消除散落硬编码中文） |
-| `icons.ts` | 42 | 16 个内联 SVG 图标常量，主体填色 `currentColor`（随主题自适应），点缀色走 `.ad-ico-accent` |
-| `taskParser.ts` | 50 | 任务 frontmatter 解析入口，委托 `taskParseCore` / `taskLogic`（v0.2.7 拆薄） |
+| `main.ts` | 288 | 插件生命周期：注册视图、ribbon 图标、命令面板、设置面板；`setObsidianTheme` 联动 Obsidian 全局外观；应用 i18n 语言、`refreshDashboardTitle` 广播刷新 |
+| `settings.ts` | 532 | 设置接口定义、默认值、设置面板 UI（语言、快速捕捉、TODO、项目、看板、新日记、外观、阶段管道、横幅开关、甘特图默认粒度、首页模块布局） |
+| `constants.ts` | 209 | 跨文件统一 UI 文案常量 `UI_TEXT` / `MODAL_TEXT`（中文侧，英文走 i18n 字典） |
+| `icons.ts` | 54 | 内联 SVG 图标常量，主体填色 `currentColor`（随主题自适应），点缀色走 `.ad-ico-accent` |
+| `i18n/index.ts` | 66 | 极简 i18n 基础设施：`t(path, params?)` / `tArr()` 取词、`getLang/setLang/isEnglish`、zh→en 回退链 |
+| `i18n/zh.ts` | 220 | 中文（默认，中英结合）字典，值需与插件显示完全一致 |
+| `i18n/en.ts` | 219 | 英文（纯英文模式）字典 |
+| `taskParser.ts` | 54 | 任务 frontmatter 解析入口，委托 `taskParseCore` / `taskLogic` |
 | `taskParseCore.ts` | 247 | frontmatter 解析核心（纯函数 + 单测）：`parseYaml`、TaskItem/ProjectInfo 类型、优先级权重、每日节点 |
-| `taskLogic.ts` | 148 | 任务状态 / 优先级 / 逾期 / 提醒日期等逻辑（纯函数 + 单测） |
-| `taskStore.ts` | 137 | 任务读取编排（`scanAllTasks` 等） |
+| `taskLogic.ts` | 150 | 任务状态 / 优先级 / 逾期 / 提醒日期等逻辑（纯函数 + 单测） |
+| `taskStore.ts` | 166 | 任务读取编排（`scanAllTasks` 等） |
 | `dashboardStore.ts` | 78 | 仪表盘数据聚合（纯函数 + 单测） |
-| `opportunityParser.ts` | 307 | 机会点类型与数据层：单文件 frontmatter `opportunities` 数组读写、增删改、排序、正文表格 + 明细投影 |
+| `opportunityParser.ts` | 336 | 通用看板数据层：单文件 frontmatter `opportunities` 数组读写、增删改、排序、正文表格 + 明细投影、`BoardStage` 结构 |
+| `frontmatterWriter.ts` | 86 | 统一 frontmatter 写入器：`yamlScalar()` 序列化转义 + CRLF 安全，全插件唯一实现（替代各视图手写行级写入） |
+| `parserDiagnostics.ts` | 36 | 解析异常收集（yaml/read/parse），供「N 个文件解析异常，点击查看」banner |
 | `virtualList.ts` | 60 | 长列表虚拟化纯函数（窗口化渲染，含 7 单测） |
 | `mockData.ts` | 160 | DashboardData 接口和占位数据（仅用于 UI 骨架，业务数据均来自 vault） |
-| `DashboardView.ts` | 1894 | 唯一 ItemView，`currentPage` 三态（home / project / opportunity）：首页卡片渲染、vault 数据读写、防抖刷新分发（项目总览已拆至 `ProjectBoard.ts`） |
-| `ProjectBoard.ts` | 1678 | 项目总览渲染器：甘特 / 列表 / 日历 / 看板四视图（v0.2.7 从 `DashboardView` 拆出） |
-| `OpportunityBoard.ts` | 575 | 机会点看板 / 列表渲染器（v0.2.7 新增） |
-| `TaskModal.ts` | 387 | 新建任务弹窗：完整表单含项目选择、父任务（预填 defaultProject/defaultParent）、重复规则、标签、提醒 |
-| `TaskEditModal.ts` | 366 | 任务详情/编辑弹窗：修改状态、优先级、日期、备注，标题变更自动 renameFile，展示每日节点轴 |
-| `ProjectModal.ts` | 160 | 新建/编辑项目弹窗：名称、项目类型、颜色选择、日期、描述 |
-| `OpportunityModal.ts` | 166 | 新建/编辑机会点弹窗：标题、状态、标签、背景与三段结论、转路标、详情双链（可自动建笔记并打开） |
-| `BannerModal.ts` | 139 | 封面图片位置弹窗：预览 + 鼠标/触控拖拽 + 上下限位 |
+| `DashboardView.ts` | 3314 | 唯一 ItemView，`currentPage` 三态（home / project / board）：首页卡片渲染（含倒计时多实例）、vault 数据读写、防抖刷新分发、编辑态布局 |
+| `ProjectBoard.ts` | 1677 | 项目总览渲染器：甘特 / 列表 / 日历 / 看板四视图 |
+| `OpportunityBoard.ts` | 609 | 通用看板（灵感收集）渲染器：看板 / 列表、单状态分栏 + 内联详情、星标筛选 |
+| `TaskModal.ts` | 382 | 新建任务弹窗：完整表单含项目选择、父任务（预填 defaultProject/defaultParent）、重复规则、标签、提醒 |
+| `TaskEditModal.ts` | 368 | 任务详情/编辑弹窗：修改状态、优先级、日期、备注，标题变更自动 renameFile，展示每日节点轴 |
+| `ProjectModal.ts` | 162 | 新建/编辑项目弹窗：名称、项目类型、颜色选择、日期、描述 |
+| `OpportunityModal.ts` | 215 | 新建/编辑看板条目弹窗：标题、状态、标签、背景备注、星标、链接双链（可自动建笔记并打开） |
+| `BannerModal.ts` | 140 | 封面图片位置弹窗：预览 + 鼠标/触控拖拽 + 上下限位 |
+| `CountdownModal.ts` | 99 | 倒计时事件管理弹窗：多实例（≤5）增删改；`single` 模式仅编辑单卡（右键「编辑」） |
 
 ### 设置项（`DashboardSettings`）
 
@@ -204,16 +219,25 @@ interface DashboardSettings {
     poProjectOrder: string[];          // 项目总览侧边栏项目顺序（拖拽持久化，切换视图不丢失）
     poTaskOrder: string[];             // 甘特图任务行顺序（拖拽持久化）
     theme: 'auto' | 'dark' | 'light';  // 默认 'auto'：跟随 Obsidian 外观
-    themeSyncObsidian: boolean;        // 默认 true：主题按钮同时切换 Obsidian 全局外观
     dashboardTitle: string;            // 自定义主标题，留空用默认 'MY DASHBOARD'（改后即时生效，免重载）
     npdpStages: string[];              // NPDP 阶段名称列表（默认 立项/规划/开发/测试/上线）
     npdpMaxStage: number;              // NPDP 阶段总数上限（4~6）
     npdpProgressFilter?: number;       // 主页项目进度卡片阶段筛选
     poGanttStatusFilter?: string[];    // 甘特图状态多选筛选
-    opportunityFile: string;           // 机会点总文件路径，默认 'Projects/机会点管理.md'
-    currentOppView: string;            // 机会点当前视图标签（kanban/list），默认 kanban
+    poGanttScale?: 'day' | 'week' | 'month' | 'quarter'; // 甘特图默认时间粒度
+    boardEnabled: boolean;             // 是否启用看板（导航与页面隐藏 + 设置项折叠），默认 true
+    boardTitle: string;                // 看板名称，默认 '灵感收集'（导航与页面显示名，可自定义）
+    boardStages: BoardStage[];         // 看板阶段列（4-6 列）：id/label/color/hasInput，默认 收集箱/评估中/进行中/已完成/已放弃
+    opportunityFile: string;           // 看板数据文件路径，默认 '看板.md'（UI 显示「看板数据文件」）
+    currentOppView: string;            // 看板当前视图标签（kanban/list），默认 kanban
+    homeModules?: HomeModuleConfig[];  // 首页模块显隐/排序/比例（编辑态拖拽 + 恢复默认布局）
+    homeLayoutVersion?: number;        // 首页布局数据版本（HOME_LAYOUT_VERSION=3，旧值自动迁移）
+    countdown: CountdownSettings[];    // 倒计时自定义事件数组（事件名 + 目标日期），最多 5 个
+    language: 'zh' | 'en';             // 界面语言：zh（中英结合，默认）/ en（纯英文）
 }
 ```
+
+> 注：旧版 `themeSyncObsidian` 字段已移除（主题切换始终联动 Obsidian 外观，仅受 `theme` 控制）。
 
 ## 已实现功能
 
@@ -225,7 +249,7 @@ interface DashboardSettings {
 4. **Header**: eyebrow `SECOND BRAIN` + 主标题（默认 `MY DASHBOARD`，可在设置自定义）+
    `Obsidian · Personal Dashboard v{version}`（版本号动态读 manifest）+ 日期时间（30 秒刷新）、
    星期（实时）、农历（格式"农历 五月廿三"，30 秒刷新）；右侧「🌙 主题」「⚙ 设置」两个按钮
-5. **Actions 工具栏**: 主页、新建日记、新建任务、新建项目、全部项目、机会点（共 6 个，均为内联 SVG 图标）
+5. **Actions 工具栏**: 主页、新建日记、新建任务、新建项目、全部项目、灵感收集（共 6 个，均为内联 SVG 图标；「灵感收集」按钮名随设置 `boardTitle` 变化）
 6. **快速捕捉**: 输入内容直接创建 Markdown 笔记到 vault，支持模板（真实调用 `createCaptureNote` 写入；成功顶部 toast 提示，失败显示红色错误 toast，不再「失败也显示已捕捉」）
 7. **TODO**: 从 vault 实时读取任务，remindDate 逻辑（spec VIII），逾期置顶 + 优先级排序，右键菜单（编辑/延后一天/删除），重复任务自动计算下次提醒日期
 8. **工作进度**: 双环形图（今日任务完成率 + 全部任务完成率），SVG 实现，从 `scanAllTasks()` 真实计算；完成任务后通过 vault `modify` 事件实时刷新（无需切界面）
@@ -238,7 +262,11 @@ interface DashboardSettings {
    - **交互**：左键→打开编辑弹窗；右键菜单（编辑/删除/打开源文件/延后一天/标记完成），逾期行额外「延后到今天」
 10. **项目进度**: NPDP pipeline 视图（立项/规划/开发/测试/上线阶段）
 11. **笔记统计**: 52 周热力图（GitHub 风格），实时读取 vault 文件创建时间
-12. **倒计时**: 年度剩余天数、周数、完成百分比
+12. **倒计时（多实例）**: 每张卡片 = 一个自定义事件（事件名 + 目标日期，最多 5 张，独立增删改）。
+    - **布局**：副标题（「距离 {事件}」）在顶部、巨大剩余天数数字居中、页脚（剩余周数 · 已完成百分比 + 进度条）贴卡片下缘（`grid-template-rows: auto 1fr auto`），页脚带细分隔线
+    - **进度口径**：以「目标日前一年」为起点、目标日为零点，`pct = 已过时间 / 总周期`，随目标日期动态变化
+    - **状态**：未来 → 剩余天数 + 进度条；当天到达 → 「🎉 此时此刻」+ 进度条满；已过期 → 「🏁 旅程已然到达」+ 进度条满
+    - **交互**：右键菜单「编辑 / 删除此卡片」；编辑态（长按卡片）「＋ 添加倒计时卡片」；新事件默认名随语言（新年 / New Year），目标日期非法时回退「下一年 1 月 1 日」
 
 ### 项目总览视图（点击"全部项目"进入）
 
@@ -295,45 +323,56 @@ interface DashboardSettings {
 - 点击卡片打开 TaskEditModal
 - 右键菜单：编辑、删除、打开源文件、修改优先级
 
-### 机会点视图（点击"机会点"进入）
+### 灵感收集（通用看板视图，点击导航「灵感收集」进入）
 
-产品机会点的全流程管理，是主视图的第三页（`currentPage = 'opportunity'`）。
+一套轻量的「收集 → 推进 → 归档」工作流，适合随手记灵感、点子、待跟进事项；是主视图的第三页
+（`currentPage = 'opportunity'`）。导航名与页面名由设置 `boardTitle` 控制（默认「灵感收集」，
+可改为 机会点 / 管道 等任意名称）。
 
 #### 数据存储
 
-- 所有机会点统一存于**一个** Markdown 文件（默认 `Projects/机会点管理.md`）的 frontmatter
-  `opportunities` 数组，**不是一机会点一文件**；被否决的机会点只是数组里一条 `已否决` 记录
-- 正文由插件在标记区内自动重建为「总览表格（标题/状态/转路标/创建时间）+ `## 明细`（背景、
-  沟通结论、调研结论、上会结论、详情、标签、创建/更新时间）」，仅为 frontmatter 的可读投影；
-  标记区外的用户笔记原样保留
-- 需要展开的机会点用 `详情` 双链跳转到独立笔记（弹窗可自动创建并打开）
+- 所有条目统一存于**一个** Markdown 文件（默认 `看板.md`，设置项 `opportunityFile`）的 frontmatter
+  `opportunities` 数组，**不是一条目一文件**
+- 正文由插件在标记区内自动重建为「总览表格（标题/阶段/星标/创建时间）+ `## 明细`」，
+  仅为 frontmatter 的可读投影；标记区外的用户笔记原样保留
+- 需要展开的条目用链接双链（`[[xxx-详情]]`）跳转到独立笔记（弹窗可自动创建并打开）
 
-#### 状态流
+#### 阶段管道
 
-`未沟通 → 沟通通过 → 调研中 → 待上会 →`（上会分叉）`已完成 / 已否决`；需调整则回退到 `调研中`。
-「★ 转路标」是 `已完成` 之上的标记，不是状态。
+默认阶段（设置 `boardStages` 可自定义名称/颜色/是否启用输入框，4-6 列）：
+`收集箱 → 评估中 → 进行中 → 已完成 / 已放弃`。
+「★ 星标」是独立于阶段的标记（重要 / 待跟进），不是状态。
 
 #### 交互
 
-- **看板**：6 状态列，跨列拖拽即改状态；卡片可在列内拖拽手动排序（写入 `排序` 字段，
+- **看板**：阶段列，跨列拖拽即改阶段；卡片可在列内拖拽手动排序（写入 `排序` 字段，
   排序键为 状态 → order → 创建时间）
-- **单状态分栏**：侧栏选中具体状态时只渲染该 1 列，右侧展开内联详情编辑器
-  （标题/状态/标签/背景/三段结论/转路标/详情双链 + 保存 + 删除）
+- **单状态分栏**：侧栏选中具体阶段时只渲染该 1 列，右侧展开内联详情编辑器
+  （标题/阶段/标签/背景备注/星标/链接双链 + 保存 + 删除）
 - **列表**：可点列排序
-- **侧栏**：按状态筛选 + ★ 转路标筛选；「新建机会点」按钮在看板/列表 Tab 行最右侧
+- **侧栏**：按阶段筛选 + ★ 星标筛选；「新建」按钮在看板/列表 Tab 行最右侧
+- **右键菜单**：编辑 / 打开链接 / 切换阶段 / 星标 / 删除
 
 ### 其他功能
 
 - **Banner 图片**: 上传、拖拽调整位置、dataUrl 持久化到设置
 - **Noise 粒子背景** + 青色光晕效果
-- **深色/浅色主题切换**: 通过 `--ad-*` CSS 变量实现；默认 `auto` 跟随 Obsidian 外观，
-  开启「主题联动 Obsidian」后主页主题按钮直接切换 Obsidian 全局外观（`vault.setConfig('theme')`
-  + body class 兜底）
+- **深色/浅色主题切换**: 通过 `--ad-*` CSS 变量实现；`theme` 默认 `auto` 跟随 Obsidian 外观，
+  手动选深/浅时直接切换 Obsidian 全局外观（`vault.setConfig('theme')` + body class 兜底）
+  （旧 `themeSyncObsidian` 开关已移除：主题联动为固定行为）
 - **自定义插件标题**: 设置里改主标题，`refreshDashboardTitle()` 广播到所有已开视图，免重载
-- **内联 SVG 图标系统**: `src/icons.ts` 提供 16 个图标（主页/全部项目/列表/新建任务/新建日记/
-  新建项目/日历/机会点/甘特图/看板/搜索/刷新/筛选/设置/通知/更多），主体填 `currentColor`
-  自适应深浅主题，点缀色由 `.ad-ico-accent` 控制
-- **设置页面**: 快速捕捉、TODO、项目、机会点、新日记、外观、NPDP 阶段（中文 UI）
+- **i18n 双语**: 设置「界面语言」中文（默认，中英结合）/ English（纯英文），切换即时生效；
+  `src/i18n/` 提供 `t()`/`tArr()` 取词，当前语言缺失自动回退 zh；品牌锚点词
+  （SECOND BRAIN / XOVE DASHBOARD）恒定英文不进字典；英文模式下农历自动隐藏
+- **首页模块编辑态**: 长按卡片进入编辑态——拖拽排序、调整卡片比例（宽/高 1-4 格，含最小比例约束）、
+  「＋ 添加卡片」/「🗑 拖到此处删除」/「↺ 重置布局」；显隐与顺序持久化到 `homeModules` 设置
+- **内联 SVG 图标系统**: `src/icons.ts` 提供 20 个图标（home/allProjects/list/newTask/newDiary/
+  newProject/calendar/opportunity/gantt/kanban/search/refresh/filter/settings/notification/more/
+  edit/gear/sun/moon），主体填 `currentColor` 自适应深浅主题，点缀色由 `.ad-ico-accent` 控制
+- **设置页面**: 语言、快速捕捉、TODO、项目、看板（启用开关/名称/阶段列）、新日记、外观、
+  阶段管道、顶部横幅开关、甘特图默认粒度、首页模块布局（中文 UI）
+- **解析异常提示**: 解析异常的 md 文件由 `parserDiagnostics.ts` 收集，首页显示
+  「N 个文件解析异常（数据可能不完整），点击查看」banner，点击在 Obsidian 打开对应文件
 - **新建任务弹窗**: 完整表单（项目选择、父任务、日期、优先级中文统一、状态、类型、重复、提醒、标签、备注 rows=5），必填字段红色高亮验证
 - **新建项目弹窗**: 创建文件夹 + project-{name}.md，颜色选择器
 - **任务编辑弹窗（任务详情）**: 编辑状态/优先级/日期/备注，展示「每日节点」日期轴（见下方每日节点轴说明）
@@ -509,9 +548,8 @@ interface DashboardSettings {
 3. 不引入外部依赖（React/Tailwind 等），保持纯 TypeScript + Obsidian API
 4. 使用 Obsidian 官方公开 API，不依赖未文档化的内部 API
    （唯一有意例外：`main.ts` 的 `vault.setConfig('theme', …)`，已 try/catch 包裹 + body class 兜底）
-5. 修改后必须在 **Windows** 上运行 `npm run build:js` 与 `node node_modules/typescript/bin/tsc -noEmit -skipLibCheck`
-   验证；能跑 lint 时补跑 `npm run lint`（鸿蒙 HarmonyOS 上 node 完全跑不起来，无法打包；
-   源码编辑与 python 脚本可在鸿蒙进行）
+5. 修改后运行 `npm run check`（typecheck + lint + build:js + test）验证，任一失败需修复后再结束；
+   npm 不可用时直调 node 二进制（rollup / tsc），见上文「运行环境」的 `--jitless` 注意事项
 6. **git 纪律**：只用本地 git，不连 GitHub、不 push、不配 remote；无明确指令不得 bump 版本或执行
    任何 git 操作。用户下达「发布版本 X.Y.Z」= 同时授权 bump + 本地 commit（精确暂存发布文件，
    排除 `.workbuddy/` 与 dev 工具；`main.js` 走 gitignore）。
@@ -521,14 +559,16 @@ interface DashboardSettings {
 8. Frontmatter 使用中文键名（状态、优先级、开始日期、截止日期等）；标签字段用英文 `tags`
    （Obsidian 原生识别），解析层对旧「标签」键做兜底兼容
 9. 项目文件夹名 = 项目名（无前缀），配置文件命名为 `project-{项目名}.md`
-10. CSS 类名 Dashboard 用 `ad-` 前缀，项目总览用 `po-` 前缀，机会点用 `op-` 前缀
+10. CSS 类名 Dashboard 用 `ad-` 前缀，项目总览用 `po-` 前缀，看板用 `op-` 前缀
 11. 插件最终目录只需：`main.js`、`manifest.json`、`styles.css`；复制后需在 Obsidian 执行
     **Reload app without saving**（不会热重载 JS/CSS）
 12. 涉及网络请求、遥测、云同步、文件删除、修改真实 Vault 数据等操作前需确认
 13. 不要在代码中提交 API key、token、本地 Vault 路径等私密数据
-14. 项目总览与机会点均无 mock 数据回退，完全依赖 vault 真实数据
+14. 项目总览与看板均无 mock 数据回退，完全依赖 vault 真实数据
 15. Vault 事件监听在项目视图模式下不刷新热力图/TODO 卡片
 16. `parseProjectMeta` 中颜色字段需去除首尾引号
+17. **i18n**：`t()` 只返回字符串；数组键（星期/月份/heatDow/stagesDefault）必须用 `tArr()`；
+    字典值需与插件当前显示完全一致（zh 为中英结合，勿改成纯中文，除非同步改 en 与代码）
 
 ### 踩过的坑（改代码前先看）
 

@@ -56,8 +56,16 @@ export class TaskStore {
 
 	/** Scan all tasks across all projects. Shares one traversal with
 	 *  scanAllProjects via the 300ms cache, so back-to-back scans
-	 *  (e.g. pulse + home cards + project board) read each file once. */
+	 *  (e.g. pulse + home cards + project board) read each file once.
+	 *  已归档项目的任务被排除（首页卡片/数据流默认不显示归档内容）。 */
 	async scanAllTasks(): Promise<TaskItem[]> {
+		const { tasks } = await this.scanAllWithTasks();
+		return tasks.filter((t) => !t.archived);
+	}
+
+	/** Scan all tasks including those of archived projects.
+	 *  项目总览侧栏需要在选中已归档项目时展示其任务，故单独提供。 */
+	async scanAllTasksIncludingArchived(): Promise<TaskItem[]> {
 		return (await this.scanAllWithTasks()).tasks;
 	}
 
@@ -111,7 +119,9 @@ export class TaskStore {
 						reportParseIssue({ path: projectFile.path, kind: 'read', message: e instanceof Error ? e.message : String(e) });
 					}
 					const projColor = meta.color || '#3b82f6';
+					const isArchived = meta.archived === true;
 					const taskFiles = await this.scanTasksInFolder(child, meta.name || child.name, projColor);
+					if (isArchived) taskFiles.forEach((t) => { t.archived = true; });
 					acc.push(...taskFiles);
 					const activeCount = taskFiles.filter((t) => t.status !== '已完成' && t.status !== '已取消').length;
 					const doneCount = taskFiles.filter((t) => t.status === '已完成').length;
@@ -131,6 +141,7 @@ export class TaskStore {
 						stage: Math.min(projStage, stages.length - 1),
 						stages,
 						type: meta.type ?? 'stage',
+						archived: isArchived,
 					});
 				}
 				// Recurse into sub-folders

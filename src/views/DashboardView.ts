@@ -1,8 +1,11 @@
-import { ItemView, Menu, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, TFile, TFolder, WorkspaceLeaf, App } from 'obsidian';
 import { MOCK_DATA, DashboardData } from '../data/mockData';
 import { BannerSettings, DEFAULT_SETTINGS, CountdownSettings } from '../settings';
 import { BannerModal } from './BannerModal';
+import { CardSettingsModal } from './CardSettingsModal';
+import { ConfirmModal } from './ConfirmModal';
 import { CountdownModal, defaultEventName } from './CountdownModal';
+import { PomoSettingsModal } from './PomoSettingsModal';
 import { TaskEditModal } from './TaskEditModal';
 import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule, serializeDailyNodesBlock, parseDailyNodesFromBody } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
@@ -11,6 +14,8 @@ import type { ParseIssue } from '../data/parserDiagnostics';
 import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
+import { HeatmapSkyline, type SkylineOptions } from './HeatmapSkyline';
+import { FOCUS_WEEKS } from '../data/heatmapModel';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays } from '../data/taskLogic';
 import { t, tArr, isEnglish } from '../i18n';
 import { UI_TEXT } from '../constants';
@@ -18,7 +23,8 @@ import { UI_TEXT } from '../constants';
 import type Dashboard from '../main';
 import {
 	ICON_home, ICON_newDiary, ICON_newTask, ICON_newProject,
-	ICON_allProjects, ICON_opportunity, ICON_gear, ICON_moon, ICON_sun, injectSvg,
+	ICON_allProjects, ICON_opportunity, ICON_gear, ICON_moon, ICON_sun,
+	ICON_heatGrid, ICON_heatCube, injectSvg,
 } from '../icons';
 
 export const VIEW_TYPE = 'dashboard-view';
@@ -40,22 +46,22 @@ const MAX_SPAN = 4;
 const MIN_COLS: Record<string, number> = {
 	'projects': 2, // 项目情况：最低宽度 2 格
 	'heatmap': 2,  // 笔记统计：最低宽度 2 格（2×1 走窄版间距 + 自适应窗口）
+	'calweek': 2,  // 周视图：最低宽度 2 格（更窄走横向滚动，7 列不挤压）
+	'pomostat': 2, // 专注统计：最低宽度 2 格（保证 7 根日期柱有足够宽度）
 };
 
-/** 热力图格子尺寸（px，固定不变）与列间距的允许区间 —— 只调间距、不改格子尺寸 */
-const HM_CELL = 15;
-const HM_GAP_MIN = 3;
-const HM_GAP_MAX = 14;
-/** 星期列（22px）+ grid 列间距（4px），即 cells 相对 heat 容器的左侧偏移 */
-const HM_DOW_W = 26;
-/** 窄卡时至少保留的周数，避免退化成几根竖条 */
-const HM_MIN_WEEKS = 10;
+/** 天际线最多画多少周（上限 = 一年历史）；实际周数按卡片宽高比自适应，避免两侧大片留白 */
+const HM_SKYLINE_MAX_WEEKS = 53;
 
 /** 部分卡片的最低宽高比（宽:高），限制缩放/比例菜单与响应式夹紧，避免关键卡片被压成过窄过高的竖条 */
 const MIN_RATIO: Record<string, number> = {
 	'projects': 2, // 项目情况：最低 2:1
 	'heatmap': 3,  // 笔记统计：最低 3:1
 };
+
+/** 专注统计卡片：每日目标参考时长（恒定 1 小时）。
+ *  ⚠️ 刻意不依赖 settings.pomodoro.workMin —— 否则用户调整番茄钟时长会连带改变图表刻度，造成「改时长柱状图也变」的困惑。 */
+const POMO_DAILY_GOAL_MS = 60 * 60 * 1000;
 
 /** 进度圆环动画参数（可按需微调）：时长 + 缓动曲线 */
 const RING_ANIM = {
@@ -219,15 +225,9 @@ export class DashboardView extends ItemView {
 	/** 监听板面宽度，计算每行最大可容纳列数，并在 flex-wrap 布局下重夹紧卡片比例 */
 	private adRowHObs?: ResizeObserver;
 	private adLastColCount = 0; // 上次每行最大可容纳列数，用于变化时重夹紧卡片比例
-	/** 监听笔记统计卡宽度，动态调整热力图列间距（格子尺寸固定），宽卡填满、窄卡收紧 */
+	/** 监听笔记统计卡画布容器尺寸，重绘天际线 */
 	private adHmObs?: ResizeObserver;
 	private adHmObsTarget?: HTMLElement;
-	/** 上次热力图采用的布局指纹（周数|列间距|行间距），相同则跳过重排，避免 ResizeObserver 自激循环 */
-	private adHmKey = '';
-	/** 热力图每一周所属月份（长度=全年周数），窄卡只显示最近 N 周时据此重建月份标签 */
-	private adHmWeekMonths: number[] = [];
-	/** 热力图当前渲染的年份（用于底部窗口文案「YYYY 全年 / 近 N 周」） */
-	private adHmYear = 0;
 	/** 缩放触达限制时的红色抖动反馈计时器 */
 	private adLimitTimer: number | null = null;
 	/** 进度圆环：各环当前显示值与进行中的动画句柄（实例级持久化，
@@ -252,6 +252,10 @@ export class DashboardView extends ItemView {
 		{ id: 'heatmap', title: t('home.modules.heatmap'), cardCls: 'ad-card ad-b-heatmap', live: false, render: (b) => this.renderHeatmap(b) },
 		{ id: 'countdown', title: t('home.modules.countdown'), cardCls: 'ad-card ad-b-countdown', live: false, render: () => {} },
 		{ id: 'pomodoro', title: t('home.modules.pomodoro'), cardCls: 'ad-card ad-b-pomodoro', live: false, render: (b) => this.renderPomodoro(b) },
+		{ id: 'anchors', title: t('home.modules.anchors'), cardCls: 'ad-card ad-b-anchors', live: false, render: (b) => this.renderAnchors(b) },
+		{ id: 'recent', title: t('home.modules.recent'), cardCls: 'ad-card ad-b-recent', live: false, render: (b) => this.renderRecent(b) },
+		{ id: 'calweek', title: t('home.modules.week'), cardCls: 'ad-card ad-b-week', render: (b, t) => void this.renderWeekCard(b, t) },
+		{ id: 'pomostat', title: t('home.modules.pomoStat'), cardCls: 'ad-card ad-b-pomostat', render: (b) => this.renderPomoStat(b) },
 	];
 
 	// Project overview state (renderer extracted into ProjectBoard)
@@ -268,6 +272,22 @@ export class DashboardView extends ItemView {
 
 	/* ---- 番茄钟（状态提升到 plugin.pomoState，主页卡片与状态栏共用） ---- */
 	private adPomoTimer: number | null = null;
+	/** 周视图卡片当前周锚点日期（YYYY-MM-DD，一周以周一开头）；卡片标题区 ‹ 今天 › 切换周次 */
+	private adWeekSel = todayStr();
+	/** 专注统计卡片的周偏移：0 = 本周，-1 = 上周，+1 = 下周（用于回看历史周） */
+	private adPstatWeekOffset = 0;
+	/** 笔记统计卡片视图：2d 平面热力图 / 3d 等距天际线；渲染时从 settings.heatmapView 同步 */
+	private adHmView: '2d' | '3d' = '3d';
+	/** 3D 天际线绘制器（仅 3D 视图存在，重渲染/关闭时须 dispose） */
+	private skyline: HeatmapSkyline | null = null;
+	/** 3D 绘制参数：尺寸变化时用同一份参数重绘 */
+	private skylineOpts: SkylineOptions | null = null;
+	/** 一次性标记：由「2D → 3D 切换」置位，让天际线播一次「从平面立起来」的入场形变 */
+	private adHmEnterAnim = false;
+	/** 本视图实例是否已播过入场形变：保证首次进入 3D 会播，之后的数据刷新重渲染不再重复播 */
+	private adHmAnimatedOnce = false;
+	/** 上一次渲染的视图：卡片重建后新绘制器要靠它得知形变「从哪来」，3D → 2D 才有动画 */
+	private adHmPrevView: '2d' | '3d' | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Dashboard) {
 		super(leaf);
@@ -372,6 +392,16 @@ export class DashboardView extends ItemView {
 			void this.refreshHomeCards();
 		});
 
+		// 打开文件后刷新「最近打开」卡片。
+		// 注意：Obsidian 的 getLastOpenFiles() 往往在文件关闭后才更新，无法满足「打开即刷新」，
+		// 因此这里自行在 file-open 时实时维护一份最近列表（优先于 getLastOpenFiles 使用）。
+		this.registerEvent(this.app.workspace.on('file-open', (file) => {
+			if (file instanceof TFile && file.extension === 'md' && !file.name.startsWith('project-')) {
+				this.adRecent = [file.path, ...this.adRecent.filter((p) => p !== file.path)].slice(0, 10);
+			}
+			if (this.currentPage === 'home') this.refreshRecent();
+		}));
+
 		// Initial scan populates parse diagnostics asynchronously; refresh the
 		// banner warning once the first scans have completed.
 		window.setTimeout(() => this.refreshParseIssues(), 400);
@@ -391,6 +421,9 @@ export class DashboardView extends ItemView {
 		if (this.adHmObs) { this.adHmObs.disconnect(); this.adHmObs = undefined; this.adHmObsTarget = undefined; }
 		if (this.adLimitTimer !== null) { window.clearTimeout(this.adLimitTimer); this.adLimitTimer = null; }
 		if (this.adPomoTimer !== null) { window.clearInterval(this.adPomoTimer); this.adPomoTimer = null; }
+		this.skyline?.dispose();
+		this.skyline = null;
+		this.skylineOpts = null;
 		this.oppBoard.dispose();
 		if (this.storeUnsub) { this.storeUnsub(); this.storeUnsub = null; }
 		this.dashboardStore.dispose();
@@ -1248,6 +1281,18 @@ export class DashboardView extends ItemView {
 		await this.projectBoard.refresh();
 	}
 
+	/** 归档 / 取消归档项目：写入 project-{folder}.md 的「归档」字段并刷新相关页面 */
+	async setProjectArchived(proj: ProjectInfo, archived: boolean): Promise<void> {
+		const folderName = proj.path.split('/').pop() || proj.name;
+		const projectFilePath = `${proj.path}/project-${folderName}.md`;
+		const file = this.app.vault.getAbstractFileByPath(projectFilePath);
+		if (!(file instanceof TFile)) return;
+		// 归档: true 写入；取消归档（null）删除该字段
+		await this.writeFrontmatter(file, { '归档': archived ? 'true' : null });
+		this.showToast(t(archived ? 'home.projectArchived' : 'home.projectUnarchived', { name: proj.name }));
+		this.refreshRelevant();
+	}
+
 	private async showDashboard(): Promise<void> {
 		if (!this.boardEl) return;
 		// 进入首页前确保退出可能的编辑态（修复「切页未退出编辑态」残留）
@@ -1677,13 +1722,19 @@ export class DashboardView extends ItemView {
 			const idx = (el as HTMLElement).getAttribute('data-cd-idx');
 			if (idx !== null && !cdLiveIdx.has(idx)) el.remove();
 		});
+		// onlyLive（数据刷新）路径下，live:false 卡片（倒计时/快速捕捉/热力图/番茄钟/锚点/最近打开等）
+		// 既不建壳也不清空：此前对它们执行 el.empty() 后又在填充阶段跳过，导致倒计时等卡「经常空白」。
+		const isStaticUnit = (u: { mod: HomeModule; cdIdx?: number }): boolean => u.mod.live === false;
 		for (const u of units) {
+			if (opts?.onlyLive && isStaticUnit(u)) continue;
 			const sel = DashboardView.cardSel(u.mod.cardCls);
 			let el = board.querySelector(sel) as HTMLElement | null;
 			// 倒计时多实例：同一 class 有多张卡，必须按 data-cd-idx 精确命中，否则会全命中第一张
 			if (u.cdIdx !== undefined && el) {
 				const exact = board.querySelector(`${sel}[data-cd-idx="${u.cdIdx}"]`) as HTMLElement | null;
 				if (exact) { el = exact; el.empty(); } else { el = null; }
+			} else if (el) {
+				el.empty();
 			}
 			if (!el) {
 				el = board.createDiv({ cls: u.mod.cardCls });
@@ -1715,7 +1766,12 @@ export class DashboardView extends ItemView {
 				continue;
 			}
 			if (opts?.onlyLive && u.mod.live === false) continue;
-			await u.mod.render(board, allTasks);
+			// 单卡异常隔离：某张卡渲染失败只记录错误，绝不能中断循环把后续卡片一并清空
+			try {
+				await u.mod.render(board, allTasks);
+			} catch (err) {
+				console.error('[Dashboard] 卡片渲染失败: ' + u.mod.id, err);
+			}
 			// 内容渲染可能重建了卡片，比例/标识需要复位一次（幂等）
 			const cardEl = board.querySelector(DashboardView.cardSel(u.mod.cardCls)) as HTMLElement | null;
 			if (cardEl) {
@@ -1948,22 +2004,65 @@ export class DashboardView extends ItemView {
 	/** 首页倒计时卡片右键菜单：仅提供「编辑」（删除统一走编辑态「拖到此处删除」区，
 	 *  避免入口重复、误删；新增卡片走「添加卡片」菜单）。非首页 / 非倒计时卡直接放行系统菜单。 */
 	private onBoardContextMenu(e: MouseEvent): void {
-		// 右键菜单仅作用于首页倒计时卡片；项目/机会点页无此卡片，直接放行系统右键菜单
+		// 右键菜单仅作用于首页卡片；项目/机会点页直接放行系统右键菜单
 		if (this.currentPage !== 'home') return;
 		const card = (e.target as HTMLElement).closest('.ad-card') as HTMLElement | null;
 		if (!card) return;
-		if ((card.getAttribute('data-mod') ?? '') !== 'countdown') return;
+		const modId = card.getAttribute('data-mod') ?? '';
+		if (!modId) return;
 		e.preventDefault();
-		const idxAttr = card.getAttribute('data-cd-idx');
-		const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
-		if (idx < 0) return; // 占位卡（无事件）不提供右键菜单
-		// 右键仅提供「编辑」；删除统一走编辑态「拖到此处删除」区，避免入口重复、误删
 		const menu = new Menu();
+
+		// 倒计时卡：右键提供「编辑」（删除统一走编辑态删除区）
+		if (modId === 'countdown') {
+			const idxAttr = card.getAttribute('data-cd-idx');
+			const idx = idxAttr === null ? -1 : parseInt(idxAttr, 10);
+			if (idx < 0) return; // 占位卡（无事件）不提供右键菜单
+			menu.addItem((item) => item
+				.setTitle(t('common.edit'))
+				.setIcon('pencil')
+				.onClick(() => this.openCountdownEdit(idx)));
+			menu.showAtMouseEvent(e);
+			return;
+		}
+
+		// 其余卡片：右键 →「卡片设置」
+		const mod = this.homeModules.find((x) => x.id === modId);
+		const cardName = mod?.title ?? modId;
 		menu.addItem((item) => item
-			.setTitle(t('common.edit'))
-			.setIcon('pencil')
-			.onClick(() => this.openCountdownEdit(idx)));
+			.setTitle(t('common.settings'))
+			.setIcon('settings')
+			.onClick(() => {
+				const modal = new CardSettingsModal(this.app, this.plugin, modId, cardName, (changedId) => {
+					this.onCardSettingChanged(changedId);
+				});
+				modal.open();
+			}));
 		menu.showAtMouseEvent(e);
+	}
+
+	/** 卡片设置弹窗保存后，按卡片做即时刷新（部分卡只需局部重绘，其余全量重建首页） */
+	private onCardSettingChanged(moduleId: string): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		switch (moduleId) {
+			case 'todo':
+				this.refreshTodo();
+				this.refreshWeekly();
+				this.taskStore.invalidate();
+				this.dashboardStore.requestRefresh();
+				return;
+			case 'weekly':
+				this.refreshWeekly();
+				return;
+			case 'projects':
+				void this.renderProjects(this.boardEl);
+				return;
+			case 'heatmap':
+			case 'pomodoro':
+			default:
+				// live:false 卡片（热力图/番茄钟等）不在 onlyLive 刷新范围内，直接全量重建
+				if (this.boardEl) void this.renderEnabledModules(this.boardEl);
+		}
 	}
 
 	/** 打开倒计时事件编辑弹窗；idx >= 0 时仅编辑这一张卡（其他不受影响），idx < 0 时编辑整张占位卡。
@@ -3064,8 +3163,9 @@ export class DashboardView extends ItemView {
 			projects = await this.taskStore.scanAllProjects();
 		} catch { /* keep empty */ }
 
-		// Only 阶段项目 participate in the stage-progress card (非阶段项目 excluded from display & count)
-		const stageProjects = projects.filter((p) => (p.type ?? 'stage') === 'stage');
+		// Only 阶段项目 participate in the stage-progress card (非阶段项目 excluded from display & count);
+		// 已归档项目也不显示在项目情况卡片
+		const stageProjects = projects.filter((p) => (p.type ?? 'stage') === 'stage' && !p.archived);
 
 		// Filter: only show projects at stage <= maxStageFilter
 		const filtered = maxStageFilter < stages.length
@@ -3105,21 +3205,37 @@ export class DashboardView extends ItemView {
 
 			// Stage pipeline mini (connector line segments colored by progress, ends at last dot)
 			const track = row.createDiv({ cls: 'ad-proj__track' });
-			const stageNodes = track.createDiv({ cls: 'ad-proj__stages' });
 			const projStages = p.stages || stages;
+			// 阶段 ≥7 时圆点沿轨道紧凑均布；标签显示由设置决定（current=仅当前阶段 / all=全部阶段）。
+			// 未显式设置时沿用旧行为：≤6 全显示，≥7 仅当前。
+			const compact = projStages.length >= 7;
+			const labelMode = this.plugin.settings.npdpStageLabelMode
+				?? (compact ? 'current' : 'all');
+			const showAllLabels = labelMode === 'all';
+			const stagesCls = 'ad-proj__stages'
+				+ (compact ? ' ad-proj__stages--compact' : '')
+				+ (showAllLabels ? ' ad-proj__stages--labels-all' : ' ad-proj__stages--labels-current');
+			const stageNodes = track.createDiv({ cls: stagesCls });
 			// Auto-size stage dots by count: more stages → smaller, fixed width for connector math
 			const stageMinW = Math.max(20, Math.min(36, Math.floor(160 / projStages.length)));
 			const stageGap = Math.max(1, Math.floor(4 / (projStages.length / 4)));
-			stageNodes.style.setProperty('--pip-w', stageMinW + 'px');
-			stageNodes.style.setProperty('--pip-gap', stageGap + 'px');
-			stageNodes.style.gap = stageGap + 'px';
+			if (compact) {
+				// 紧凑模式宽度由 CSS flex:1 均布；--pip-gap 供连接线宽度计算
+				stageNodes.style.setProperty('--pip-gap', '8px');
+				stageNodes.style.gap = '8px';
+			} else {
+				stageNodes.style.setProperty('--pip-w', stageMinW + 'px');
+				stageNodes.style.setProperty('--pip-gap', stageGap + 'px');
+				stageNodes.style.gap = stageGap + 'px';
+			}
 			projStages.forEach((label, i) => {
 				const isDone = i < projStage;
 				const isCurrent = i === projStage;
 				const s = stageNodes.createDiv({ cls: 'ad-proj__stage' + (isDone ? ' is-done' : '') + (isCurrent ? ' is-current' : '') });
-				s.style.width = stageMinW + 'px';
+				if (!compact) s.style.width = stageMinW + 'px';
+				s.setAttr('title', label);
 				s.createSpan({ cls: 'ad-pip' });
-				s.appendText(label);
+				s.createSpan({ cls: 'ad-proj__stage-label', text: label });
 			});
 
 			row.createDiv({ cls: 'ad-proj__chev', text: '\u203A' });
@@ -3133,6 +3249,9 @@ export class DashboardView extends ItemView {
 				});
 				menu.addItem((item) => {
 					item.setTitle(t('home.viewGantt')).setIcon('gantt-chart').onClick(() => void this.navigateToProjectGantt(p));
+				});
+				menu.addItem((item) => {
+					item.setTitle(t('home.archiveProject')).setIcon('archive').onClick(() => void this.setProjectArchived(p, true));
 				});
 				menu.showAtMouseEvent(e);
 			});
@@ -3166,19 +3285,26 @@ export class DashboardView extends ItemView {
 
 		const noteCounts = this.getVaultNoteCounts();
 		const today = new Date();
-		const todayTime = today.getTime();
-		const todayKey = fmtDate(today); // 今天日期（YYYY-MM-DD），用于标记当天格子
 		const year = today.getFullYear();
 		const stats = calcHeatmapStats(noteCounts, year, today);
 		
+		// 视图状态：3D 天际线（默认）/ 2D 平面热力图；偏好持久化到 settings
+		this.adHmView = this.plugin.settings.heatmapView === '2d' ? '2d' : '3d';
+
+		// 重建前先释放旧的绘制器（getOrCreateCard 会清空卡片，Canvas 随之移除）
+		this.skyline?.dispose();
+		this.skyline = null;
+		this.skylineOpts = null;
+
 		// Title header (dashboard header style)
 		const head = card.createDiv({ cls: 'ad-card__head' });
 		const h3 = head.createEl('h3', { cls: 'ad-card__title' });
 		h3.createSpan({ cls: 'ad-marker', text: '\u25A5' });
 		h3.appendText(t('home.modules.heatmap'));
 		
-		// 统计数字 + 活跃度指标（顶部右上角，与标题同行右对齐）
-		const nsHead = head.createDiv({ cls: 'ad-ns__head' });
+		// 右上角：统计数字 + 活跃度指标 + 2D/3D 切换
+		const right = head.createDiv({ cls: 'ad-ns__right' });
+		const nsHead = right.createDiv({ cls: 'ad-ns__head' });
 		nsHead.createDiv({ cls: 'ad-ns__big', text: String(stats.total) });
 		const small = nsHead.createDiv({ cls: 'ad-ns__small' });
 		small.createDiv({ cls: 'ad-ns__active', text: t('home.daysActive', { n: stats.active }) });
@@ -3186,167 +3312,120 @@ export class DashboardView extends ItemView {
 		streak.appendText(t('home.streakPrefix'));
 		streak.createEl('strong', { text: String(stats.streak) });
 		streak.appendText(t('home.daysSuffix'));
-		
-		// --- Year boundaries (Jan 1 -> Dec 31) ---
-		const yearStart = new Date(year, 0, 1);
-		const yearEnd   = new Date(year, 11, 31);
-		const yearStartTime = yearStart.getTime();
-		const yearEndTime   = yearEnd.getTime();
-		
-		const startDow = yearStart.getDay();
-		const startMonday = new Date(year, 0, 1 - ((startDow + 6) % 7));
-		const endDow = yearEnd.getDay();
-		const endSunday = new Date(year, 11, 31 + ((7 - endDow) % 7 || 7));
-		
-		const totalDays = Math.round((endSunday.getTime() - startMonday.getTime()) / 86400000) + 1;
-		const totalWeeks = Math.ceil(totalDays / 7);
-		
-		// --- Heat area (flex column + horizontal scroll; fixed 13px cells) ---
-		const heat = card.createDiv({ cls: 'ad-ns__heat' });
-		
-		// 月份标签行：内容由 layoutHeatmap 按「可见周窗口 + 实际列间距」动态重建（此处只建容器）
-		heat.createDiv({ cls: 'ad-ns__months' });
-		const startMs = startMonday.getTime();
-		// 缓存每周所属月份（取该周周四所在月，GitHub 同款口径），供 layoutHeatmap 重建月份标签
-		const weekMonths: number[] = [];
-		for (let w = 0; w < totalWeeks; w++) {
-			const thu = new Date(startMs + (w * 7 + 3) * 86400000);
-			weekMonths.push(thu.getMonth());
-		}
-		this.adHmWeekMonths = weekMonths;
-		this.adHmYear = year;
-		this.adHmKey = ''; // DOM 已重建，强制重新布局
-		
-		// Grid: day-of-week column + cells (column flow, fixed 13px cells)
-		const grid = heat.createDiv({ cls: 'ad-ns__grid' });
-		const dow = grid.createDiv({ cls: 'ad-ns__dow' });
-		tArr('home.heatDow').forEach((lab) => dow.createSpan({ text: lab }));
-		
-		const cells = grid.createDiv({ cls: 'ad-ns__cells' });
-		for (let w = 0; w < totalWeeks; w++) {
-			for (let r = 0; r < 7; r++) {
-				const cellDate = new Date(startMs + (w * 7 + r) * 86400000);
-				const cellTime = cellDate.getTime();
-				const cell = cells.createDiv({ cls: 'ad-ns__cell' });
-				
-				if (cellTime < yearStartTime || cellTime > yearEndTime) {
-					cell.addClass('ad-ns__cell--empty');
-					continue;
-				}
-				
-				const dateStr = fmtDate(cellDate);
-				const count   = noteCounts.get(dateStr) ?? 0;
-				const isFuture = cellTime > todayTime;
-				
-				if (!isFuture && count > 0) {
-					if (count === 1)  cell.addClass('l1');
-					else if (count <= 3) cell.addClass('l2');
-					else if (count <= 6) cell.addClass('l3');
-					else                 cell.addClass('l4');
-				}
-				if (isFuture) cell.addClass('is-future');
-			if (dateStr === todayKey) cell.addClass('is-today'); // 当天格子：边缘光晕
-				
-				const mm = String(cellDate.getMonth() + 1).padStart(2, '0');
-				const dd = String(cellDate.getDate()).padStart(2, '0');
-				cell.title = isFuture ? t('home.cellFuture', { m: mm, d: dd }) : t('home.cellNotes', { m: mm, d: dd, n: count });
-			}
-		}
-		
-		// Footer legend (less ... more)
+		this.addHeatmapViewToggle(right);
+
+		// ── 天际线：单场景 Canvas 渲染 ──
+		// 平面热力图（相机正俯视）与 3D 天际线（等距）是同一场景的两个相机状态，
+		// 切换时相机连续形变，因此不会出现「换掉一整块画面」的闪烁。
+		const stage = card.createDiv({ cls: 'ad-ns__stage' });
+		this.skyline = new HeatmapSkyline(stage);
+		// 取景口径：完整自然年 → 锚定 12/31 并画满 53 周；滚动 → 锚定今天并自适应周数
+		const yearMode = this.plugin.settings.heatmapRange === 'year';
+		this.skylineOpts = {
+			counts: noteCounts,
+			maxWeeks: HM_SKYLINE_MAX_WEEKS,
+			endDate: yearMode ? new Date(year, 11, 31) : today,
+			weeksMode: yearMode ? 'full' : 'auto',
+			weekdayLabels: tArr('home.heatDow'),
+			monthNames: tArr('status.months'),
+			cellTitle: (key: string, count: number) =>
+				t('home.cellNotes', { m: key.slice(5, 7), d: key.slice(8, 10), n: count }),
+			view: this.adHmView,
+			// 聚焦模式：进入 3D 时从整年全景连续放大到最近 16 周
+			focus: !!this.plugin.settings.heatmapFocus,
+			// 首次渲染、或刚从另一视图切过来时播一次形变；纯数据刷新不重复播
+			animate: this.adHmEnterAnim || !this.adHmAnimatedOnce,
+			// 本实例是新建的（卡片已重建），必须显式告知起点，否则 3D → 2D 会是 0 → 0 无动画
+			from: this.adHmPrevView === '3d' ? 1 : 0,
+		};
+		this.skyline.render(this.skylineOpts);
+		this.skylineOpts.animate = false;   // 入场动画只播一次，后续重绘直接呈现终态
+		this.adHmEnterAnim = false;
+		this.adHmAnimatedOnce = true;
+		this.adHmPrevView = this.adHmView;
+		this.renderHeatmapFoot(card, this.heatmapWindowText());
+		this.observeHeatmap(stage);
+	}
+
+	/** 卡片底部：窗口文案 + 等级图例（2D 平面热力图与 3D 天际线共用同一套色阶） */
+	private renderHeatmapFoot(card: HTMLElement, windowText: string): void {
 		const foot = card.createDiv({ cls: 'ad-ns__foot' });
-		foot.createSpan({ cls: 'ad-ns__window', text: t('home.heatmapAllYear', { year }) });
+		foot.createSpan({ cls: 'ad-ns__window', text: windowText });
 		const legend = foot.createSpan({ cls: 'ad-ns__legend' });
 		legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendFew') });
 		['', 'l1', 'l2', 'l3', 'l4'].forEach((lv) => {
 			legend.createSpan({ cls: 'ad-ns__sw' + (lv ? ' ' + lv : '') });
 		});
 		legend.createSpan({ cls: 'ad-ns__lbl', text: t('home.legendMany') });
-
-		// 按卡片实际宽高摊开格子间距（格子尺寸恒为 HM_CELL，绝不缩放），并监听尺寸变化实时重排
-		this.layoutHeatmap(card);
-		if (this.adHmObsTarget !== heat) {
-			this.adHmObs?.disconnect();
-			this.adHmObs = new ResizeObserver(() => {
-				if (this.heatmapCard) this.layoutHeatmap(this.heatmapCard);
-			});
-			this.adHmObs.observe(heat);
-			this.adHmObsTarget = heat;
-		}
 	}
 
-	/**
-	 * 热力图自适应布局：**格子尺寸固定为 HM_CELL，只调间距**。
-	 * 1) 先按最小间距算出当前宽度最多能放几周；放不下全年就只显示最近 N 周（窄卡 2×1 用）；
-	 * 2) 再把剩余空白摊进列间距，把整行填满（宽卡 4×1 右侧不再留大片空白），间距上限 HM_GAP_MAX；
-	 * 3) 行间距同理按可用高度摊开，让热力区纵向也饱满；
-	 * 4) 月份标签按可见周窗口 + 实际间距重建，保证与格子列严格对齐。
-	 */
-	private layoutHeatmap(card: HTMLElement): void {
-		const heat = card.querySelector('.ad-ns__heat') as HTMLElement | null;
-		const cells = card.querySelector('.ad-ns__cells') as HTMLElement | null;
-		const dow = card.querySelector('.ad-ns__dow') as HTMLElement | null;
-		const monthsRow = card.querySelector('.ad-ns__months') as HTMLElement | null;
-		if (!heat || !cells || !dow || !monthsRow) return;
-		const total = this.adHmWeekMonths.length;
-		if (total === 0) return;
-
-		const availW = Math.max(HM_CELL * HM_MIN_WEEKS, heat.clientWidth - HM_DOW_W);
-		// 能完整放下几周（含最小间距）
-		let weeks = Math.floor((availW + HM_GAP_MIN) / (HM_CELL + HM_GAP_MIN));
-		weeks = Math.max(HM_MIN_WEEKS, Math.min(total, weeks));
-		// 把剩余宽度摊进列间距
-		let cgap = weeks > 1 ? (availW - weeks * HM_CELL) / (weeks - 1) : HM_GAP_MIN;
-		cgap = Math.max(HM_GAP_MIN, Math.min(HM_GAP_MAX, Math.round(cgap * 10) / 10));
-
-		// 行间距：可用高度 = 热力区高度 − 月份标签 − 内部 flex 间距/内边距
-		const availH = heat.clientHeight - monthsRow.offsetHeight - 10;
-		let rgap = (availH - 7 * HM_CELL) / 6;
-		rgap = Math.max(HM_GAP_MIN, Math.min(HM_GAP_MAX, Math.round(rgap * 10) / 10));
-
-		const key = `${weeks}|${cgap}|${rgap}`;
-		if (key === this.adHmKey) return; // 与上次一致：跳过，避免 ResizeObserver 自激循环
-		this.adHmKey = key;
-
-		cells.style.setProperty('--hm-cgap', cgap + 'px');
-		cells.style.setProperty('--hm-rgap', rgap + 'px');
-		dow.style.setProperty('--hm-rgap', rgap + 'px');
-
-		// 月份标签行必须与格子列左对齐：整体左移「星期列实际宽 + 网格列间距」。
-		// 读取真实渲染尺寸（不写死），保证任意缩放/主题/屏幕尺寸下都精确对齐。
-		const gridEl = cells.parentElement as HTMLElement | null;
-		const gridGap = gridEl ? (parseFloat(getComputedStyle(gridEl).columnGap) || 4) : 4;
-		monthsRow.style.paddingLeft = (dow.offsetWidth + gridGap) + 'px';
-
-		// 只显示最近 weeks 周：隐藏最早的整列（每列 7 格，auto-flow column 会自动回填）
-		const hiddenCells = (total - weeks) * 7;
-		const kids = cells.children;
-		for (let i = 0; i < kids.length; i++) {
-			(kids[i] as HTMLElement).style.display = i < hiddenCells ? 'none' : '';
-		}
-
-		// 月份标签：按可见周窗口重建，宽度 = 该月周数 × (格子 + 间距) − 间距
-		const monthNames = tArr('status.months');
-		const visible = this.adHmWeekMonths.slice(total - weeks);
-		monthsRow.empty();
-		const unit = HM_CELL + cgap;
-		let curM = visible[0] ?? 0;
-		let curS = 1;
-		const flush = (m: number, span: number): void => {
-			const label = monthsRow.createSpan({ text: monthNames[m] ?? '' });
-			label.style.minWidth = (span * unit) + 'px';
+	/** 笔记统计卡片的 2D/3D 切换按钮（图标示意的「将切换到」的视图） */
+	private addHeatmapViewToggle(parent: HTMLElement): void {
+		const btn = parent.createEl('button', { cls: 'ad-ns__view' });
+		const syncBtn = (): void => {
+			const is3d = this.adHmView === '3d';
+			const label = is3d ? t('home.heatmapTo2d') : t('home.heatmapTo3d');
+			btn.title = label;
+			btn.setAttribute('aria-label', label);
+			btn.empty();
+			injectSvg(btn, is3d ? ICON_heatGrid : ICON_heatCube);
 		};
-		for (let w = 1; w < visible.length; w++) {
-			const m = visible[w] ?? curM;
-			if (m === curM) { curS++; continue; }
-			flush(curM, curS);
-			curM = m; curS = 1;
-		}
-		flush(curM, curS);
+		syncBtn();
+		btn.addEventListener('click', (ev) => {
+			ev.stopPropagation();
+			this.adHmView = this.adHmView === '3d' ? '2d' : '3d';
+			this.plugin.settings.heatmapView = this.adHmView;
+			void this.plugin.saveSettings();
+			syncBtn();
+			// ⚠️ 刻意不重建卡片：重建会清空 DOM 并换一块新 canvas，切换瞬间必有一帧空白 —— 那正是闪烁。
+			//    同一场景原地形变，才是 2D ⇄ 3D 连续切换的正确做法。
+			if (this.skyline && this.skylineOpts) {
+				this.skylineOpts.view = this.adHmView;
+				this.skylineOpts.focus = !!this.plugin.settings.heatmapFocus;
+				this.skylineOpts.animate = true;
+				this.skylineOpts.from = undefined;   // 同一实例：从当前状态出发即可
+				this.skyline.render(this.skylineOpts);
+				this.skylineOpts.animate = false;
+				this.adHmPrevView = this.adHmView;
+				this.updateHeatmapWindow();
+			} else if (this.boardEl) {
+				this.adHmEnterAnim = true;
+				this.renderHeatmap(this.boardEl);
+			}
+		});
+	}
 
-		// 底部窗口文案随可见范围变化
-		const win = card.querySelector('.ad-ns__window') as HTMLElement | null;
-		if (win) win.setText(weeks >= total ? t('home.heatmapAllYear', { year: this.adHmYear }) : t('home.heatmapRecent', { n: weeks }));
+	/** 底部窗口文案：聚焦时按 16 周，3D 下按自适应周数，满一年则显示「YYYY 全年」 */
+	private heatmapWindowText(): string {
+		if (this.adHmView === '3d' && this.plugin.settings.heatmapFocus) {
+			return t('home.heatmapRecent', { n: FOCUS_WEEKS });
+		}
+		const n = this.skyline?.weeks ?? 0;
+		if (n >= 52) return t('home.heatmapAllYear', { year: new Date().getFullYear() });
+		return t('home.heatmapRecent', { n });
+	}
+
+	/** 尺寸变化后同步底部窗口文案（自适应周数可能变了） */
+	private updateHeatmapWindow(): void {
+		const win = this.heatmapCard?.querySelector('.ad-ns__window') as HTMLElement | null;
+		if (win) win.setText(this.heatmapWindowText());
+	}
+
+	/** 用同一份参数重绘 3D 天际线（尺寸变化时调用；参数变了则走完整 renderHeatmap） */
+	private renderSkyline(): void {
+		if (this.currentPage !== 'home') return;
+		if (!this.skyline || !this.skylineOpts) return;
+		this.skyline.render(this.skylineOpts);
+		this.updateHeatmapWindow();
+	}
+
+	/** 监听画布容器尺寸变化：用同一份参数重绘天际线（目标元素变化时才重建观察器） */
+	private observeHeatmap(target: HTMLElement): void {
+		if (this.adHmObsTarget === target) return;
+		this.adHmObs?.disconnect();
+		this.adHmObs = new ResizeObserver(() => this.renderSkyline());
+		this.adHmObs.observe(target);
+		this.adHmObsTarget = target;
 	}
 
 
@@ -3355,11 +3434,20 @@ export class DashboardView extends ItemView {
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-pomodoro');
 		const w = (this.plugin.settings.pomodoro?.workMin ?? 25);
 		const b = (this.plugin.settings.pomodoro?.breakMin ?? 5);
-		this.cardHead(card, '\u25F7', t('home.modules.pomodoro'), `${w} / ${b}`);
+		// 标题右侧「25 / 5」可点击 → 直接在卡片内调整时长（无需去设置页）
+		const durEl = card.createEl('button', { cls: 'ad-card__hint ad-pomo__dur', text: `${w} / ${b}` });
+		durEl.title = t('modal.pomoTitle');
+		durEl.addEventListener('click', (ev) => {
+			ev.stopPropagation();
+			this.openPomoSettings();
+		});
+		this.cardHead(card, '\u25F7', t('home.modules.pomodoro'), undefined, durEl);
 		const p = card.createDiv({ cls: 'ad-pomo' });
-		const modeEl = p.createDiv({ cls: 'ad-pomo__mode', text: this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak') });
-		p.createDiv({ cls: 'ad-pomo__time', text: this.pomoTimeText() });
-		const btns = p.createDiv({ cls: 'ad-pomo__btns' });
+		// 计时区单独包裹：在「统计行之上的剩余空间」里居中，统计行则固定贴底
+		const main = p.createDiv({ cls: 'ad-pomo__main' });
+		const modeEl = main.createDiv({ cls: 'ad-pomo__mode', text: this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak') });
+		main.createDiv({ cls: 'ad-pomo__time', text: this.pomoTimeText() });
+		const btns = main.createDiv({ cls: 'ad-pomo__btns' });
 		const startBtn = btns.createEl('button', { cls: 'ad-pomo__btn ad-pomo__start', text: this.plugin.pomoState.running ? t('home.pomoPause') : t('home.pomoStart') });
 		const resetBtn = btns.createEl('button', { cls: 'ad-pomo__btn', text: t('home.pomoReset') });
 
@@ -3378,26 +3466,205 @@ export class DashboardView extends ItemView {
 			this.syncPomoDom();
 		});
 		resetBtn.addEventListener('click', () => {
+			this.settleCurrentWorkSegment();
 			this.plugin.pomoState.started = false;
 			this.plugin.pomoState.running = false;
 			this.plugin.pomoState.endTime = 0;
 			this.plugin.pomoState.mode = 'work';
 			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.plugin.nextPomoSeg(); // 新的一段，允许再次结算
 			this.ensurePomoTimer();
 			this.syncPomoDom();
+			this.refreshPomoStat();
 		});
 		// 点击模式名：工作 ⇄ 休息
 		modeEl.addEventListener('click', () => {
+			this.settleCurrentWorkSegment();
 			this.plugin.pomoState.started = false;
 			this.plugin.pomoState.mode = this.plugin.pomoState.mode === 'work' ? 'break' : 'work';
 			this.plugin.pomoState.running = false;
 			this.plugin.pomoState.endTime = 0;
 			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.plugin.nextPomoSeg();
 			this.ensurePomoTimer();
 			this.syncPomoDom();
+			this.refreshPomoStat();
 		});
 
+		// 底部当日统计：今日专注时长 + 段数 + 5 个番茄点
+		p.createDiv({ cls: 'ad-pomo__sep' });
+		const today = p.createDiv({ cls: 'ad-pomo__today' });
+		today.createSpan({ text: t('home.pomoToday') });
+		today.createSpan({ cls: 'ad-pomo__today-v', text: this.pomoTodayText() });
+		this.renderPomoDots(today, this.pomoTodayStat().n);
+
 		this.ensurePomoTimer();
+	}
+
+	/** 今日专注统计（已结算 + 当前工作段实时已过时间） */
+	private pomoTodayStat(): { ms: number; n: number } {
+		const key = todayStr();
+		const cur = this.plugin.settings.pomoDaily?.[key] ?? { ms: 0, n: 0 };
+		const live = this.currentWorkElapsedMs();
+		return { ms: cur.ms + live, n: cur.n };
+	}
+
+	/** 当前工作段已过时间（仅工作模式、且已开始过时计入）；非工作模式返回 0 */
+	private currentWorkElapsedMs(): number {
+		const s = this.plugin.pomoState;
+		if (s.mode !== 'work' || !s.started) return 0;
+		const left = s.running ? Math.max(0, s.endTime - Date.now()) : s.remaining;
+		return Math.max(0, this.pomoWorkMs() - left);
+	}
+
+	/** 今日统计文案：只显示净专注时长（段数由右侧番茄点表达，不重复展示） */
+	private pomoTodayText(): string {
+		return t('home.pomoDuration', { v: this.pomoFmtDuration(this.pomoTodayStat().ms) });
+	}
+
+	/** 毫秒 → 「1h 40m」/「25m」（不足 1 分钟显示 <1m） */
+	private pomoFmtDuration(ms: number): string {
+		const totalMin = Math.floor(ms / 60000);
+		if (totalMin <= 0) return ms > 0 ? '<1m' : '0m';
+		const h = Math.floor(totalMin / 60);
+		const m = totalMin % 60;
+		if (h <= 0) return `${m}m`;
+		return m > 0 ? `${h}h ${m}m` : `${h}h`;
+	}
+
+	/** 5 个番茄点：完成一段亮一个；超过 5 段时末尾追加「＋N」。
+	 *  幂等：命中已有容器则原地重建内容，绝不追加新容器（否则每秒同步会堆出多组番茄）。 */
+	private renderPomoDots(host: HTMLElement, n: number): void {
+		const dots = host.querySelector<HTMLElement>('.ad-pomo__dots') ?? host.createDiv({ cls: 'ad-pomo__dots' });
+		// 段数未变则不重建（该函数每秒都会被同步调用，避免无谓的 DOM churn）
+		if (dots.getAttribute('data-n') === String(n)) return;
+		dots.setAttribute('data-n', String(n));
+		dots.empty();
+		for (let i = 1; i <= 5; i++) {
+			dots.createDiv({ cls: 'ad-pomo__dot' + (n >= i ? ' is-on' : ''), text: '\uD83C\uDF45' });
+		}
+		if (n > 5) dots.createSpan({ cls: 'ad-pomo__more', text: `\uFF0B${n - 5}` });
+	}
+
+	/** 同步统计行（计时推进/重置/完成时调用） */
+	private syncPomoToday(): void {
+		if (!this.boardEl) return;
+		const v = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__today-v');
+		if (v) v.textContent = this.pomoTodayText();
+		const wrap = this.boardEl.querySelector<HTMLElement>('.ad-b-pomodoro .ad-pomo__today');
+		if (wrap) this.renderPomoDots(wrap, this.pomoTodayStat().n);
+	}
+
+	/** 结算当前工作段（重置 / 切换模式前调用；已结算过则内部自动跳过） */
+	private settleCurrentWorkSegment(): void {
+		const s = this.plugin.pomoState;
+		if (s.mode !== 'work') return;
+		this.plugin.settlePomoWork(false, this.currentWorkElapsedMs());
+	}
+
+	/** 打开卡片内时长设置弹窗；保存后回写 settings 并刷新卡片 */
+	private openPomoSettings(): void {
+		const cur = this.plugin.settings.pomodoro ?? { workMin: 25, breakMin: 5 };
+		new PomoSettingsModal(this.app, cur, (cfg) => {
+			this.plugin.settings.pomodoro = cfg;
+			void this.plugin.saveSettings();
+			// 计时未开始时立即套用新时长；已开始则不打断进行中的一段
+			if (!this.plugin.pomoState.started) {
+				this.plugin.pomoState.remaining = this.pomoDuration();
+				this.syncPomoDom();
+			}
+			this.refreshPomoCard();
+		}).open();
+	}
+
+	/** 重渲染番茄钟卡片（时长变化后更新标题旁提示与计时显示） */
+	private refreshPomoCard(): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		if (!this.boardEl.querySelector('.ad-b-pomodoro')) return;
+		this.renderPomodoro(this.boardEl);
+	}
+
+	/** 刷新「专注统计」周卡片（结算后调用；live 模块的常规刷新不含番茄钟完成事件） */
+	private refreshPomoStat(): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		if (!this.boardEl.querySelector('.ad-b-pomostat')) return;
+		this.renderPomoStat(this.boardEl);
+	}
+
+	/** 「专注统计」卡片：本周 7 日专注柱状 + 总时长 / 段数 / 日均；标题区可左右切换周次回看历史 */
+	private renderPomoStat(board: HTMLElement): void {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-pomostat');
+		const daily = this.plugin.settings.pomoDaily ?? {};
+
+		// 当前显示的那一周（周一~周日）；偏移 0 = 本周
+		const weekdays = tArr('ui.calWeekdays');
+		const today = todayStr();
+		const mon = this.weekAddDays(this.weekMondayOf(today), this.adPstatWeekOffset * 7);
+		const sun = this.weekAddDays(mon, 6);
+
+		// 标题区：‹ 周标签 ›（偏移 0 显示「本周」，否则显示日期区间）
+		const nav = card.createDiv({ cls: 'ad-week__nav' });
+		nav.createSpan({
+			cls: 'ad-week__range',
+			text: this.adPstatWeekOffset === 0 ? t('home.pomoThisWeek') : `${this.weekDayFmt(mon)} – ${this.weekDayFmt(sun)}`,
+		});
+		const prevBtn = nav.createEl('button', { cls: 'ad-week__btn', text: '‹' });
+		const nextBtn = nav.createEl('button', { cls: 'ad-week__btn', text: '›' });
+		// 已经在本周时禁止再往未来翻（没有数据，也没有意义）
+		if (this.adPstatWeekOffset >= 0) {
+			nextBtn.disabled = true;
+			nextBtn.title = t('home.pomoNoFuture');
+		}
+		prevBtn.addEventListener('click', () => { this.adPstatWeekOffset--; this.refreshPomoStat(); });
+		nextBtn.addEventListener('click', () => {
+			if (this.adPstatWeekOffset >= 0) return;
+			this.adPstatWeekOffset++;
+			this.refreshPomoStat();
+		});
+		this.cardHead(card, '\u25A5', t('home.modules.pomoStat'), undefined, nav);
+
+		const days: { key: string; ms: number; n: number; label: string }[] = [];
+		for (let i = 0; i < 7; i++) {
+			const key = this.weekAddDays(mon, i);
+			const rec = daily[key] ?? { ms: 0, n: 0 };
+			days.push({ key, ms: rec.ms, n: rec.n, label: weekdays[i] ?? '' });
+		}
+		const totalMs = days.reduce((a, d) => a + d.ms, 0);
+		const totalN = days.reduce((a, d) => a + d.n, 0);
+		const maxMs = Math.max(...days.map((d) => d.ms), 0);
+		// 刻度：以恒定参考时长（1 小时）为下限，避免只跑了 1~2 段就把柱子顶到 100%；
+		// 同时保证图表不随「番茄钟时长设置」变化。
+		const scaleMs = Math.max(maxMs, POMO_DAILY_GOAL_MS);
+		const goalPct = Math.min(96, Math.round((POMO_DAILY_GOAL_MS / scaleMs) * 100));
+
+		const body = card.createDiv({ cls: 'ad-pstat' });
+		const head = body.createDiv({ cls: 'ad-pstat__head' });
+		head.createDiv({ cls: 'ad-pstat__big', text: this.pomoFmtDuration(totalMs) });
+		head.createDiv({
+			cls: 'ad-pstat__meta',
+			text: `${t('home.pomoSessions', { n: totalN })} \u00B7 ${t('home.pomoDailyAvg', { v: this.pomoFmtDuration(Math.round(totalMs / 7)) })}`,
+		});
+
+		const chart = body.createDiv({ cls: 'ad-pstat__chart' });
+		// 轨道区（柱子 + 目标刻度线）与标签行分开，刻度线才能与柱高精确对齐
+		const plot = chart.createDiv({ cls: 'ad-pstat__plot' });
+		for (const d of days) {
+			const col = plot.createDiv({ cls: 'ad-pstat__col' + (d.key === today ? ' is-today' : '') });
+			// 0 值显示为极细浅色桩（表示「这天为 0」而非缺数据）
+			const pct = d.ms > 0 ? Math.max(6, Math.round((d.ms / scaleMs) * 100)) : 0;
+			const bar = col.createDiv({ cls: 'ad-pstat__bar' + (d.ms > 0 ? '' : ' is-empty') });
+			bar.style.height = pct + '%';
+			bar.title = `${this.weekDayFmt(d.key)} \u00B7 ${this.pomoFmtDuration(d.ms)} \u00B7 ${t('home.pomoSessions', { n: d.n })}`;
+		}
+		// 每日目标刻度线（虚线）：柱子超过它即为达标，直观解释刻度基准
+		const goalLine = plot.createDiv({ cls: 'ad-pstat__goal' });
+		goalLine.style.bottom = goalPct + '%';
+		goalLine.title = t('home.pomoGoal', { v: this.pomoFmtDuration(POMO_DAILY_GOAL_MS) });
+
+		const labels = chart.createDiv({ cls: 'ad-pstat__labels' });
+		for (const d of days) {
+			labels.createDiv({ cls: 'ad-pstat__lbl' + (d.key === today ? ' is-today' : ''), text: d.label });
+		}
 	}
 
 	private pomoWorkMs(): number {
@@ -3437,13 +3704,17 @@ export class DashboardView extends ItemView {
 		if (left <= 0) {
 			// 完成一段 → 声音提醒 + 自动切到下一段并停止，等待用户手动开始
 			const wasWork = this.plugin.pomoState.mode === 'work';
+			// 工作段自然跑完 → 结算：整段时长计入净专注，段数 +1（幂等，多视图只生效一次）
+			if (wasWork) this.plugin.settlePomoWork(true, this.pomoWorkMs());
 			this.plugin.pomoState.mode = wasWork ? 'break' : 'work';
 			this.plugin.pomoState.running = false;
 			this.plugin.pomoState.endTime = 0;
 			this.plugin.pomoState.remaining = this.pomoDuration();
+			this.plugin.nextPomoSeg(); // 进入新段，允许下次结算
 			this.ensurePomoTimer();
 			this.plugin.playPomoSound();
 			this.showToast(wasWork ? t('home.pomoDoneWork') : t('home.pomoDoneBreak'));
+			this.refreshPomoStat();
 		} else {
 			this.plugin.pomoState.remaining = left;
 		}
@@ -3458,6 +3729,8 @@ export class DashboardView extends ItemView {
 		if (modeEl) modeEl.textContent = this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak');
 		const startBtn = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__start');
 		if (startBtn) startBtn.textContent = this.plugin.pomoState.running ? t('home.pomoPause') : t('home.pomoStart');
+		// 底部当日统计：运行中随秒增长，需同步刷新
+		this.syncPomoToday();
 	}
 
 	/* ---- Countdown（多实例：每张独立卡片） ---- */
@@ -3577,6 +3850,369 @@ export class DashboardView extends ItemView {
 		return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 	}
 
+	/* ---- 锚点（收藏的 md 笔记快速入口） ---- */
+	/** 渲染「锚点」卡：列出 settings.anchors 中的文件，点击行在新标签页打开；渲染前清理失效路径 */
+	private renderAnchors(board: HTMLElement): void {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-anchors');
+		const paths = this.plugin.settings.anchors ?? [];
+		// 清理被外部删除/移动后已失效的路径，保持数据整洁（幂等）
+		const valid = paths.filter((p) => this.app.vault.getAbstractFileByPath(p) instanceof TFile);
+		if (valid.length !== paths.length) {
+			this.plugin.settings.anchors = valid;
+			void this.plugin.saveSettings();
+		}
+		this.cardHead(card, '\u2693', t('home.modules.anchors'), String(valid.length));
+		const list = card.createDiv({ cls: 'ad-anchors' });
+		// 拖动插入线（与全部项目甘特图一致）：拖过某行上/下边缘时显示
+		const dropLine = list.createDiv({ cls: 'ad-anchors__drop-line' });
+		if (valid.length === 0) {
+			list.createDiv({ cls: 'ad-anchors__empty', text: t('home.anchorsEmpty') });
+			return;
+		}
+		for (const path of valid) {
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (!(file instanceof TFile)) continue;
+			// 不显示 .md 后缀，悬停展示完整路径
+			const item = list.createDiv({ cls: 'ad-anchors__item', attr: { 'data-path': path, draggable: 'true' } });
+			item.createDiv({ cls: 'ad-anchors__handle', text: '\u2630' });
+			const name = item.createDiv({ cls: 'ad-anchors__name', text: file.basename, attr: { title: path } });
+			name.addEventListener('click', (e) => {
+				e.stopPropagation();
+				void this.openFileByPath(path);
+			});
+			// 右键菜单：取消锚点 / 重命名 / 删除
+			item.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				this.openAnchorItemMenu(e, path);
+			});
+			this.wireAnchorItemDrag(item, list, dropLine);
+		}
+	}
+
+	/** 锚点条目右键菜单：取消锚点 / 重命名 / 删除（重命名、删除走 Obsidian 官方接口） */
+	private openAnchorItemMenu(e: MouseEvent, path: string): void {
+		const menu = new Menu();
+		menu.addItem((it) => it
+			.setTitle(t('anchor.unpin'))
+			.setIcon('pin-off')
+			.onClick(() => {
+				this.plugin.settings.anchors = (this.plugin.settings.anchors ?? []).filter((p) => p !== path);
+				void this.plugin.saveSettings();
+				this.plugin.refreshAnchors();
+			}));
+		menu.addItem((it) => it
+			.setTitle(t('anchor.rename'))
+			.setIcon('pencil')
+			.onClick(() => this.openAnchorRename(path)));
+		menu.addItem((it) => it
+			.setTitle(t('common.delete'))
+			.setIcon('trash')
+			.onClick(() => this.confirmDeleteAnchor(path)));
+		menu.showAtMouseEvent(e);
+	}
+
+	/** 重命名锚点笔记：新文件名弹窗 → fileManager.renameFile（自动更新全库链接） */
+	private openAnchorRename(path: string): void {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return;
+		new AnchorRenameModal(this.app, file, async (newPath) => {
+			if (newPath === file.path) return;
+			try {
+				await this.app.fileManager.renameFile(file, newPath);
+				this.showToast(t('home.fileRenamed', { name: file.basename }));
+			} catch (err) {
+				this.showToast(t('home.renameFailed', { error: err instanceof Error ? err.message : String(err) }), 'error');
+			}
+		}).open();
+	}
+
+	/** 删除锚点笔记：确认弹窗 → fileManager.trashFile（遵循 Obsidian 删除设置） */
+	private confirmDeleteAnchor(path: string): void {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return;
+		new ConfirmModal({
+			app: this.app,
+			title: t('common.delete'),
+			message: t('anchor.deleteConfirm', { name: file.basename }),
+			confirmLabel: t('common.delete'),
+			cancelLabel: t('common.cancel'),
+			onConfirm: () => { void this.app.fileManager.trashFile(file); },
+		}).open();
+	}
+
+	/** 刷新锚点卡（右键设为/取消锚点、文件改名/删除后即时同步；live:false 不走 onlyLive 刷新，走专用入口） */
+	public refreshAnchors(): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		if (!this.boardEl.querySelector('.ad-b-anchors')) return; // 卡未显示则忽略
+		this.renderAnchors(this.boardEl);
+	}
+
+	/** 本次会话内实时维护的最近打开文件（file-open 时更新；比 getLastOpenFiles 及时） */
+	private adRecent: string[] = [];
+
+	/* ---- Recent documents（最近打开的文档） ---- */
+	private renderRecent(board: HTMLElement): void {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-recent');
+		this.cardHead(card, '\u25F7', t('home.modules.recent'));
+		const list = card.createDiv({ cls: 'ad-recent' });
+
+		// 本次会话实时列表优先，其后补 Obsidian 持久化的最近列表（重启后仍有历史）；
+		// 仅保留仍存在的 Markdown，排除项目配置文件 project-*.md。
+		const builtin = this.app.workspace.getLastOpenFiles?.() ?? [];
+		const merged = [...this.adRecent, ...builtin].filter((p, i, arr) => arr.indexOf(p) === i);
+		const files = merged
+			.map((p) => this.app.vault.getAbstractFileByPath(p))
+			.filter((f): f is TFile => f instanceof TFile && f.extension === 'md' && !f.name.startsWith('project-'))
+			.slice(0, 8);
+
+		if (files.length === 0) {
+			list.createDiv({ cls: 'ad-recent__empty', text: t('home.recentEmpty') });
+			return;
+		}
+		for (const file of files) {
+			const item = list.createDiv({ cls: 'ad-recent__item', attr: { title: file.path } });
+			item.createSpan({ cls: 'ad-recent__icon', text: '\u25A4' });
+			const txt = item.createDiv({ cls: 'ad-recent__txt' });
+			txt.createDiv({ cls: 'ad-recent__name', text: file.basename });
+			const folder = file.parent?.isRoot() ? '' : (file.parent?.name ?? '');
+			if (folder) txt.createDiv({ cls: 'ad-recent__path', text: folder });
+			item.addEventListener('click', (e) => {
+				e.stopPropagation();
+				void this.openFileByPath(file.path);
+			});
+			item.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				const menu = new Menu();
+				menu.addItem((it) => it.setTitle(UI_TEXT.openSource).setIcon('file-text').onClick(() => {
+					void this.app.workspace.openLinkText(file.path, '', true);
+				}));
+				menu.showAtMouseEvent(e);
+			});
+		}
+	}
+
+	/** 文件打开后即时刷新「最近打开」卡片（不影响其它卡片） */
+	public refreshRecent(): void {
+		if (this.currentPage !== 'home' || !this.boardEl) return;
+		if (!this.boardEl.querySelector('.ad-b-recent')) return;
+		this.renderRecent(this.boardEl);
+	}
+
+	/** 锚点列表项拖拽排序：原生 HTML5 DnD（与全部项目页拖动一致），
+	 *  拖动时在目标行上/下边缘显示插入横线（drop-line），松手后把顺序写回 settings.anchors 并持久化 */
+	private wireAnchorItemDrag(item: HTMLElement, list: HTMLElement, dropLine: HTMLElement): void {
+		item.draggable = true;
+		item.addEventListener('dragstart', (e) => {
+			const path = item.getAttribute('data-path');
+			if (!path) { e.preventDefault(); return; }
+			e.dataTransfer?.setData('text/anchor-path', path);
+			e.dataTransfer?.setData('text/plain', path);
+			e.dataTransfer!.effectAllowed = 'move';
+			item.addClass('ad-anchors--dragging');
+			dropLine.removeClass('is-visible');
+		});
+		item.addEventListener('dragover', (e) => {
+			e.preventDefault();
+			if (item.getAttribute('data-path') === e.dataTransfer?.getData('text/anchor-path')) return;
+			e.dataTransfer!.dropEffect = 'move';
+			this.placeAnchorDropLine(dropLine, item, list, e.clientY);
+		});
+		item.addEventListener('dragleave', () => { dropLine.removeClass('is-visible'); });
+		item.addEventListener('drop', (e) => {
+			e.preventDefault();
+			dropLine.removeClass('is-visible');
+			const draggedPath = e.dataTransfer?.getData('text/anchor-path');
+			const targetPath = item.getAttribute('data-path');
+			item.removeClass('ad-anchors--dragging');
+			if (!draggedPath || !targetPath || draggedPath === targetPath) return;
+			// 以指针在目标行内的上/下半区决定插到行前还是行后（与插入线位置一致）
+			const rect = item.getBoundingClientRect();
+			const zone = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+			const order = (this.plugin.settings.anchors ?? []).slice();
+			const from = order.indexOf(draggedPath);
+			const to = order.indexOf(targetPath);
+			if (from < 0 || to < 0) return;
+			order.splice(from, 1);
+			const toIdx = order.indexOf(targetPath);
+			order.splice(zone === 'before' ? toIdx : toIdx + 1, 0, draggedPath);
+			this.plugin.settings.anchors = order;
+			void this.plugin.saveSettings();
+			this.plugin.refreshAnchors();
+		});
+		item.addEventListener('dragend', () => {
+			item.removeClass('ad-anchors--dragging');
+			dropLine.removeClass('is-visible');
+		});
+	}
+
+	/** 把插入横线定位到目标行的上/下边缘并显示（行上边缘 = 插到该行前，行下边缘 = 该行后） */
+	private placeAnchorDropLine(dropLine: HTMLElement, item: HTMLElement, list: HTMLElement, clientY: number): void {
+		const listRect = list.getBoundingClientRect();
+		const rect = item.getBoundingClientRect();
+		const before = clientY < rect.top + rect.height / 2;
+		const lineTop = (before ? rect.top : rect.bottom) - listRect.top;
+		dropLine.style.top = Math.max(0, lineTop) + 'px';
+		dropLine.addClass('is-visible');
+	}
+
+	/* ---- 周视图卡片（复用全部项目页日历周视图的视觉与布局） ---- */
+	/** 渲染「周视图」卡：7 列日柱 + 跨天横条 + 任务芯片；标题区 ‹ 今天 › 切换周次（视图级内存态） */
+	private async renderWeekCard(board: HTMLElement, allTasks?: TaskItem[]): Promise<void> {
+		const card = this.getOrCreateCard(board, 'ad-card ad-b-week');
+		const tasks = allTasks ?? await this.taskStore.scanAllTasks();
+
+		// 标题头：周范围 + 上一周 / 今天 / 下一周
+		const nav = card.createDiv({ cls: 'ad-week__nav' });
+		const mon = this.weekMondayOf(this.adWeekSel);
+		const weekEnd = this.weekAddDays(mon, 6);
+		nav.createSpan({ cls: 'ad-week__range', text: t('home.weekRange', { start: this.weekDayFmt(mon), end: this.weekDayFmt(weekEnd) }) });
+		const prevBtn = nav.createEl('button', { cls: 'ad-week__btn', text: '‹', attr: { 'aria-label': t('ui.today') } });
+		const todayBtn = nav.createEl('button', { cls: 'ad-week__btn', text: t('ui.today') });
+		const nextBtn = nav.createEl('button', { cls: 'ad-week__btn', text: '›' });
+		const rerender = (): void => { void this.renderWeekCard(board); };
+		prevBtn.addEventListener('click', () => { this.adWeekSel = this.weekAddDays(this.adWeekSel, -7); rerender(); });
+		nextBtn.addEventListener('click', () => { this.adWeekSel = this.weekAddDays(this.adWeekSel, 7); rerender(); });
+		todayBtn.addEventListener('click', () => { this.adWeekSel = todayStr(); rerender(); });
+		this.cardHead(card, '\u25A4', t('home.modules.week'), undefined, nav);
+
+		const weekdays = tArr('ui.calWeekdays');
+		const wrap = card.createDiv({ cls: 'ad-week' });
+		const wd = wrap.createDiv({ cls: 'po-cal__weekdays' });
+		weekdays.forEach((d, i) => {
+			const s = wd.createSpan({ text: d });
+			if (i >= 5) s.addClass('is-we');
+		});
+
+		// 周网格：横条轨道 + 日柱
+		const MAX_TRACK = 5;
+		const weekEl = wrap.createDiv({ cls: 'po-cal__week' });
+		weekEl.style.gridTemplateRows = `repeat(${MAX_TRACK}, auto) 1fr`;
+
+		// 跨天任务 → 跨列横条（与本周相交的部分；贪心分配轨道避免重叠）
+		const isRange = (task: TaskItem): boolean => !!task.startDate && !!task.dueDate;
+		const wSegs: { si: number; ei: number; task: TaskItem }[] = [];
+		tasks.filter(isRange).forEach((task) => {
+			const s = task.startDate! < mon ? mon : task.startDate!;
+			const e = task.dueDate! > weekEnd ? weekEnd : task.dueDate!;
+			if (s > e) return;
+			wSegs.push({ si: this.weekDayIndexOf(mon, s), ei: this.weekDayIndexOf(mon, e), task });
+		});
+		wSegs.sort((a, b) => (a.task.startDate || '').localeCompare(b.task.startDate || '') || a.task.id.localeCompare(b.task.id) || a.si - b.si);
+		const wTracks: number[] = [];
+		const wPlaced: { seg: { si: number; ei: number; task: TaskItem }; track: number }[] = [];
+		for (const seg of wSegs) {
+			let ti = wTracks.findIndex((end) => seg.si > end);
+			if (ti === -1) {
+				if (wTracks.length >= MAX_TRACK) continue; // 超轨道：省略（详情见任务文件）
+				ti = wTracks.length;
+				wTracks.push(-1);
+			}
+			wTracks[ti] = seg.ei;
+			wPlaced.push({ seg, track: ti });
+		}
+		for (const { seg, track } of wPlaced) {
+			const { si, ei, task } = seg;
+			const segCount = ei - si + 1;
+			const bar = weekEl.createDiv({ cls: 'po-cal__wbar' + (task.status === '\u5DF2\u5B8C\u6210' ? ' is-done' : ''), text: '' });
+			bar.setAttr('style', '--chip-color:' + (task.color || '#3b82f6'));
+			bar.style.gridRow = (track + 1) + ' / ' + (track + 2);
+			bar.style.gridColumn = (si + 1) + ' / ' + (ei + 2);
+			for (let c = si; c <= ei; c++) {
+				const ds = this.weekAddDays(mon, c);
+				const node = task.dailyNodes && task.dailyNodes[ds];
+				let st = 'is-empty';
+				if (node && node.s === 'done') st = 'is-done';
+				else if (node && node.s === 'skip') st = 'is-skip';
+				const piece = bar.createDiv({ cls: 'po-cal__mbar-seg ' + st, text: c === si ? task.content : '' });
+				piece.setAttr('title', this.weekDayStateLabel(task, ds));
+				piece.style.width = 'calc(' + (100 / segCount).toFixed(4) + '% - 1px)';
+			}
+			bar.setAttr('title', this.weekDayFmt(task.startDate!) + ' → ' + this.weekDayFmt(task.dueDate!));
+			bar.addEventListener('click', (ev) => { ev.stopPropagation(); this.openTaskEditModal(task); });
+			bar.addEventListener('contextmenu', (ev) => { ev.preventDefault(); ev.stopPropagation(); this.calWeekCtxMenu(ev, task); });
+		}
+
+		// 7 列日柱 + 当日任务芯片
+		const effDate = (task: TaskItem): string | null => task.dueDate ?? task.startDate;
+		const recEffDate = (task: TaskItem): string | null => {
+			if (task.type !== '\u91CD\u590D' || !task.remindDate) return null;
+			return task.remindDate < todayStr() ? todayStr() : task.remindDate;
+		};
+		const tasksOn = (ds: string): TaskItem[] => tasks.filter((task) => {
+			if (isRange(task)) return task.startDate === ds;
+			const rec = recEffDate(task);
+			if (rec) return rec === ds;
+			return effDate(task) === ds || task.startDate === ds;
+		});
+		for (let i = 0; i < 7; i++) {
+			const ds = this.weekAddDays(mon, i);
+			const dObj = new Date(ds + 'T00:00:00');
+			const isToday = ds === todayStr();
+			const isSel = ds === this.adWeekSel;
+			const col = weekEl.createDiv({ cls: 'po-cal__wcol' + (isToday ? ' is-today' : '') + (isSel ? ' is-sel' : ''), attr: { 'data-date': ds } });
+			col.style.gridRow = String(MAX_TRACK + 1);
+			const hd = col.createDiv({ cls: 'po-cal__wcol-hd' });
+			hd.createSpan({ cls: 'po-cal__wcol-day', text: String(dObj.getDate()) });
+			hd.createSpan({ cls: 'po-cal__wcol-name', text: weekdays[i] ?? '' });
+			tasksOn(ds).filter((task) => !isRange(task)).forEach((task) => this.buildWeekChip(col, task));
+			col.addEventListener('click', () => { this.adWeekSel = ds; rerender(); });
+		}
+	}
+
+	/** 任务芯片（周视图日柱内）：复用日历芯片样式——项目色左边条 + 逾期/完成/重复/跨天四态 */
+	private buildWeekChip(holder: HTMLElement, task: TaskItem): void {
+		const isRange = !!task.startDate && !!task.dueDate;
+		const isRecur = task.type === '\u91CD\u590D';
+		const cls = task.isOverdue ? 'is-overdue' : task.status === '\u5DF2\u5B8C\u6210' ? 'is-done' : 'is-normal';
+		const chip = holder.createDiv({ cls: 'po-cal__chip ' + cls + (isRange ? ' is-range' : '') + (isRecur ? ' is-recur' : ''), text: (isRecur ? '\u21BB ' : '') + task.content });
+		chip.setAttr('style', '--chip-color:' + (task.color || '#3b82f6'));
+		if (isRange) chip.setAttr('title', this.weekDayFmt(task.startDate!) + ' → ' + this.weekDayFmt(task.dueDate!));
+		chip.addEventListener('click', (ev) => { ev.stopPropagation(); this.openTaskEditModal(task); });
+		chip.addEventListener('contextmenu', (ev) => { ev.preventDefault(); ev.stopPropagation(); this.calWeekCtxMenu(ev, task); });
+	}
+
+	/** 周视图芯片/横条右键菜单：删除 / 打开源文件 */
+	private calWeekCtxMenu(e: MouseEvent, task: TaskItem): void {
+		const menu = new Menu();
+		menu.addItem((it) => it.setTitle(t('common.delete')).setIcon('trash').onClick(() => void this.deleteTask(task)));
+		menu.addItem((it) => it.setTitle(t('common.openSource')).setIcon('file-text').onClick(() => {
+			if (task.sourceFile) void this.app.workspace.openLinkText(task.sourceFile, '', true);
+		}));
+		menu.showAtMouseEvent(e);
+	}
+
+	/* ---- 周视图日期工具（与日历周视图语义一致） ---- */
+	private weekAddDays(ds: string, n: number): string {
+		const d = new Date(ds + 'T00:00:00');
+		d.setDate(d.getDate() + n);
+		return fmtDate(d);
+	}
+
+	private weekMondayOf(ds: string): string {
+		const d = new Date(ds + 'T00:00:00');
+		const dow = d.getDay();
+		const diff = dow === 0 ? -6 : 1 - dow;
+		d.setDate(d.getDate() + diff);
+		return fmtDate(d);
+	}
+
+	private weekDayIndexOf(mon: string, ds: string): number {
+		return Math.round((new Date(ds + 'T00:00:00').getTime() - new Date(mon + 'T00:00:00').getTime()) / 86400000);
+	}
+
+	private weekDayFmt(ds: string): string {
+		const d = new Date(ds + 'T00:00:00');
+		return t('ui.calDayFmt', { m: String(d.getMonth() + 1), d: String(d.getDate()) });
+	}
+
+	/** 单日执行状态提示（横条分段 title）：8月17日 · 已完成 · 备注 */
+	private weekDayStateLabel(task: TaskItem, ds: string): string {
+		const node = task.dailyNodes && task.dailyNodes[ds];
+		const st = node && node.s === 'done' ? t('home.calNodeDone') : node && node.s === 'skip' ? t('home.calNodeSkip') : t('home.calNodeTodo');
+		const note = node && node.n ? node.n : '';
+		return this.weekDayFmt(ds) + ' \u00B7 ' + st + (note ? ' \u00B7 ' + note : '');
+	}
+
 	/* ---- Shared card header ---- */
 	private cardHead(card: HTMLElement, icon: string, title: string, hint?: string, hintEl?: HTMLElement): void {
 		const head = card.createDiv({ cls: 'ad-card__head' });
@@ -3587,4 +4223,58 @@ export class DashboardView extends ItemView {
 		else if (hint) head.createSpan({ cls: 'ad-card__hint', text: hint });
 	}
 
+}
+
+/* ============================================================
+   锚点重命名弹窗：只改文件名（不移动目录），走 Obsidian 官方
+   fileManager.renameFile，自动同步全库链接与锚点路径。
+   ============================================================ */
+class AnchorRenameModal extends Modal {
+	private file: TFile;
+	private onSubmit: (newPath: string) => void | Promise<void>;
+	private input!: HTMLInputElement;
+
+	constructor(app: App, file: TFile, onSubmit: (newPath: string) => void | Promise<void>) {
+		super(app);
+		this.file = file;
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.addClass('ad-rename-modal');
+		contentEl.createEl('h3', { cls: 'ad-modal-title', text: t('anchor.renameTitle') });
+		contentEl.createDiv({ cls: 'ad-modal-desc', text: t('anchor.renameDesc') });
+		this.input = contentEl.createEl('input', {
+			cls: 'ad-modal-input',
+			attr: { type: 'text', value: this.file.basename },
+		});
+		this.input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') this.submit();
+			if (e.key === 'Escape') this.close();
+		});
+		const btns = contentEl.createDiv({ cls: 'ad-modal-btns' });
+		btns.createEl('button', { cls: 'ad-modal-btn', text: t('common.cancel') })
+			.addEventListener('click', () => this.close());
+		btns.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--primary', text: t('anchor.rename') })
+			.addEventListener('click', () => this.submit());
+		// 聚焦并选中文件名（不含后缀），便于直接输入新名
+		this.input.focus();
+		this.input.select();
+	}
+
+	private submit(): void {
+		const name = this.input.value.trim();
+		if (!name) return;
+		// 只允许在该文件所在目录内改名；自动补 .md
+		const dir = this.file.parent?.path;
+		const newPath = dir && dir !== '/' ? `${dir}/${name}.md` : `${name}.md`;
+		if (newPath === this.file.path) { this.close(); return; }
+		this.close();
+		void this.onSubmit(newPath);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
 }

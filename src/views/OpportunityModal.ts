@@ -41,7 +41,12 @@ class FileSuggest extends AbstractInputSuggest<TFile> {
 	}
 
 	selectSuggestion(file: TFile, _evt: MouseEvent | KeyboardEvent): void {
-		this.setValue(`[[${file.basename}]]`);
+		// 存在同名笔记时回填「带目录的路径」，确保能定位到用户选中的那一个；
+		// 名称唯一时仍回填简洁的纯文件名（与 Obsidian 自身的 [[ 补全一致）。
+		const base = file.basename;
+		const hasDuplicate = this.app.vault.getMarkdownFiles().some((f) => f.path !== file.path && f.basename === base);
+		const target = hasDuplicate ? file.path.replace(/\.md$/i, '') : base;
+		this.setValue(`[[${target}]]`);
 		this.close();
 	}
 }
@@ -194,16 +199,25 @@ export class OpportunityModal extends Modal {
 	}
 
 	private async ensureAndOpenNote(name: string): Promise<void> {
-		const path = name.endsWith('.md') ? name : name + '.md';
-		let file = this.app.vault.getAbstractFileByPath(path);
-		if (!(file instanceof TFile)) {
+		const clean = name.replace(/\.md$/i, '').trim();
+		const path = clean + '.md';
+		// 优先用 Obsidian 的链接解析：[[文件名]] 能正确命中子文件夹里的既有笔记，
+		// 避免退化成「在库根目录新建同名文件」。
+		let file: TFile | null =
+			this.app.metadataCache.getFirstLinkpathDest(clean, '')
+			?? this.app.metadataCache.getFirstLinkpathDest(name, '');
+		if (!file) {
+			const direct = this.app.vault.getAbstractFileByPath(path);
+			if (direct instanceof TFile) file = direct;
+		}
+		if (!file) {
 			// 新建详情笔记时写入指向看板文件的回链，形成真正的双向链接
 			let backlink = '';
 			if (this.opts.boardFile) {
 				const boardName = this.opts.boardFile.replace(/\.md$/i, '').replace(/^.*\//, '');
 				if (boardName) backlink = `\n> 关联看板：[[${boardName}]]\n`;
 			}
-			file = await this.app.vault.create(path, `# ${name}\n${backlink}\n`);
+			file = await this.app.vault.create(path, `# ${clean}\n${backlink}\n`);
 		}
 		if (file instanceof TFile) {
 			const leaf = this.app.workspace.getLeaf('tab');

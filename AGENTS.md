@@ -5,15 +5,18 @@
 This is a TypeScript-based Obsidian community plugin project, not an Obsidian Vault.
 
 - **Plugin ID**: `dashboard`
-- **Display Name**: `Dashboard`
-- **Version**: `0.2.7` (source of truth: `manifest.json`)
+- **Display Name**: `Xove Dashboard`
+- **Version**: `0.3.0` (source of truth: `manifest.json`; `package.json` may lag behind — keep
+  manifest / versions / package.json all in sync on release)
 - **Min Obsidian Version**: `1.8.0`
 - **Runtime dependencies**: none (plain TypeScript + Obsidian API + native CSS)
 - **Single edition**: `src/` is the one and only source of truth (on the `personal` branch).
   There is no separate "generic" edition.
+- **i18n**: bilingual — `zh` (default, mixed CN/EN) / `en` (pure English). Dictionary lives in
+  `src/i18n/` (`index.ts` + `zh.ts` / `en.ts`); UI strings go through `t()`, string arrays
+  through `tArr()`, current-lang fallback is `zh`.
 
 For the full feature list, data model, and version history, read `PROJECT_CONTEXT.md`.
-For the file inventory and the list of obsolete files, read `项目整理报告.md`.
 
 ## Common Commands
 
@@ -28,14 +31,15 @@ npm run typecheck    # TypeScript type-check only
 npm run test         # Unit tests (node --test, data layer)
 ```
 
-> **Build environment**: the bundled Node.js (v24.13.0, updated 2026-08-11 16:35) crashes at
-> startup on this HarmonyOS kernel when JIT is enabled (V8 `Check failed: 12 ==
-> (*__errno_location())`). **Workaround — local build, no Windows needed:** run node with
-> `--jitless`. `node --jitless node_modules/rollup/dist/bin/rollup -c rollup.config.mjs`
-> builds `main.js`; `node --jitless node_modules/typescript/bin/tsc -noEmit -skipLibCheck`
-> type-checks. `npm` is broken (missing npm-cli.js), so invoke the node binary directly.
-> Caveat: `--jitless` disables WebAssembly, so Node's TS type-stripping can't load `.ts`
-> test files — unit tests currently can't run.
+> **Build environment**: canonical bundle step is `npm run build:js` (rollup 3 + inline TS
+> transpile, pure JS — no native binaries, works everywhere node runs). If `npm` is broken on
+> the machine, invoke the node binary directly:
+> `node node_modules/rollup/dist/bin/rollup -c rollup.config.mjs` and
+> `node node_modules/typescript/bin/tsc -noEmit -skipLibCheck`.
+> ⚠️ On restricted kernels (e.g. HarmonyOS OHOS) node 24 may crash at startup when JIT is on
+> (V8 `Check failed: 12 == (*__errno_location())`) — run with `--jitless` there. Note
+> `--jitless` disables WebAssembly, so Node's TS type-stripping can't load `.ts` test files
+> (unit tests can't run in that mode).
 
 ## Obsidian Plugin Directory
 
@@ -51,25 +55,29 @@ Obsidian does not hot-reload plugin JS/CSS. After copying the three files, run
 
 ```
 src/                                   # the single source of truth
-├── main.ts                  # plugin lifecycle: view / ribbon / command / settings tab
-├── settings.ts              # settings interface, defaults, settings UI
-├── constants.ts             # shared constants (status, priority, NPDP phases, …)
+├── main.ts                  # plugin lifecycle: view / ribbon / command / settings tab / theme + language wiring
+├── settings.ts              # settings interface, defaults, settings UI (language, board stages, countdown, home layout)
+├── constants.ts             # shared UI copy constants (UI_TEXT / MODAL_TEXT, zh side)
 ├── icons.ts                 # inline SVG icon constants (currentColor, theme-adaptive)
+├── i18n/                    # minimal i18n: index.ts (t/tArr/getLang/setLang) + zh.ts / en.ts dictionaries
 ├── data/
 │   ├── taskParser.ts        # task & project frontmatter parsing, daily-node read/write
-│   ├── opportunityParser.ts # opportunity data layer
+│   ├── opportunityParser.ts # board data layer (frontmatter array + body projection, BoardStage)
 │   ├── taskParseCore.ts     # parsing primitives
 │   ├── taskLogic.ts         # task/project derivation & calculations
 │   ├── taskStore.ts         # in-memory store + debounced vault sync
 │   ├── dashboardStore.ts    # dashboard-wide state
+│   ├── frontmatterWriter.ts # unified frontmatter writer (yamlScalar escaping, CRLF-safe)
+│   ├── parserDiagnostics.ts # parse-failure collector ("N files failed to parse" banner)
 │   ├── virtualList.ts       # long-list virtualization
 │   └── mockData.ts          # shared types + placeholder data for the UI skeleton
 └── views/
-    ├── DashboardView.ts     # home page (the single ItemView)
+    ├── DashboardView.ts     # home page (the single ItemView; countdown multi-instance cards)
     ├── ProjectBoard.ts      # project overview (4 sub-views)
-    ├── OpportunityBoard.ts  # opportunity board/list
+    ├── OpportunityBoard.ts  # board (灵感收集) renderer: kanban / list / single-stage inline edit
     ├── TaskModal.ts, TaskEditModal.ts, ProjectModal.ts,
-    └── OpportunityModal.ts, BannerModal.ts
+    ├── OpportunityModal.ts, BannerModal.ts,
+    └── CountdownModal.ts    # countdown event manager (≤5 instances; single-card edit mode)
 scripts/
 └── verify.mjs              # one-shot local check: typecheck + lint + build + tests
 ```
@@ -87,7 +95,9 @@ scripts/
 
 - Keep changes minimal, testable, and iterative
 - Do not add production dependencies unnecessarily
-- All user-facing strings and settings are in Chinese
+- User-facing strings go through the i18n layer: `t()` for strings, `tArr()` for arrays
+  (weekday/month lists etc.); keep `zh.ts` / `en.ts` in sync; brand anchors
+  (SECOND BRAIN / XOVE DASHBOARD) stay constant English outside the dictionary
 
 ### ItemView Pitfalls (learned the hard way)
 

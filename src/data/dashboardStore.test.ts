@@ -10,6 +10,7 @@ function makeTask(id: string): TaskItem {
 		repeatRule: null, reminder: [], notes: '', completeTime: null,
 		dailyNodes: {}, projectId: 'p', color: '#fff', sourceFile: id,
 		isOverdue: false, remindDate: null, parent: '',
+		archived: false,
 	};
 }
 

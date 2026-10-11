@@ -41,3 +41,20 @@ i18n-language-switch-spec.md
 
 # legacy full-folder backups
 agent-dashboard 0.2.6/
+
+# local-only project files (kept on disk, not published to the repo)
+.editorconfig
+.npmrc
+AGENTS.md
+CLAUDE.md
+LICENSE
+PROJECT_CONTEXT.md
+README.md
+esbuild.config.mjs
+eslint.config.mts
+package.json
+package-lock.json
+rollup.config.mjs
+scripts/
+tsconfig.json
+version-bump.mjs

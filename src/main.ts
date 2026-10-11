@@ -1,12 +1,13 @@
-import { Plugin } from 'obsidian';
+import { Plugin, TFile } from 'obsidian';
 import { DEFAULT_SETTINGS, DEFAULT_HOME_MODULES, HOME_LAYOUT_VERSION, DashboardSettings, DashboardSettingTab, CountdownSettings } from './settings';
 import { DashboardView, VIEW_TYPE } from './views/DashboardView';
 import type { BoardStage } from './data/opportunityParser';
-import { setLang, getLang, type Lang } from './i18n';
+import { setLang, getLang, t, type Lang } from './i18n';
 import { POMO_SOUND_B64 } from './data/pomoSound';
 import { CHANGELOG, CHANGELOG_ORDER } from './changelog';
 import { UpdateLogModal } from './views/UpdateLogModal';
 import { WelcomeModal } from './views/WelcomeModal';
+import { todayStr } from './data/taskLogic';
 
 /** 番茄钟运行时状态（与主页卡片共享，状态栏实时显示） */
 export interface PomoState {
@@ -18,10 +19,20 @@ export interface PomoState {
 	endTime: number;
 	/** 未运行时的剩余时长（ms） */
 	remaining: number;
+	/**
+	 * 已结算的工作段序号。每进入一个新的工作段就 +1；
+	 * settlePomoWork 只对「尚未结算的序号」生效，避免多视图重复计数。
+	 */
+	seg: number;
+	/** 已结算过的段序号（等于 seg 表示当前段已结算完） */
+	settledSeg: number;
 }
 
 export default class Dashboard extends Plugin {
 	settings!: DashboardSettings;
+
+	/** 设置页实例（外部 data.json 变更后若设置页正打开，刷新其表单） */
+	private settingTab?: DashboardSettingTab;
 
 	/** 番茄钟运行时状态（主页卡片与状态栏共用同一数据源） */
 	pomoState: PomoState = {
@@ -30,6 +41,8 @@ export default class Dashboard extends Plugin {
 		running: false,
 		endTime: 0,
 		remaining: 25 * 60 * 1000,
+		seg: 0,
+		settledSeg: -1,
 	};
 
 	private pomoStatusEl: HTMLElement | null = null;
@@ -53,7 +66,9 @@ export default class Dashboard extends Plugin {
 			},
 		});
 
-		this.addSettingTab(new DashboardSettingTab(this.app, this));
+		this.addSettingTab(this.settingTab = new DashboardSettingTab(this.app, this));
+		this.setupAnchors();
+		this.watchExternalSettings();
 
 		// 番茄钟状态栏：右下角显示 🍅/☕ + 剩余时间（未开始时不显示）
 		this.pomoStatusEl = this.addStatusBarItem();
@@ -114,6 +129,49 @@ export default class Dashboard extends Plugin {
 			audio.currentTime = 0;
 			void audio.play().catch(() => { /* 播放失败静默 */ });
 		} catch { /* 声音是尽力而为，失败不影响计时 */ }
+	}
+
+	/**
+	 * 结算当前工作段的净专注时间，写入 pomoDaily[今天]。
+	 * - 幂等：用 pomoState.settledSeg 记录已结算的段序号；多视图重复调用只生效一次
+	 * - full=true：整段自然跑完 → ms += 完整时长，且段数 +1
+	 * - full=false：中途重置/切换模式 → 只计入已过时间，不加段数
+	 * @param full 是否整段完成
+	 * @param elapsedMs 该段的实际已过时间（ms）
+	 */
+	settlePomoWork(full: boolean, elapsedMs: number): void {
+		const s = this.pomoState;
+		if (s.settledSeg >= s.seg) return; // 本段已结算过 → 跳过（多视图保护）
+		if (!full && elapsedMs <= 0) return; // 中途放弃但一秒都没专注 → 不记录
+		s.settledSeg = s.seg;
+
+		const key = todayStr();
+		const daily = this.settings.pomoDaily ??= {};
+		const cur = daily[key] ?? { ms: 0, n: 0 };
+		daily[key] = {
+			ms: cur.ms + Math.max(0, Math.round(elapsedMs)),
+			n: cur.n + (full ? 1 : 0),
+		};
+		void this.saveSettings();
+	}
+
+	/** 进入一个新的工作段：段序号 +1，使后续 settlePomoWork 可以再次生效 */
+	nextPomoSeg(): void {
+		this.pomoState.seg++;
+	}
+
+	/** 剪枝：番茄钟每日记录只保留最近 N 天，避免 data.json 无限增长 */
+	private prunePomoDaily(keepDays = 35): void {
+		const daily = this.settings.pomoDaily;
+		if (!daily || typeof daily !== 'object') return;
+		const cutoff = new Date();
+		cutoff.setDate(cutoff.getDate() - keepDays);
+		const cutKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+		let changed = false;
+		for (const k of Object.keys(daily)) {
+			if (k < cutKey) { delete daily[k]; changed = true; }
+		}
+		if (changed) void this.saveSettings();
 	}
 
 	onunload(): void {}
@@ -185,6 +243,8 @@ export default class Dashboard extends Plugin {
 		this.applyStartupLang(loaded.language);
 		// 向后兼容迁移：倒计时单对象→数组、banner 增加 enabled、看板默认名随语言
 		this.normalizeSettings();
+		// 剪枝番茄钟每日记录（只保留最近 35 天）
+		this.prunePomoDaily();
 	}
 
 	/**
@@ -360,6 +420,84 @@ export default class Dashboard extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		// 记录我们自己写入后的 mtime，避免外部监听把本次保存误判为「外部修改」
+		this.ownSaveAt = Date.now();
+		this.updateDataMtime();
+	}
+
+	/** data.json 文件的绝对路径（仅桌面端可得；移动端/无法定位时返回 null） */
+	private dataJsonAbsPath(): string | null {
+		try {
+			const req = (globalThis as unknown as { require?: NodeRequire }).require;
+			if (!req) return null;
+			const path = req('path') as typeof import('path');
+			const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+			const base = adapter.getBasePath?.();
+			if (!base) return null;
+			return path.join(base, this.app.vault.configDir, 'plugins', this.manifest.id, 'data.json');
+		} catch {
+			return null;
+		}
+	}
+
+	private settingsFsMtime(): number {
+		try {
+			const req = (globalThis as unknown as { require?: NodeRequire }).require;
+			if (!req) return 0;
+			const fs = req('fs') as typeof import('fs');
+			const p = this.dataJsonAbsPath();
+			if (!p || !fs.existsSync(p)) return 0;
+			return fs.statSync(p).mtimeMs;
+		} catch {
+			return 0;
+		}
+	}
+
+	/** 我们自己最近一次 saveData 的时间戳（用于区分「外部改动」与「自身保存」） */
+	private ownSaveAt = 0;
+	/** 上次感知到的 data.json mtime（初始加载/自身保存/外部 reload 后更新） */
+	private dataMtime = 0;
+	private externalWatchStarted = false;
+
+	private updateDataMtime(): void {
+		this.dataMtime = this.settingsFsMtime();
+	}
+
+	/**
+	 * 监听 data.json 的外部修改（脚本/自动化/LiveSync 等在 Obsidian 外写入）。
+	 * Obsidian 不提供配置目录文件的变更事件，故在桌面端用 mtime 轮询 + 窗口聚焦即检；
+	 * 一旦发现外部更新且不是我们自己刚保存的，就重新加载设置并刷新 UI，避免后续
+	 * saveSettings 用内存旧值静默覆盖外部改动。
+	 */
+	private watchExternalSettings(): void {
+		if (this.externalWatchStarted) return;
+		this.externalWatchStarted = true;
+		this.updateDataMtime();
+		const check = (): void => {
+			const mtime = this.settingsFsMtime();
+			if (!mtime || mtime === this.dataMtime) return;
+			// 跳过自身保存（saveSettings 已更新 ownSaveAt）
+			if (this.ownSaveAt && mtime >= this.ownSaveAt - 1500) {
+				this.dataMtime = mtime;
+				return;
+			}
+			this.dataMtime = mtime;
+			void this.reloadFromExternalChange();
+		};
+		this.registerInterval(window.setInterval(check, 3000));
+		this.registerDomEvent(window, 'focus', check);
+	}
+
+	/** 检测到 data.json 外部变更：静默重载设置并刷新已打开的界面 */
+	private async reloadFromExternalChange(): Promise<void> {
+		try {
+			await this.loadSettings();
+			this.refreshHome();
+			this.refreshNav();
+			this.settingTab?.display();
+		} catch (e) {
+			console.error('[Dashboard] reload external settings failed', e);
+		}
 	}
 
 	/**
@@ -445,6 +583,56 @@ export default class Dashboard extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
 			const view = leaf.view;
 			if (view instanceof DashboardView) view.refreshBanner();
+		}
+	}
+
+	/** 锚点功能初始化：注册文件树右键 + 文件变更监听 */
+	private setupAnchors(): void {
+		// 文件树右键：仅对 Markdown 增加「设为锚点 / 取消锚点」
+		this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+			if (!(file instanceof TFile) || file.extension !== 'md') return;
+			const list = this.settings.anchors ??= [];
+			const idx = list.indexOf(file.path);
+			menu.addItem((item) => item
+				.setTitle(idx >= 0 ? t('anchor.unpin') : t('anchor.pin'))
+				.setIcon(idx >= 0 ? 'link-off' : 'pin')
+				.onClick(() => {
+					this.settings.anchors = idx >= 0
+						? list.filter((_, i) => i !== idx)
+						: [...list, file.path];
+					void this.saveSettings();
+						this.refreshAnchors();
+						}));
+		}));
+
+		// 锚点文件被删除 → 自动从列表移除
+		this.registerEvent(this.app.vault.on('delete', (file) => {
+			if (!(file instanceof TFile) || file.extension !== 'md') return;
+			const { anchors } = this.settings;
+			if (anchors?.includes(file.path)) {
+				this.settings.anchors = anchors.filter((p) => p !== file.path);
+				void this.saveSettings();
+				this.refreshAnchors();
+			}
+		}));
+
+		// 锚点文件被重命名 → 更新路径（保留顺序）
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+			if (!(file instanceof TFile) || file.extension !== 'md') return;
+			const { anchors } = this.settings;
+			if (anchors?.includes(oldPath)) {
+				this.settings.anchors = anchors.map((p) => p === oldPath ? file.path : p);
+				void this.saveSettings();
+				this.refreshAnchors();
+			}
+		}));
+	}
+
+	/** 刷新所有已打开仪表盘视图的锚点卡（右键/改名/删除后即时同步） */
+	refreshAnchors(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+			const view = leaf.view;
+			if (view instanceof DashboardView) view.refreshAnchors();
 		}
 	}
 

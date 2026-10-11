@@ -38,6 +38,14 @@ export interface PomodoroSettings {
 	breakMin: number;
 }
 
+/** 番茄钟「专注统计」卡片：某一天的累计数据 */
+export interface PomoDayStat {
+	/** 净专注毫秒（自然完成的整段 + 中途放弃段的已过时间） */
+	ms: number;
+	/** 完成的工作段数（仅自然跑完的整段计入） */
+	n: number;
+}
+
 /** 通用看板的一个阶段（看板列）— 结构定义见 src/data/opportunityParser.ts 的 BoardStage */
 export type { BoardStage } from './data/opportunityParser';
 
@@ -59,6 +67,8 @@ export interface DashboardSettings {
 	npdpStages: string[];
 	npdpMaxStage: number;
 	npdpProgressFilter?: number;
+	/** 项目情况卡片阶段文字显示：current = 仅当前阶段，all = 显示全部阶段 */
+	npdpStageLabelMode?: 'current' | 'all';
 	poGanttStatusFilter?: string[];
 	poGanttScale?: 'day' | 'week' | 'month' | 'quarter';
 	boardEnabled: boolean;
@@ -74,6 +84,16 @@ export interface DashboardSettings {
 	countdown: CountdownSettings[];
 	/** 番茄钟时长（分钟） */
 	pomodoro: PomodoroSettings;
+	/** 番茄钟每日专注记录：YYYY-MM-DD → { ms 净专注毫秒, n 完成段数 }；仅保留最近 35 天 */
+	pomoDaily: Record<string, PomoDayStat>;
+	/** 笔记统计卡片视图：2d = 平面热力图，3d = 等距天际线（默认） */
+	heatmapView: '2d' | '3d';
+	/** 笔记统计 3D 聚焦：开启后进入 3D 时由整年全景连续放大到最近 16 周 */
+	heatmapFocus: boolean;
+	/** 笔记统计取景口径：rolling = 滚动近 12 个月（自适应），year = 完整自然年（1–12 月） */
+	heatmapRange: 'rolling' | 'year';
+	/** 首页「锚点」卡片：收藏的 md 文件路径列表，数组顺序 = 显示/拖拽顺序 */
+	anchors: string[];
 	/** 界面语言：zh（中英结合，默认）/ en（纯英文） */
 	language: 'zh' | 'en';
 	/**
@@ -126,6 +146,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	npdpStages: ['立项', '规划', '开发', '测试', '上线'],
 	npdpMaxStage: 5,
 	npdpProgressFilter: 5,
+	npdpStageLabelMode: 'current',
 	poGanttStatusFilter: [],
 	poGanttScale: 'week',
 	boardEnabled: true,
@@ -142,6 +163,11 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
 	countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
 	pomodoro: { workMin: 25, breakMin: 5 },
+	pomoDaily: {},
+	heatmapView: '3d',
+	heatmapFocus: false,
+	heatmapRange: 'rolling',
+	anchors: [],
 	language: 'zh',
 	homeModules: [
 		{ id: 'quick-capture', enabled: true, order: 0, cols: 1, rows: 1 },
@@ -152,6 +178,10 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 		{ id: 'heatmap', enabled: true, order: 5, cols: 3, rows: 1 },
 		{ id: 'countdown', enabled: true, order: 6, cols: 1, rows: 1 },
 		{ id: 'pomodoro', enabled: true, order: 7, cols: 1, rows: 1 },
+		{ id: 'anchors', enabled: true, order: 8, cols: 1, rows: 1 },
+		{ id: 'recent', enabled: true, order: 9, cols: 1, rows: 2 },
+		{ id: 'calweek', enabled: true, order: 10, cols: 4, rows: 1 },
+		{ id: 'pomostat', enabled: true, order: 11, cols: 2, rows: 1 },
 	],
 };
 
@@ -165,6 +195,10 @@ export const DEFAULT_HOME_MODULES: HomeModuleConfig[] = [
 	{ id: 'heatmap', enabled: true, order: 5, cols: 3, rows: 1 },
 	{ id: 'countdown', enabled: true, order: 6, cols: 1, rows: 1 },
 	{ id: 'pomodoro', enabled: true, order: 7, cols: 1, rows: 1 },
+	{ id: 'anchors', enabled: true, order: 8, cols: 1, rows: 1 },
+	{ id: 'recent', enabled: true, order: 9, cols: 1, rows: 2 },
+	{ id: 'calweek', enabled: true, order: 10, cols: 4, rows: 1 },
+	{ id: 'pomostat', enabled: true, order: 11, cols: 2, rows: 1 },
 ];
 
 /* ---- helpers ---- */
@@ -191,7 +225,7 @@ function collectFolders(folder: TFolder, out: Set<string>): void {
 	}
 }
 
-function addFolderDropdown(setting: Setting, app: App, current: string, onChange: (v: string) => Promise<void>): void {
+export function addFolderDropdown(setting: Setting, app: App, current: string, onChange: (v: string) => Promise<void>): void {
 	setting.addDropdown((dropdown) => {
 		const folders = getVaultFolders(app);
 		for (const f of folders) dropdown.addOption(f, f);
@@ -352,26 +386,6 @@ export class DashboardSettingTab extends PluginSettingTab {
 		/* ============ 任务与项目 ============ */
 		new Setting(containerEl).setName(t('settings.secTasksProjects')).setHeading();
 
-		// TODO 待办
-		addFolderDropdown(
-			new Setting(containerEl).setName(t('settings.dataSource')).setDesc(t('settings.dataSourceDesc')),
-			this.app,
-			this.plugin.settings.todoSourceFolder,
-			async (v) => { this.plugin.settings.todoSourceFolder = v; await this.plugin.saveSettings(); },
-		);
-
-		new Setting(containerEl)
-			.setName(t('settings.todoShowCompleted'))
-			.setDesc(t('settings.todoShowCompletedDesc'))
-			.addToggle((toggle) => {
-			toggle.setValue(this.plugin.settings.todoShowCompleted).onChange(async (v) => {
-				this.plugin.settings.todoShowCompleted = v;
-				await this.plugin.saveSettings();
-				// 立即刷新 TODO 卡片，无需切页
-				this.plugin.refreshTodoHome();
-			});
-			});
-
 		// 任务详情
 		new Setting(containerEl)
 			.setName(t('settings.taskDetailMode'))
@@ -385,39 +399,6 @@ export class DashboardSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				});
 			});
-
-		// 番茄钟时长
-		new Setting(containerEl)
-			.setName(t('settings.pomodoroWork'))
-			.setDesc(t('settings.pomodoroWorkDesc'))
-			.addText((tc) => tc
-				.setPlaceholder('25')
-				.setValue(String(this.plugin.settings.pomodoro?.workMin ?? 25))
-				.onChange(async (v) => {
-					const n = parseInt(v, 10);
-					if (Number.isFinite(n) && n > 0) {
-						this.plugin.settings.pomodoro = { ...this.plugin.settings.pomodoro, workMin: Math.min(180, n) };
-						await this.plugin.saveSettings();
-						this.plugin.refreshHome();
-					}
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName(t('settings.pomodoroBreak'))
-			.setDesc(t('settings.pomodoroBreakDesc'))
-			.addText((tc) => tc
-				.setPlaceholder('5')
-				.setValue(String(this.plugin.settings.pomodoro?.breakMin ?? 5))
-				.onChange(async (v) => {
-					const n = parseInt(v, 10);
-					if (Number.isFinite(n) && n > 0) {
-						this.plugin.settings.pomodoro = { ...this.plugin.settings.pomodoro, breakMin: Math.min(60, n) };
-						await this.plugin.saveSettings();
-						this.plugin.refreshHome();
-					}
-				}),
-			);
 
 		// 项目
 		addFolderDropdown(
@@ -560,7 +541,7 @@ export class DashboardSettingTab extends PluginSettingTab {
 			.setName(t('settings.pipelineCount'))
 			.setDesc(t('settings.pipelineCountDesc'))
 			.addDropdown((dropdown) => {
-				for (const n of [4, 5, 6]) {
+				for (const n of [4, 5, 6, 7, 8]) {
 					dropdown.addOption(String(n), t('settings.stageCountOption', { n }));
 				}
 				dropdown.setValue(String(this.plugin.settings.npdpMaxStage));
@@ -600,21 +581,6 @@ export class DashboardSettingTab extends PluginSettingTab {
 					}),
 				);
 		}
-
-		new Setting(pipelineWrap)
-			.setName(t('settings.progressFilter'))
-			.setDesc(t('settings.progressFilterDesc'))
-			.addDropdown((dropdown) => {
-				for (let i = 0; i < this.plugin.settings.npdpStages.length; i++) {
-					dropdown.addOption(String(i), `≤ ${this.plugin.settings.npdpStages[i]}`);
-				}
-				dropdown.addOption(String(this.plugin.settings.npdpStages.length), t('settings.pipelineShowAll'));
-				dropdown.setValue(String(this.plugin.settings.npdpProgressFilter ?? this.plugin.settings.npdpStages.length));
-				dropdown.onChange(async (v) => {
-					this.plugin.settings.npdpProgressFilter = parseInt(v);
-					await this.plugin.saveSettings();
-				});
-			});
 
 		/* ============ 关于 ============ */
 		new Setting(containerEl).setName(t('settings.secAbout')).setHeading();

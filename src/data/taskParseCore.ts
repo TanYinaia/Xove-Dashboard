@@ -38,6 +38,7 @@ export interface TaskItem {
 	isOverdue: boolean;
 	remindDate: string | null; // next remind date YYYY-MM-DD
 	parent: string;          // parent task name (父任务)
+	archived: boolean;       // 所属项目是否已归档（扫描时由项目 meta 注入）
 }
 
 export type ProjectType = 'stage' | 'nostage';
@@ -57,6 +58,7 @@ export interface ProjectInfo {
 	stage: number;          // 0-based index into stages (0 = first stage)
 	stages?: string[];      // NPDP stage labels from settings
 	type: ProjectType;      // 'stage' = 阶段项目, 'nostage' = 非阶段项目
+	archived: boolean;      // 是否已归档（frontmatter 归档: true）
 }
 
 /** Project type options for the new/edit project modal */
@@ -239,6 +241,7 @@ export function taskFromFm(
 		remindDate: getString(fm, '提醒日期'),
 		parent: getString(fm, '父任务') || '',
 		completeTime: getString(fm, '完成时间'),
+		archived: false,
 		dailyNodes: (() => {
 			// Body block is the source of truth; fall back to legacy frontmatter.
 			const body = parseDailyNodesFromBody(content);
@@ -260,5 +263,9 @@ export function projectFromFm(fm: Record<string, unknown>): Partial<ProjectInfo>
 		createDate: getString(fm, '创建时间') || undefined,
 		stage: parseInt(getString(fm, '阶段') || '0') || 0,
 		type: getString(fm, '项目类型') === '非阶段项目' ? 'nostage' : 'stage',
+		archived: (() => {
+			const v = fm['归档'];
+			return v === true || v === 'true' || v === '是' || v === 'yes';
+		})(),
 	};
 }

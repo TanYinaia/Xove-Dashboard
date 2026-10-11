@@ -1,6 +1,6 @@
 {
 	"name": "dashboard",
-	"version": "0.2.8",
+	"version": "0.3.1",
 	"description": "A dashboard for tracking AI agent workflows, sessions, and outputs inside Obsidian.",
 	"main": "main.js",
 	"type": "module",

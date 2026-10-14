@@ -40,8 +40,25 @@ const PRIORITY_COLORS: Record<string, string> = {
 	'': '#4b5563',
 };
 
-function truncName(s: string, max: number): string {
-	return s.length > max ? s.slice(0, max - 1) + '…' : s;
+/** 估算文本像素宽：CJK/全角按 1em，其余（ASCII/箭头/标点）按 0.6em 概算 */
+function textPx(s: string, fs: number): number {
+	let w = 0;
+	for (const ch of s) {
+		const cp = ch.codePointAt(0) ?? 0;
+		w += (cp > 0x2e7f || (cp >= 0xff00 && cp <= 0xffef)) ? fs : fs * 0.6;
+	}
+	return w;
+}
+
+/** 按可用像素宽截断（超出加省略号）：CJK 按字符数截断会溢出节点边框，须按宽度截 */
+function truncToWidth(s: string, fs: number, maxW: number): string {
+	if (textPx(s, fs) <= maxW) return s;
+	let out = '';
+	for (const ch of s) {
+		if (textPx(out + ch + '…', fs) > maxW) break;
+		out += ch;
+	}
+	return out ? out + '…' : '';
 }
 
 /* ============================================================
@@ -225,15 +242,15 @@ export class DepGraphPanel {
 			g.appendChild(rect);
 			g.appendChild(svgEl('circle', { cx: 13, cy: NODE_H / 2, r: 4, fill: STATUS_COLORS[task.status] ?? '#94a3b8', class: 'po-dep__node-dot' }));
 			const name = svgEl('text', { x: 23, y: 18, class: 'po-dep__node-name' }) as SVGTextElement;
-			name.textContent = truncName(task.content, 11);
+			name.textContent = truncToWidth(task.content, 12, NODE_W - 23 - 6);
 			g.appendChild(name);
 			const meta = svgEl('text', { x: 23, y: 33, class: 'po-dep__node-meta' }) as SVGTextElement;
-			// 短日期（MM-DD）保证「日期 → 日期 · 状态」在节点宽度内完整显示
+			// 短日期（MM-DD）保证「日期 → 日期 · 状态」尽量完整；总宽按节点像素宽度截断
 			const shortDate = (iso: string | null): string => (iso ? iso.slice(5) : '?');
 			const dates = task.startDate || task.dueDate
 				? `${shortDate(task.startDate)} → ${shortDate(task.dueDate)}`
-				: (task.deps?.length ? '← ' + truncName(task.deps.join('、'), 14) : UI_TEXT.notSet);
-			meta.textContent = truncName(`${dates} · ${UI_TEXT.statusLabel(task.status)}`, 20);
+				: (task.deps?.length ? '← ' + task.deps.join('、') : UI_TEXT.notSet);
+			meta.textContent = truncToWidth(`${dates} · ${UI_TEXT.statusLabel(task.status)}`, 9, NODE_W - 23 - 6);
 			g.appendChild(meta);
 
 			const title = svgEl('title');

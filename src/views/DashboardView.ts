@@ -1,11 +1,10 @@
 import { ItemView, Menu, Modal, TFile, TFolder, WorkspaceLeaf, App } from 'obsidian';
 import { MOCK_DATA, DashboardData } from '../data/mockData';
-import { BannerSettings, DEFAULT_SETTINGS, CountdownSettings } from '../settings';
+import { BannerSettings, DEFAULT_SETTINGS, DEFAULT_HOME_MODULES, CountdownSettings } from '../settings';
 import { BannerModal } from './BannerModal';
 import { CardSettingsModal } from './CardSettingsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { CountdownModal, defaultEventName, countdownModes } from './CountdownModal';
-import { PomoSettingsModal } from './PomoSettingsModal';
 import { TaskEditModal } from './TaskEditModal';
 import { TaskItem, ProjectInfo, TaskStatus, ProjectType, priorityWeight, NodeState, RepeatRule, serializeDailyNodesBlock, parseDailyNodesFromBody } from '../data/taskParser';
 import { TaskStore } from '../data/taskStore';
@@ -15,6 +14,7 @@ import { DashboardStore } from '../data/dashboardStore';
 import { OpportunityBoard } from './OpportunityBoard';
 import { ProjectBoard } from './ProjectBoard';
 import { HeatmapSkyline, type SkylineOptions } from './HeatmapSkyline';
+import { summarizePomo } from '../data/pomoStats';
 import { FOCUS_WEEKS } from '../data/heatmapModel';
 import { PomoStatsBoard, type DashboardPage } from './PomoStats';
 import { fmtDate, todayStr, nowFmt, calcNextRemindDate, getTodayUniverse, getTodayTasks, isDoneToday, isSkipToday, overdueDays } from '../data/taskLogic';
@@ -198,6 +198,8 @@ export class DashboardView extends ItemView {
 	private heatmapTimer: number | null = null;
 	private noiseId: number | null = null;
 	private pulseEls: { total: HTMLElement; pending: HTMLElement; today: HTMLElement; streak: HTMLElement } | null = null;
+	/** Vault Pulse 光标闪烁计时器（refreshPulse 重建前清理，避免反复开关累积） */
+	private pulseCaretTimer: number | null = null;
 	private dateEl: HTMLElement | null = null;
 	// NOTE: deliberately NOT named `titleEl` — Obsidian's ItemView has its own
 	// `titleEl` (view-header title). Declaring a field with that name would
@@ -311,6 +313,17 @@ export class DashboardView extends ItemView {
 		this.refreshThemeButton();
 	}
 
+	/** 主题切换后用新色阶即时重绘 Canvas 热力图（首页笔记统计 / 番茄统计年度柱阵）。
+	 *  此时 data-theme 与 body.theme-* 均已落位，getComputedStyle 同步读到新 --ad-hm-* 值；
+	 *  非动画重绘不会重放入场形变。 */
+	private redrawHeatmapsForTheme(): void {
+		if (this.currentPage === 'home' && this.skyline && this.skylineOpts) {
+			this.skyline.render(this.skylineOpts);
+		} else if (this.currentPage === 'pomodoro') {
+			this.pomoStats.redrawSkylineIfVisible();
+		}
+	}
+
 	/** Keep the header toggle's icon/tooltip in sync with the effective theme. */
 	refreshThemeButton(): void {
 		const btn = this.adThemeBtn;
@@ -334,7 +347,12 @@ export class DashboardView extends ItemView {
 		this.containerEl.empty();
 		this.dashboardEl = this.containerEl.createDiv({ cls: 'dashboard-plugin' });
 		this.applyTheme();
-		this.registerEvent(this.app.workspace.on('css-change', () => this.applyTheme()));
+		// 主题切换时除了换 data-theme，还必须重绘 Canvas（热力图色阶在绘制时从 --ad-hm-* 变量读取，
+		// 不会随 CSS 变量自动变色）；DOM 卡片靠变量级联即时跟随，无需重建。
+		this.registerEvent(this.app.workspace.on('css-change', () => {
+			this.applyTheme();
+			this.redrawHeatmapsForTheme();
+		}));
 
 		try {
 		const d = MOCK_DATA;
@@ -434,9 +452,11 @@ export class DashboardView extends ItemView {
 		if (this.adHmObs) { this.adHmObs.disconnect(); this.adHmObs = undefined; this.adHmObsTarget = undefined; }
 		if (this.adLimitTimer !== null) { window.clearTimeout(this.adLimitTimer); this.adLimitTimer = null; }
 		if (this.adPomoTimer !== null) { window.clearInterval(this.adPomoTimer); this.adPomoTimer = null; }
+		if (this.pulseCaretTimer !== null) { window.clearInterval(this.pulseCaretTimer); this.pulseCaretTimer = null; }
 		this.skyline?.dispose();
 		this.skyline = null;
 		this.skylineOpts = null;
+		this.pomoStats.dispose();
 		this.oppBoard.dispose();
 		if (this.storeUnsub) { this.storeUnsub(); this.storeUnsub = null; }
 		this.dashboardStore.dispose();
@@ -620,7 +640,10 @@ export class DashboardView extends ItemView {
 	   Pulse
 	   ============================================================ */
 	private async renderPulse(root: HTMLElement, d: DashboardData): Promise<void> {
+		// 统计条始终创建（关闭时仅隐藏）：开关 = 纯 display 切换，不删除/重建 DOM，
+		// 避免「关闭再打开后条丢失/跑到页面底部/主页异常」这类重建时序问题。
 		const bar = root.createDiv({ cls: 'ad-pulse' });
+		bar.style.display = this.plugin.settings.pulseEnabled === false ? 'none' : '';
 		bar.createSpan({ cls: 'ad-pulse__tag', text: '[ VAULT PULSE ]' });
 
 		const today = new Date();
@@ -645,19 +668,43 @@ export class DashboardView extends ItemView {
 		bar.createSpan({ cls: 'ad-pulse__sep', text: '\u00B7' });
 		const streakEl = bar.createSpan({ text: `${hs.streak}D STREAK` });
 
-		// Fix 4: JS-based caret blink
+		// Fix 4: JS-based caret blink（先清旧的，防 refreshPulse 反复重建时计时器累积）
+		if (this.pulseCaretTimer !== null) window.clearInterval(this.pulseCaretTimer);
 		const caret = bar.createSpan({ cls: 'ad-pulse__caret' });
 		let caretOn = true;
-		this.registerInterval(window.setInterval(() => {
+		this.pulseCaretTimer = window.setInterval(() => {
 			caretOn = !caretOn;
 			caret.style.opacity = caretOn ? '1' : '0';
-		}, 525));
+		}, 525);
 
 		this.pulseEls = { total: totalEl, pending: pendingEl, today: todayEl, streak: streakEl };
 	}
 
+	/** 设置页开关 Vault Pulse 统计条后立即生效：只切 display（DOM 结构与位置全程不动） */
+	refreshPulse(): void {
+		const root = this.dashboardEl;
+		if (!root) return;
+		const show = this.plugin.settings.pulseEnabled !== false;
+		const bar = root.querySelector<HTMLElement>('.ad-pulse');
+		if (bar) {
+			bar.style.display = show ? '' : 'none';
+			// 关闭期间 updatePulse 被跳过，重新显示前补一次，保证数据新鲜
+			if (show) void this.updatePulse();
+			return;
+		}
+		// 兜底：条不存在（异常路径）→ 创建并放回 header 之前的原生位置
+		if (!show) return;
+		void this.renderPulse(root, MOCK_DATA).then(() => {
+			const nb = root.querySelector<HTMLElement>('.ad-pulse');
+			const header = root.querySelector('.ad-header');
+			if (nb && header) root.insertBefore(nb, header);
+		});
+	}
+
 	private async updatePulse(): Promise<void> {
 		if (!this.pulseEls) return;
+		// 隐藏期间跳过计算（每次 vault 变更都会走到这里）；refreshPulse 重新显示时会补一次
+		if (this.plugin.settings.pulseEnabled === false) return;
 		const today = new Date();
 		const todayKey = todayStr();
 		const noteCounts = this.getVaultNoteCounts();
@@ -1739,10 +1786,19 @@ export class DashboardView extends ItemView {
 		});
 		// onlyLive（数据刷新）路径下，live:false 卡片（倒计时/快速捕捉/热力图/番茄钟/锚点/最近打开等）
 		// 既不建壳也不清空：此前对它们执行 el.empty() 后又在填充阶段跳过，导致倒计时等卡「经常空白」。
+		// 但它们**必须参与下方的排序序列**：只重排 live 卡会把静态卡整体挤到末尾
+		// → 表现为「完成/修改任务后主页卡片顺序乱掉」。
 		const isStaticUnit = (u: { mod: HomeModule; cdIdx?: number }): boolean => u.mod.live === false;
 		for (const u of units) {
-			if (opts?.onlyLive && isStaticUnit(u)) continue;
 			const sel = DashboardView.cardSel(u.mod.cardCls);
+			if (opts?.onlyLive && isStaticUnit(u)) {
+				// 已存在的静态卡纳入排序序列（不创建、不清空）；缺失的留给下一次完整渲染
+				const sEl = (u.cdIdx !== undefined
+					? board.querySelector(`${sel}[data-cd-idx="${u.cdIdx}"]`)
+					: board.querySelector(sel)) as HTMLElement | null;
+				if (sEl) shells.push(sEl);
+				continue;
+			}
 			let el = board.querySelector(sel) as HTMLElement | null;
 			// 倒计时多实例：同一 class 有多张卡，必须按 data-cd-idx 精确命中，否则会全命中第一张
 			if (u.cdIdx !== undefined && el) {
@@ -2074,8 +2130,12 @@ export class DashboardView extends ItemView {
 			case 'projects':
 				void this.renderProjects(this.boardEl);
 				return;
-			case 'heatmap':
 			case 'pomodoro':
+				// 右键卡片设置改了时长：计时未开始时立即套用；进行中不打断当前这一段
+				if (!this.plugin.pomoState.started) this.plugin.pomoState.remaining = this.pomoDuration();
+				void this.renderEnabledModules(this.boardEl);
+				return;
+			case 'heatmap':
 			default:
 				// live:false 卡片（热力图/番茄钟等）不在 onlyLive 刷新范围内，直接全量重建
 				if (this.boardEl) void this.renderEnabledModules(this.boardEl);
@@ -2370,11 +2430,16 @@ export class DashboardView extends ItemView {
 
 	/** 重新启用被隐藏的模块并追加到末尾 */
 	private async addModule(id: string): Promise<void> {
-		const hm = this.plugin.settings.homeModules;
-		const m = hm?.find((x) => x.id === id);
-		if (!m) return;
+		const hm = this.plugin.settings.homeModules ?? (this.plugin.settings.homeModules = []);
+		let m = hm.find((x) => x.id === id);
+		if (!m) {
+			// 设置里完全没有该条目（新库/旧 data.json 缺失）→ 按默认布局补建
+			const def = DEFAULT_HOME_MODULES.find((x) => x.id === id);
+			m = def ? { ...def } : { id, enabled: true, order: 0, cols: 1, rows: 1 };
+			hm.push(m);
+		}
 		m.enabled = true;
-		const maxOrder = hm && hm.length ? Math.max(...hm.map((x) => x.order)) : -1;
+		const maxOrder = hm.length ? Math.max(...hm.map((x) => x.order)) : -1;
 		m.order = maxOrder + 1;
 		await this.plugin.saveSettings();
 		// 保持编辑态：加回卡片后用户通常还要继续排序/调比例
@@ -2659,11 +2724,17 @@ export class DashboardView extends ItemView {
 
 	/** 弹出可添加的卡片列表；点击即加入首页。
 	 *  - 倒计时：自由追加独立卡片（≤5 张），与「隐藏模块」显隐逻辑解耦；
-	 *  - 其余模块：列出被隐藏（enabled=false）的模块，点击恢复显示。 */
+	 *  - 其余模块：列出被隐藏（enabled=false）的模块，点击恢复显示；
+	 *  - 兜底：注册表里有、但 settings.homeModules 缺失条目的卡片（新库/旧 data.json）
+	 *    同样列出，避免「周视图/锚点/最近打开等卡片在新增卡片里找不到」。 */
 	private openAddMenu(): void {
 		const hm = this.plugin.settings.homeModules ?? [];
-		const hidden = hm.filter((m) => !m.enabled);
 		const titleMap = new Map(this.homeModules.map((m) => [m.id, m.title]));
+		const hidden = hm.filter((m) => !m.enabled).map((m) => ({ id: m.id, title: titleMap.get(m.id) ?? m.id }));
+		// 注册表存在但设置里没有条目 → 从未被启用过/数据缺失，也视为可添加
+		for (const m of this.homeModules) {
+			if (!hm.some((x) => x.id === m.id)) hidden.push({ id: m.id, title: m.title });
+		}
 		const cds = this.plugin.settings.countdown ?? [];
 		const { backdrop, close } = this.createPopover('ad-addmenu-backdrop');
 		const menu = backdrop.createDiv({ cls: 'ad-addmenu' });
@@ -2682,7 +2753,7 @@ export class DashboardView extends ItemView {
 
 		for (const m of hidden) {
 			const item = menu.createDiv({ cls: 'ad-addmenu__item' });
-			item.createSpan({ text: titleMap.get(m.id) ?? m.id });
+			item.createSpan({ text: m.title });
 			item.createSpan({ text: '＋' });
 			item.addEventListener('click', () => {
 				close();
@@ -2819,11 +2890,12 @@ export class DashboardView extends ItemView {
 
 				// Right-click context menu
 				row.addEventListener('contextmenu', (e) => {
-					e.preventDefault();
-					const menu = new Menu();
-				menu.addItem((item) => {
-					item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
-				});
+				e.preventDefault();
+				e.stopPropagation();
+				const menu = new Menu();
+			menu.addItem((item) => {
+				item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
+			});
 				menu.addItem((item) => {
 					item.setTitle(t('home.postponeDay')).setIcon('calendar').onClick(() => void this.postponeTask(task));
 				});
@@ -3100,6 +3172,7 @@ export class DashboardView extends ItemView {
 		li.addEventListener('click', () => this.openTaskEditModal(task));
 		li.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
+			e.stopPropagation();
 			const menu = new Menu();
 			menu.addItem((item) => {
 				item.setTitle(t('home.editTask')).setIcon('pencil').onClick(() => this.openTaskEditModal(task));
@@ -3260,6 +3333,7 @@ export class DashboardView extends ItemView {
 			// Right-click context menu
 			row.addEventListener('contextmenu', (e) => {
 				e.preventDefault();
+				e.stopPropagation();
 				const menu = new Menu();
 				menu.addItem((item) => {
 					item.setTitle(t('home.editProject')).setIcon('pencil').onClick(() => void this.editProject(p));
@@ -3449,16 +3523,8 @@ export class DashboardView extends ItemView {
 	/* ---- Pomodoro（番茄钟：单实例卡片） ---- */
 	private renderPomodoro(board: HTMLElement): void {
 		const card = this.getOrCreateCard(board, 'ad-card ad-b-pomodoro');
-		const w = (this.plugin.settings.pomodoro?.workMin ?? 25);
-		const b = (this.plugin.settings.pomodoro?.breakMin ?? 5);
-		// 卡头右侧：可点击的「工作 / 休息」分钟数（卡片内调整时长）+「统计」按钮（进入番茄统计页）
+		// 卡头右侧仅保留「统计」按钮；工作/休息时长统一走右键「卡片设置」调整
 		const headExtra = createDiv({ cls: 'ad-pomo__headextra' });
-		const durEl = headExtra.createEl('button', { cls: 'ad-card__hint ad-pomo__dur', text: `${w} / ${b}` });
-		durEl.title = t('modal.pomoTitle');
-		durEl.addEventListener('click', (ev) => {
-			ev.stopPropagation();
-			this.openPomoSettings();
-		});
 		const statsBtn = headExtra.createEl('button', { cls: 'ad-pomo__stats', text: t('home.pomoStatsBtn') });
 		statsBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
@@ -3508,29 +3574,58 @@ export class DashboardView extends ItemView {
 			this.syncPomoDom();
 		});
 
+		// 底部当日统计行：分隔线 + 今日专注时长 + 5 个番茄点（贴底，随计时/结算实时更新）
+		p.createDiv({ cls: 'ad-pomo__sep' });
+		const today = p.createDiv({ cls: 'ad-pomo__today' });
+		today.createSpan({ text: t('home.pomoToday') });
+		today.createSpan({ cls: 'ad-pomo__today-v', text: '—' });
+		this.renderPomoDots(today, 0);
+
 		this.ensurePomoTimer();
+		void this.syncPomoToday();
 	}
 
-	/** 打开卡片内时长设置弹窗；保存后回写 settings 并刷新卡片 */
-	private openPomoSettings(): void {
-		const cur = this.plugin.settings.pomodoro ?? { workMin: 25, breakMin: 5 };
-		new PomoSettingsModal(this.app, cur, (cfg) => {
-			this.plugin.settings.pomodoro = cfg;
-			void this.plugin.saveSettings();
-			// 计时未开始时立即套用新时长；已开始则不打断进行中的一段
-			if (!this.plugin.pomoState.started) {
-				this.plugin.pomoState.remaining = this.pomoDuration();
-				this.syncPomoDom();
-			}
-			this.refreshPomoCard();
-		}).open();
+	/** 底部当日统计行：今日专注时长 + 5 个番茄点（数据源 pomodoro.json 记录 + 当前工作段实时已过） */
+	private async syncPomoToday(): Promise<void> {
+		if (!this.boardEl) return;
+		const wrap = this.boardEl.querySelector<HTMLElement>('.ad-b-pomodoro .ad-pomo__today');
+		if (!wrap) return;
+		const records = await this.plugin.getPomoRecords();
+		if (!this.boardEl) return;
+		const w2 = this.boardEl.querySelector<HTMLElement>('.ad-b-pomodoro .ad-pomo__today');
+		if (!w2) return;
+		const { todayCount, todayMs } = summarizePomo(records, new Date());
+		let live = 0;
+		const s = this.plugin.pomoState;
+		if (s.mode === 'work' && s.started) {
+			const left = s.running ? Math.max(0, s.endTime - Date.now()) : s.remaining;
+			live = Math.max(0, this.pomoWorkMs() - left);
+		}
+		const v = w2.querySelector('.ad-pomo__today-v');
+		if (v) v.textContent = this.pomoFmtDuration(todayMs + live);
+		this.renderPomoDots(w2, todayCount);
 	}
 
-	/** 重渲染番茄钟卡片（时长变化后更新标题旁提示与计时显示） */
-	private refreshPomoCard(): void {
-		if (this.currentPage !== 'home' || !this.boardEl) return;
-		if (!this.boardEl.querySelector('.ad-b-pomodoro')) return;
-		this.renderPomodoro(this.boardEl);
+	/** 毫秒 → 「1h 40m」/「25m」/「<1m」 */
+	private pomoFmtDuration(ms: number): string {
+		const totalMin = Math.floor(ms / 60000);
+		if (totalMin <= 0) return ms > 0 ? '<1m' : '0m';
+		const h = Math.floor(totalMin / 60);
+		const m = totalMin % 60;
+		if (h <= 0) return `${m}m`;
+		return m > 0 ? `${h}h ${m}m` : `${h}h`;
+	}
+
+	/** 5 个番茄点：完成一段亮一个；超过 5 段时末尾追加「＋N」。幂等：命中已有容器则原地重建。 */
+	private renderPomoDots(host: HTMLElement, n: number): void {
+		const dots = host.querySelector<HTMLElement>('.ad-pomo__dots') ?? host.createDiv({ cls: 'ad-pomo__dots' });
+		if (dots.getAttribute('data-n') === String(n)) return;
+		dots.setAttribute('data-n', String(n));
+		dots.empty();
+		for (let i = 1; i <= 5; i++) {
+			dots.createDiv({ cls: 'ad-pomo__dot' + (n >= i ? ' is-on' : ''), text: '\uD83C\uDF45' });
+		}
+		if (n > 5) dots.createSpan({ cls: 'ad-pomo__more', text: `\uFF0B${n - 5}` });
 	}
 
 	private pomoWorkMs(): number {
@@ -3574,7 +3669,10 @@ export class DashboardView extends ItemView {
 			if (wasWork) {
 				const workMs = this.pomoWorkMs();
 				const doneAt = this.plugin.pomoState.endTime;
-				void this.plugin.recordPomoSession(workMs, doneAt).then(() => this.pomoStats.refreshIfVisible());
+				void this.plugin.recordPomoSession(workMs, doneAt).then(() => {
+					this.pomoStats.refreshIfVisible();
+					void this.syncPomoToday(); // 完成一轮 → 底部番茄点亮一颗
+				});
 			}
 			this.plugin.pomoState.mode = wasWork ? 'break' : 'work';
 			this.plugin.pomoState.running = false;
@@ -3597,6 +3695,8 @@ export class DashboardView extends ItemView {
 		if (modeEl) modeEl.textContent = this.plugin.pomoState.mode === 'work' ? t('home.pomoWork') : t('home.pomoBreak');
 		const startBtn = this.boardEl.querySelector('.ad-b-pomodoro .ad-pomo__start');
 		if (startBtn) startBtn.textContent = this.plugin.pomoState.running ? t('home.pomoPause') : t('home.pomoStart');
+		// 底部当日统计行随计时推进实时刷新（记录已内存缓存，每秒聚合开销可忽略）
+		void this.syncPomoToday();
 	}
 
 	/* ---- Countdown（多实例：每张独立卡片） ---- */
@@ -3675,20 +3775,22 @@ export class DashboardView extends ItemView {
 		if (mode === 'month') { this.renderMonthCountdown(cd, cfg); return; }
 		if (mode === 'day') { this.renderDayCountdown(cd, cfg); return; }
 
-		const target = this.parseCountdownDate(cfg.targetDate);
 		const now = new Date();
+		// 开启重复：取目标日的「月/日」滚动到今天或之后最近的一次（按年循环）；否则用固定目标日
+		const baseTarget = this.parseCountdownDate(cfg.targetDate);
+		const target = cfg.repeat ? this.nextAnnualOccurrence(baseTarget, now) : baseTarget;
 		const today = this.startOfDay(now);
 		const targetDay = this.startOfDay(target);
-		// 以「天」为单位的差值：>0 表示未来、0 表示当天到达、<0 表示已过期
+		// 以「天」为单位的差值：>0 表示未来、0 表示当天到达、<0 表示已过期（仅一次性事件会出现）
 		const diffDays = Math.round((targetDay.getTime() - today.getTime()) / 86400000);
 
 		const item = cd.createDiv({ cls: 'ad-cd__item' });
-		// 副标题：距离 {事件名}
-		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
+		// 副标题：距离 {事件名}（重复时附带周期徽标）
+		this.renderCountdownSubtitle(item, cfg);
 
 		if (diffDays > 0) {
-			// 进度：以「事件日期前一年」为起点、事件日期为终点（默认即日历年度进度），随事件日期动态变化
-			const periodStart = new Date(target.getFullYear() - 1, target.getMonth(), target.getDate());
+			// 进度：以「事件日期前一年」为起点、事件日期为终点（重复时起点同样取上一年同月日，平年自动收敛）
+			const periodStart = this.annualOccurrenceInYear(target.getMonth(), target.getDate(), target.getFullYear() - 1);
 			const total = Math.max(1, target.getTime() - periodStart.getTime());
 			const elapsed = now.getTime() - periodStart.getTime();
 			const pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
@@ -3726,7 +3828,7 @@ export class DashboardView extends ItemView {
 		const diffDays = Math.max(1, Math.round((this.startOfDay(next).getTime() - this.startOfDay(now).getTime()) / 86400000) - 1);
 
 		const item = cd.createDiv({ cls: 'ad-cd__item' });
-		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
+		this.renderCountdownSubtitle(item, cfg);
 
 		const total = Math.max(1, next.getTime() - prev.getTime());
 		const pct = Math.max(0, Math.min(100, ((now.getTime() - prev.getTime()) / total) * 100));
@@ -3747,36 +3849,48 @@ export class DashboardView extends ItemView {
 		fill.style.width = pct + '%';
 	}
 
-	/** 按日：以「今天」为周期，大数字 = 今日剩余小时，进度条 = 当日已过比例（30s 定时刷新保新）。 */
+	/** 按日：以每日目标时刻（targetTime, HH:mm）为周期——今天未到点倒计时到今天，过点自动滚到明天；
+	 *  大数字 = 距下一时刻的小时数，进度条 = 本轮 24h（上一时刻 → 下一时刻）已过比例，30s 定时刷新保新。 */
 	private renderDayCountdown(cd: HTMLElement, cfg: CountdownSettings): void {
 		const now = new Date();
-		const midnight = this.startOfDay(now);
-		const msLeft = Math.max(0, midnight.getTime() + 86400000 - now.getTime());
-		const pct = Math.max(0, Math.min(100, ((now.getTime() - midnight.getTime()) / 86400000) * 100));
+		const [hh, mi] = this.parseCountdownTime(cfg.targetTime);
+		let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mi, 0, 0);
+		// 今天的目标时刻已过（或恰好到点）→ 滚到明天同一时刻
+		if (target.getTime() <= now.getTime()) target = new Date(target.getTime() + 86400000);
+		const periodStart = new Date(target.getTime() - 86400000);
+		const msLeft = Math.max(0, target.getTime() - now.getTime());
+		const pct = Math.max(0, Math.min(100, ((now.getTime() - periodStart.getTime()) / 86400000) * 100));
 
 		const item = cd.createDiv({ cls: 'ad-cd__item' });
-		item.createDiv({ cls: 'ad-cd__sub', text: t('home.countdownSubtitle', { event: cfg.eventName }) });
+		this.renderCountdownSubtitle(item, cfg);
 
-		if (msLeft > 0) {
-			const big = item.createDiv({ cls: 'ad-cd__big' });
-			big.createSpan({ text: String(Math.max(1, Math.ceil(msLeft / 3600000))) });
-			big.createSpan({ cls: 'ad-unit', text: 'HRS' });
+		const big = item.createDiv({ cls: 'ad-cd__big' });
+		big.createSpan({ text: String(Math.max(1, Math.ceil(msLeft / 3600000))) });
+		big.createSpan({ cls: 'ad-unit', text: 'HRS' });
 
-			const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
-			const row = bottom.createDiv({ cls: 'ad-cd__row' });
-			row.createSpan({ text: t('home.minutesLeft') }).createEl('strong', { text: String(Math.floor(msLeft / 60000)) });
-			this.cdDot(row);
-			row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
+		const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
+		const row = bottom.createDiv({ cls: 'ad-cd__row' });
+		row.createSpan({ text: t('home.minutesLeft') }).createEl('strong', { text: String(Math.floor(msLeft / 60000)) });
+		this.cdDot(row);
+		row.createSpan({ text: t('home.donePct') }).createEl('strong', { text: pct.toFixed(1) + '%' });
 
-			const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
-			const fill = barWrap.createDiv({ cls: 'ad-fill' });
-			fill.style.width = pct + '%';
-		} else {
-			this.renderCountdownArrived(item, t('home.countdownArrived'));
-		}
+		const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
+		const fill = barWrap.createDiv({ cls: 'ad-fill' });
+		fill.style.width = pct + '%';
 	}
 
-	/** 到达态（三种模式共用）：居中文案 + 100% 进度条 */
+	/** 解析按日模式的目标时刻 'HH:mm'（24h 制）；非法或缺省回退 23:59（等价「到今天结束」） */
+	private parseCountdownTime(s: string | undefined): [number, number] {
+		const m = /^(\d{1,2}):(\d{2})$/.exec((s ?? '').trim());
+		if (m) {
+			const hh = parseInt(m[1]!, 10);
+			const mi = parseInt(m[2]!, 10);
+			if (hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59) return [hh, mi];
+		}
+		return [23, 59];
+	}
+
+	/** 到达态（仅按年的一次性事件使用；按月/按日永久滚动不到达）：居中文案 + 100% 进度条 */
 	private renderCountdownArrived(item: HTMLElement, text: string): void {
 		item.createDiv({ cls: 'ad-cd__arrived', text });
 		const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
@@ -3804,6 +3918,40 @@ export class DashboardView extends ItemView {
 		}
 		const nm = m + 1;
 		return { prev: thisMonth, next: new Date(y, nm, dayIn(y, nm)) };
+	}
+
+	/** 副标题「距离 {事件名}」；周期/重复倒计时附带一个周期徽标（每年/每月/每日 循环） */
+	private renderCountdownSubtitle(item: HTMLElement, cfg: CountdownSettings): void {
+		const sub = item.createDiv({ cls: 'ad-cd__sub' });
+		sub.appendText(t('home.countdownSubtitle', { event: cfg.eventName }));
+		// month/day 天然周期循环；year 仅在勾选重复时循环
+		const cyclic = cfg.mode === 'month' || cfg.mode === 'day' || !!cfg.repeat;
+		if (!cyclic) return;
+		const cycleKey = cfg.mode === 'month'
+			? 'home.cdCycleMonthly'
+			: cfg.mode === 'day'
+				? 'home.cdCycleDaily'
+				: 'home.cdCycleYearly';
+		sub.createSpan({ cls: 'ad-cd__cycle', text: `\u27F3 ${t(cycleKey)}` });
+	}
+
+	/** 按年重复：取目标日的「月 mm / 日 dd」，返回 today 当天或之后最近的一次；
+	 *  02-29 在平年收敛到 02-28（与按月周期的月末收敛同一原则）。 */
+	private nextAnnualOccurrence(target: Date, now: Date): Date {
+		const mm = target.getMonth();
+		const dd = target.getDate();
+		const today = this.startOfDay(now).getTime();
+		let cand = this.annualOccurrenceInYear(mm, dd, now.getFullYear());
+		let guard = 0;
+		while (this.startOfDay(cand).getTime() < today && guard++ < 8) {
+			cand = this.annualOccurrenceInYear(mm, dd, cand.getFullYear() + 1);
+		}
+		return cand;
+	}
+
+	/** 取指定年份里「mm 月 dd 日」的日期；dd 超过该月天数时收敛到当月最后一天（处理 02-29） */
+	private annualOccurrenceInYear(mm: number, dd: number, year: number): Date {
+		return new Date(year, mm, Math.min(dd, new Date(year, mm + 1, 0).getDate()));
 	}
 
 	/** 解析 ISO yyyy-mm-dd 为目标 Date（当地 0 点）；非法或留空回退到「下一年 1 月 1 日」 */
@@ -3857,6 +4005,7 @@ export class DashboardView extends ItemView {
 			// 右键菜单：取消锚点 / 重命名 / 删除
 			item.addEventListener('contextmenu', (e) => {
 				e.preventDefault();
+				e.stopPropagation();
 				this.openAnchorItemMenu(e, path);
 			});
 			this.wireAnchorItemDrag(item, list, dropLine);
@@ -3956,6 +4105,7 @@ export class DashboardView extends ItemView {
 			});
 			item.addEventListener('contextmenu', (e) => {
 				e.preventDefault();
+				e.stopPropagation();
 				const menu = new Menu();
 				menu.addItem((it) => it.setTitle(UI_TEXT.openSource).setIcon('file-text').onClick(() => {
 					void this.app.workspace.openLinkText(file.path, '', true);

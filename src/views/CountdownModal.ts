@@ -67,8 +67,9 @@ export class CountdownModal extends Modal {
 
 		this.list.forEach((cfg, i) => {
 			const row = el.createDiv({ cls: 'ad-cd-row' });
+			const fields = row.createDiv({ cls: 'ad-cd-fields' });
 
-			const name = row.createEl('input', { cls: 'ad-modal-input', type: 'text' });
+			const name = fields.createEl('input', { cls: 'ad-modal-input', type: 'text' });
 			name.value = cfg.eventName;
 			name.placeholder = t('modal.cdEventPlaceholder');
 			name.addEventListener('input', () => {
@@ -77,39 +78,100 @@ export class CountdownModal extends Modal {
 			});
 
 			// 倒计时粒度：按年（默认，保持旧数据行为）/ 按月 / 按日
-			const mode = row.createEl('select', { cls: 'ad-modal-input ad-cd-mode' }) as HTMLSelectElement;
+			const mode = fields.createEl('select', { cls: 'ad-modal-input ad-cd-mode' }) as HTMLSelectElement;
 			for (const m of countdownModes()) {
 				const opt = mode.createEl('option', { text: m.label });
 				opt.value = m.v;
 			}
 			mode.value = cfg.mode ?? 'year';
 
-			const date = row.createEl('input', { cls: 'ad-modal-input ad-cd-date', type: 'date' });
+			// 目标值随粒度切换三种控件：按年=完整日期；按月=每月的日（1–31）；按日=时刻（HH:mm）
+			const date = fields.createEl('input', { cls: 'ad-modal-input ad-cd-date', type: 'date' });
 			date.value = cfg.targetDate;
 			date.addEventListener('input', () => {
 				const cur = this.list[i]!;
 				this.list[i] = { ...cur, targetDate: date.value || '2027-01-01' };
 			});
-			// 按日以「今天」为周期无需日期；按月只取日期中的「日」
-			const syncDateHint = () => {
-				if (mode.value === 'day') { date.disabled = true; date.title = t('modal.cdDayNoDate'); }
-				else if (mode.value === 'month') { date.disabled = false; date.title = t('modal.cdMonthDayOnly'); }
-				else { date.disabled = false; date.title = ''; }
-			};
-			syncDateHint();
-			mode.addEventListener('change', () => {
+
+			// 按月：只选「日」。固定存成 2000-01-dd（1 月恒有 31 天，合法不溢出），渲染侧只取 getDate()
+			const daySel = fields.createEl('select', { cls: 'ad-modal-input ad-cd-day' }) as HTMLSelectElement;
+			for (let d = 1; d <= 31; d++) {
+				daySel.createEl('option', { text: String(d) }).value = String(d);
+			}
+			const dayMatch = /-(\d{1,2})$/.exec((cfg.targetDate ?? '').trim());
+			daySel.value = dayMatch ? String(parseInt(dayMatch[1]!, 10)) : '1';
+			daySel.addEventListener('change', () => {
 				const cur = this.list[i]!;
-				this.list[i] = { ...cur, mode: mode.value as CountdownSettings['mode'] };
-				syncDateHint();
+				const dd = daySel.value.padStart(2, '0');
+				this.list[i] = { ...cur, targetDate: `2000-01-${dd}` };
+			});
+
+			// 按日：每日目标时刻；旧数据缺省 23:59（等价旧版「到今天结束」）
+			const time = fields.createEl('input', { cls: 'ad-modal-input ad-cd-time', type: 'time' }) as HTMLInputElement;
+			time.value = cfg.targetTime ?? '23:59';
+			time.addEventListener('input', () => {
+				const cur = this.list[i]!;
+				this.list[i] = { ...cur, targetTime: time.value || '23:59' };
 			});
 
 			// 单卡编辑模式：禁止删除（右键「删除此卡片」入口已独立提供）
 			if (!this.single) {
-				const del = row.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--danger ad-cd-del' });
+				const del = fields.createEl('button', { cls: 'ad-modal-btn ad-modal-btn--danger ad-cd-del' });
 				del.textContent = '✕';
 				del.title = MODAL_TEXT.cdDelete;
 				del.addEventListener('click', () => { this.list.splice(i, 1); this.rebuild(); });
 			}
+
+			// 重复选项：按年时可勾选「每年同一天自动循环」；按月/按日本身即周期循环，锁定为开启
+			const optRow = row.createDiv({ cls: 'ad-cd-repeat' });
+			const label = optRow.createEl('label', { cls: 'ad-cd-repeat__label' });
+			const checkbox = label.createEl('input', { type: 'checkbox' });
+			label.createSpan({ text: t('modal.cdRepeat') });
+
+			// 按粒度只显示对应的目标值控件，其余隐藏并禁用（不参与交互/提交）
+			const syncTargetControl = () => {
+				const isYear = mode.value === 'year';
+				const isMonth = mode.value === 'month';
+				const isDay = mode.value === 'day';
+				date.style.display = isYear ? '' : 'none';
+				daySel.style.display = isMonth ? '' : 'none';
+				time.style.display = isDay ? '' : 'none';
+				date.disabled = !isYear;
+				daySel.disabled = !isMonth;
+				time.disabled = !isDay;
+				daySel.title = isMonth ? t('modal.cdMonthDayOnly') : '';
+				time.title = isDay ? t('modal.cdDayTimeHint') : '';
+			};
+			// 重复勾选框状态随粒度联动
+			const syncRepeat = () => {
+				const cyclic = mode.value === 'month' || mode.value === 'day';
+				if (cyclic) {
+					// 周期模式天然重复：锁定勾选、置灰，并把数据置为 true（语义统一）
+					checkbox.checked = true;
+					checkbox.disabled = true;
+					label.classList.add('is-locked');
+					label.title = mode.value === 'month' ? t('modal.cdRepeatLockedMonth') : t('modal.cdRepeatLockedDay');
+					const cur = this.list[i]!;
+					if (!cur.repeat) this.list[i] = { ...cur, repeat: true };
+				} else {
+					checkbox.checked = !!this.list[i]!.repeat;
+					checkbox.disabled = false;
+					label.classList.remove('is-locked');
+					label.title = t('modal.cdRepeatYearHint');
+				}
+			};
+			checkbox.addEventListener('change', () => {
+				const cur = this.list[i]!;
+				this.list[i] = { ...cur, repeat: checkbox.checked };
+			});
+			syncTargetControl();
+			syncRepeat();
+			mode.addEventListener('change', () => {
+				const cur = this.list[i]!;
+				this.list[i] = { ...cur, mode: mode.value as CountdownSettings['mode'] };
+				syncTargetControl();
+				syncRepeat();
+			});
 		});
 
 		// 单卡编辑模式：不允许再加更多卡；右键右键「删除此卡片」是删除入口

@@ -73,35 +73,8 @@ export class TaskEditModal extends Modal {
 		if (task.parent) parentSel.value = task.parent;
 		projSel.addEventListener('change', () => { populateParents(projSel.value); });
 
-		// ---- 前置任务（依赖，驱动「依赖图」）：同项目内多选 chips ----
-		const depLabel = this.label(contentEl, MODAL_TEXT.editDeps);
-		const depWrap = contentEl.createDiv({ cls: 'ad-dep-chips' });
-		const depSel = new Set<string>(task.deps || []);
-		const renderDepChips = (projectName: string): void => {
-			depWrap.empty();
-			const candidates = (this.opts.allTasks || []).filter((t) => t.projectId === projectName && t.id !== task.id);
-			if (!candidates.length) {
-				depWrap.createSpan({ cls: 'ad-dep-chips__empty', text: t('modal.depsEmpty') });
-				return;
-			}
-			for (const t of candidates) {
-				const chip = depWrap.createEl('button', {
-					cls: 'ad-dep-chip' + (depSel.has(t.content) ? ' is-active' : ''),
-					text: t.content,
-				});
-				chip.addEventListener('click', () => {
-					if (depSel.has(t.content)) depSel.delete(t.content);
-					else depSel.add(t.content);
-					chip.toggleClass('is-active', depSel.has(t.content));
-				});
-			}
-		};
-		renderDepChips(projSel.value);
-		projSel.addEventListener('change', () => {
-			// 切换项目后清掉其它项目的前置选择（前置任务与本项目同名任务才有效，避免脏数据）
-			depSel.clear();
-			renderDepChips(projSel.value);
-		});
+		// （前置任务字段已移除：与「父任务」功能重复，避免两种层级关系混淆；
+		//   已有的 前置任务 数据保留不动，依赖图视图仍照常读取。）
 
 		// ---- 简洁模式：隐藏所属项目 / 任务类型 / 父任务（仍保留编辑能力，仅不展示） ----
 		if (this.opts.taskDetailMode === 'compact') {
@@ -162,7 +135,8 @@ export class TaskEditModal extends Modal {
 				const nodeNoteVal = this.viewDate === today
 					? (nodeNoteEl?.value ?? '')
 					: (task.dailyNodes[today]?.n ?? '');
-				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteVal, [...depSel]);
+				// 前置任务字段已从详情移除：原样回写既有依赖数据，不改动（依赖图视图继续可用）
+				void this.saveTask(titleEl?.value?.trim() || task.content, statusSel.value, prioSel.value, startInput.value, endInput.value, notesArea.value, projSel.value, parentSel.value, typeSel.value, nodeNoteVal, task.deps ?? []);
 			});
 	}
 

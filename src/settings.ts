@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TFile, TFolder } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, TFile, TFolder } from 'obsidian';
 import Dashboard from './main';
 import type { BoardStage } from './data/opportunityParser';
 import { t, setLang, getLang } from './i18n';
@@ -30,9 +30,16 @@ export interface CountdownSettings {
 	targetDate: string;
 	/** 倒计时粒度（缺省按年）：
 	 *  - year：固定目标日，大数字为剩余天数，进度条覆盖「目标日前一年」；
-	 *  - month：目标日只取「日」作为每月周期日，自动滚动到下一次（大月不足收敛到月末）；
-	 *  - day：以「今天」为周期，大数字为今日剩余小时，进度条为当日已过比例。 */
+	 *  - month：只取目标日的「日」（1–31）作为每月周期日，自动滚动到下一次（大月不足收敛到月末）；
+	 *  - day：以 targetTime（HH:mm）为每日目标时刻，未到点倒计时到今天、过点自动滚到明天，
+	 *    大数字为剩余小时，进度条以上一时刻 → 下一时刻的 24h 为周期。 */
 	mode?: 'year' | 'month' | 'day';
+	/** 按日模式的每日目标时刻 'HH:mm'（24h 制，缺省 '23:59'，等价旧版「倒计时到今天结束」） */
+	targetTime?: string;
+	/** 是否重复（缺省 false）。
+	 *  - year：到达目标日后自动滚动到「下一年的同一天」，按年循环（如月日为 02-29，平年收敛到 02-28）；
+	 *  - month / day 本身即周期循环，此标记对它们无额外作用（UI 上勾选框锁定为开启）。 */
+	repeat?: boolean;
 }
 
 /** 番茄钟时长（分钟） */
@@ -46,6 +53,9 @@ export interface PomodoroSettings {
 /** 通用看板的一个阶段（看板列）— 结构定义见 src/data/opportunityParser.ts 的 BoardStage */
 export type { BoardStage } from './data/opportunityParser';
 
+/** 「全部项目」页右侧视图的全部 key（顺序即 tab 顺序）；与 ProjectBoard 的 tabDefs 同源 */
+export const PO_VIEW_KEYS = ['gantt', 'list', 'calendar', 'kanban', 'deps', 'files', 'stats'] as const;
+
 export interface DashboardSettings {
 	banner: BannerSettings;
 	quickCapture: QuickCaptureSettings;
@@ -57,6 +67,9 @@ export interface DashboardSettings {
 	taskDetailMode: 'detail' | 'compact';
 	projectsFolder: string;
 	currentPoView: string;
+	/** 「全部项目」页启用的右侧视图版块；缺省/为空表示全部启用。
+	 *  关闭的版块不创建 tab、不渲染面板（懒渲染机制保证零额外性能开销），至少保留一个。 */
+	poEnabledViews?: string[];
 	poProjectOrder: string[];
 	poTaskOrder: string[];
 	theme: 'auto' | 'dark' | 'light';
@@ -81,6 +94,8 @@ export interface DashboardSettings {
 	countdown: CountdownSettings[];
 	/** 番茄钟时长（分钟） */
 	pomodoro: PomodoroSettings;
+	/** 是否显示仪表盘顶部的 [ VAULT PULSE ] 统计条；默认显示 */
+	pulseEnabled: boolean;
 	/** 笔记统计卡片视图：2d = 平面热力图，3d = 等距天际线（默认） */
 	heatmapView: '2d' | '3d';
 	/** 笔记统计 3D 聚焦：开启后进入 3D 时由整年全景连续放大到最近 16 周 */
@@ -158,6 +173,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 	homeLayoutVersion: HOME_LAYOUT_VERSION,
 	countdown: [{ eventName: '2027', targetDate: '2027-01-01' }],
 	pomodoro: { workMin: 25, breakMin: 5 },
+	pulseEnabled: true,
 	heatmapView: '3d',
 	heatmapFocus: false,
 	heatmapRange: 'rolling',
@@ -314,6 +330,19 @@ export class DashboardSettingTab extends PluginSettingTab {
 				}),
 			);
 
+		// Vault Pulse 统计条（仪表盘顶部 [ VAULT PULSE ] 笔记统计行）开关
+		new Setting(containerEl)
+			.setName(t('settings.pulseBar'))
+			.setDesc(t('settings.pulseBarDesc'))
+			.addToggle((tg) => tg
+				.setValue(this.plugin.settings.pulseEnabled !== false)
+				.onChange(async (v) => {
+					this.plugin.settings.pulseEnabled = v;
+					await this.plugin.saveSettings();
+					this.plugin.refreshPulse();
+				}),
+			);
+
 		/* ============ 存储与模板 ============ */
 		new Setting(containerEl).setName(t('settings.secStorage')).setHeading();
 
@@ -409,11 +438,50 @@ export class DashboardSettingTab extends PluginSettingTab {
 				dropdown.addOption('month', t('settings.optMonth'));
 				dropdown.addOption('quarter', t('settings.optQuarter'));
 				dropdown.setValue(this.plugin.settings.poGanttScale || 'week');
-				dropdown.onChange(async (v) => {
-					this.plugin.settings.poGanttScale = v as 'day' | 'week' | 'month' | 'quarter';
-					await this.plugin.saveSettings();
-				});
+			dropdown.onChange(async (v) => {
+				this.plugin.settings.poGanttScale = v as 'day' | 'week' | 'month' | 'quarter';
+				await this.plugin.saveSettings();
 			});
+		});
+
+		// 「全部项目」页右侧启用的视图版块（甘特/列表/日历/看板/依赖图/文件/统计）
+		new Setting(containerEl)
+			.setName(t('settings.poViewsName'))
+			.setDesc(t('settings.poViewsDesc'))
+			.setHeading();
+		const poViewLabelKeys: Record<string, string> = {
+			gantt: 'ui.poGantt', list: 'ui.poList', calendar: 'ui.poCalendar', kanban: 'ui.poKanban',
+			deps: 'ui.poDeps', files: 'ui.poFiles', stats: 'ui.poStats',
+		};
+		const poViewChips = containerEl.createDiv({ cls: 'dashboard-po-views' });
+		const allViews = PO_VIEW_KEYS as readonly string[];
+		// 缺省（未配置/空数组）视为全部启用
+		const getEnabledViews = (): Set<string> => {
+			const saved = this.plugin.settings.poEnabledViews;
+			return new Set(saved && saved.length ? saved.filter((k) => allViews.includes(k)) : allViews);
+		};
+		for (const key of allViews) {
+			const chip = poViewChips.createEl('label', { cls: 'dashboard-po-view' });
+			const cb = chip.createEl('input', { type: 'checkbox' });
+			cb.checked = getEnabledViews().has(key);
+			chip.createSpan({ text: t(poViewLabelKeys[key]!) });
+			cb.addEventListener('change', async () => {
+				const cur = getEnabledViews();
+				if (cb.checked) cur.add(key);
+				else {
+					// 至少保留一个视图：拒绝取消最后一个并提示
+					if (cur.size <= 1) {
+						cb.checked = true;
+						new Notice(t('settings.poViewsKeepOne'));
+						return;
+					}
+					cur.delete(key);
+				}
+				// 按 canonical 顺序落盘，全选时也显式存全量（语义清晰、无歧义）
+				this.plugin.settings.poEnabledViews = allViews.filter((k) => cur.has(k));
+				await this.plugin.saveSettings();
+			});
+		}
 
 		/* ============ 看板 ============ */
 		new Setting(containerEl).setName(t('settings.secBoard')).setHeading();

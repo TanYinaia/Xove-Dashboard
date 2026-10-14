@@ -614,6 +614,14 @@ export default class Dashboard extends Plugin {
 		}
 	}
 
+	/** 设置页切换 Vault Pulse 统计条开关后，立即在所有已打开的仪表盘上生效 */
+	refreshPulse(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+			const view = leaf.view;
+			if (view instanceof DashboardView) view.refreshPulse();
+		}
+	}
+
 	/** 锚点功能初始化：注册文件树右键 + 文件变更监听 */
 	private setupAnchors(): void {
 		// 文件树右键：仅对 Markdown 增加「设为锚点 / 取消锚点」

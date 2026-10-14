@@ -7,7 +7,7 @@
  * 性能：**不做持续动画帧**（首页已有噪点层在跑 rAF），只在「重绘 / 尺寸变化 / 悬停变化」时绘制。
  */
 
-import { morphCamera, project, depthOf, barHeight, buildSkyline, weekMonths, easeInOutCubic, riseAt, fitWeeks, focusWindow, FOCUS_WEEKS, type DayCell } from '../data/heatmapModel';
+import { morphCamera, project, depthOf, barHeight, buildSkyline, weekMonths, easeInOutCubic, riseAt, fitWeeks, focusWindow, FOCUS_WEEKS, CELL_W, CELL_H, CELL_PX, MIN_GAP_COL, MIN_GAP_ROW, MIN_PITCH_X, MIN_PITCH_Y, type DayCell } from '../data/heatmapModel';
 import type { Cam } from '../data/heatmapModel';
 
 export interface SkylineOptions {
@@ -243,14 +243,13 @@ export class HeatmapSkyline {
 		const pad = 6;
 		const availW = Math.max(1, W - gutter - pad * 2);
 		const availH = Math.max(1, H - pad * 2);
-		const aspect = availW / availH;
 
-		// 自适应周数：先按最大窗口取一次数据拿到柱子最高值，再按容器宽高比反推需要多少周才填得满
+		// 周数按「最密排列」口径估算（格 10px + 最小列缝 ≈ 每周 11px）：卡片越宽周数越多；
+		// 多余的宽/高随后由列缝/行缝拉伸吃掉（而不是放大格子）。
 		const full = buildSkyline(opts.counts, opts.endDate, opts.maxWeeks);
-		// 「完整自然年」不做自适应，固定画满；「滚动近 12 个月」按容器宽高比反推周数
 		const weeks = opts.weeksMode === 'full'
 			? opts.maxWeeks
-			: fitWeeks(aspect, barHeight(full.max, full.max), 7, 10, opts.maxWeeks);
+			: fitWeeks(availW, CELL_PX * MIN_PITCH_X, 10, opts.maxWeeks);
 		const { cells, max } = weeks === opts.maxWeeks ? full : buildSkyline(opts.counts, opts.endDate, weeks);
 		this.usedWeeks = weeks;
 		this.cells = cells;
@@ -270,46 +269,76 @@ export class HeatmapSkyline {
 		}
 		const colors = this.readColors();
 
-		// 用当前相机 + 当前柱高求包围盒，并按聚焦进度在「整年全景」与「最近 FOCUS_WEEKS 周」之间插值取景
-		const fit = (fromWeek: number, toWeek: number): { s: number; ox: number; oy: number } => {
-			const b = this.extent(cam, cells, heights, fromWeek, toWeek);
-			const bw = Math.max(1e-6, b.maxx - b.minx);
-			const bh = Math.max(1e-6, b.maxy - b.miny);
-			const sc = Math.min(availW / bw, availH / bh);
+		// 取景解算：格子像素恒为 CELL_PX（格高 10px、格宽 10px），卡片放大时只拉伸横/纵
+		// pitch（= 间距），把网格尽量铺满；卡片小到最密排列仍放不下时 s 才整体缩小（保底）。
+		// 聚焦推镜（magnify）是用户主动触发的镜头运动，按窗口等比放大（pitch 随之收紧）。
+		// 上下各预留一条标签带：平面态月份画在网格上方、等距态月份沿前缘画在下方，
+		// 纵向若拉伸到贴边会把它们挤出画布（月份标签消失即此因）。
+		const labelTop = 14;
+		const labelBot = 16;
+		const gridH = Math.max(40, availH - labelTop - labelBot);
+		// 世界 x/y 轴各自在投影平面上的跨度（用于把「还需多少 px」折算成「pitch 加多少世界单位」）
+		const xProj = Math.hypot(cam.cs, cam.sn * cam.se);
+		const yProj = Math.hypot(cam.sn, cam.cs * cam.se);
+		const solve = (fromWeek: number, toWeek: number, magnify: boolean) => {
+			let s = CELL_PX;
+			let pxPitch = MIN_PITCH_X;
+			let pyPitch = MIN_PITCH_Y;
+			const colCount = Math.max(1, toWeek - fromWeek);
+			let box = { minx: 0, maxx: weeks, miny: 0, maxy: 7 };
+			for (let it = 0; it < 4; it++) {
+				box = this.extent(cam, cells, heights, fromWeek, toWeek, pxPitch, pyPitch);
+				const spanW = Math.max(1e-6, box.maxx - box.minx);
+				const spanH = Math.max(1e-6, box.maxy - box.miny);
+				if (magnify) {
+					// 聚焦：等比放大填满窗口，pitch 保持最密（不额外拉伸）
+					s = Math.min(availW / spanW, gridH / spanH);
+				} else {
+					// 全景：格子不超过 CELL_PX；还差的空间交给间距
+					s = Math.min(CELL_PX, availW / spanW, gridH / spanH);
+					// 残差（世界投影单位）→ 折成每段 pitch 增量，均摊到列/行；只增不减（有最小间距兜底）
+					pxPitch = Math.max(MIN_PITCH_X, pxPitch + Math.max(0, availW / s - spanW) / (xProj * colCount));
+					pyPitch = Math.max(MIN_PITCH_Y, pyPitch + Math.max(0, gridH / s - spanH) / (yProj * 7));
+				}
+			}
+			box = this.extent(cam, cells, heights, fromWeek, toWeek, pxPitch, pyPitch);
 			return {
-				s: sc,
-				ox: gutter + pad + (availW - bw * sc) / 2 - b.minx * sc,
-				oy: pad + (availH - bh * sc) / 2 - b.miny * sc,
+				s, pxPitch, pyPitch,
+				ox: gutter + pad + (availW - (box.maxx - box.minx) * s) / 2 - box.minx * s,
+				oy: pad + labelTop + (gridH - (box.maxy - box.miny) * s) / 2 - box.miny * s,
 			};
 		};
-		const fAll = fit(0, weeks);
+		const fAll = solve(0, weeks, false);
 		// 聚焦窗口右端对齐「今天」所在周（自然年模式下终点是 12/31，不能直接取末尾，否则会聚焦到年底）
 		const win = focusWindow(cells, weeks, new Date(), FOCUS_WEEKS);
-		const fFocus = this.zoomK > 0 ? fit(win.left, win.right) : fAll;
+		const fFocus = this.zoomK > 0 ? solve(win.left, win.right, true) : fAll;
 		const zk = this.zoomK;
 		const s = fAll.s + (fFocus.s - fAll.s) * zk;
 		const ox = fAll.ox + (fFocus.ox - fAll.ox) * zk;
 		const oy = fAll.oy + (fFocus.oy - fAll.oy) * zk;
+		const pxPitch = fAll.pxPitch + (fFocus.pxPitch - fAll.pxPitch) * zk;
+		const pyPitch = fAll.pyPitch + (fFocus.pyPitch - fAll.pyPitch) * zk;
 		/** 聚焦窗口 [focusLeft, focusRight)：窗口外的格子随推镜渐隐，而不是被硬裁掉 */
 		const focusLeft = win.left;
 		const focusRight = win.right;
 
+		// 格子在世界坐标里的四角/中心（pitch 可变，间距 = pitch − 格子尺寸）
+		const cellAt = (week: number, day: number) => {
+			const x0 = week * pxPitch + MIN_GAP_COL / 2;
+			const y0 = day * pyPitch + MIN_GAP_ROW / 2;
+			return { x0, y0, x1: x0 + CELL_W, y1: y0 + CELL_H, cx: x0 + CELL_W / 2, cy: y0 + CELL_H / 2 };
+		};
+
 		const px = (x: number, y: number): number => ox + project(cam, x, y, 0)[0] * s;
 		const py = (x: number, y: number, z: number): number => oy + project(cam, x, y, z)[1] * s;
 
-		const GAP = 0.10;               // 列（周）方向格间留缝（世界单位）
-		const GAP_ROW = 0.18;           // 行（星期）方向留缝略大：行与行之间更透气
-		const w = 1 - GAP;
-		const h = 1 - GAP_ROW;
-		const off = GAP / 2;
-		const offY = GAP_ROW / 2;
 		const radius = Math.max(0, Math.min(0.16 * s, 3));
 
 		// 画家算法：按深度升序（远 → 近）
 		const order = cells.map((_, i) => i).sort((a, b) => {
-			const la = depthOf(cam, cells[a]!.week + 0.5, cells[a]!.day + 0.5);
-			const lb = depthOf(cam, cells[b]!.week + 0.5, cells[b]!.day + 0.5);
-			return la - lb;
+			const ca = cellAt(cells[a]!.week, cells[a]!.day);
+			const cb = cellAt(cells[b]!.week, cells[b]!.day);
+			return depthOf(cam, ca.cx, ca.cy) - depthOf(cam, cb.cx, cb.cy);
 		});
 		this.order = order;
 
@@ -319,10 +348,7 @@ export class HeatmapSkyline {
 			const fade = this.fadeAt(c.week, focusLeft, focusRight, zk);
 			if (fade < 0.02) continue;
 			ctx.globalAlpha = fade;
-			const x0 = c.week + off;
-			const y0 = c.day + offY;
-			const x1 = x0 + w;
-			const y1 = y0 + h;
+			const { x0, y0, x1, y1 } = cellAt(c.week, c.day);
 			const z = heights[i]!;
 			const o = i * QUAD_FLOATS;
 
@@ -335,11 +361,13 @@ export class HeatmapSkyline {
 
 			// 柱太矮或格太窄时不画侧面（省填充，也避免细碎噪点）
 			const tall = z * cam.ce * s;
-			const sideY = w * s * cam.sn;   // +y 面沿 x 方向的宽度
-			const sideX = h * s * cam.cs;   // +x 面沿 y 方向的宽度
+			// 各侧面在屏幕上的实际宽度：+y 面沿 x 跨度投影 = Δx·cos(yaw)；+x 面沿 y 跨度投影 = Δy·sin(yaw)
+			// ⚠️ 两者曾互换（+y 宽面用 sn 校验 ≈1.4px），s≤10 后宽面被误判跳过 → 柱体漏出背景像黑侧面
+			const sideY = CELL_W * s * cam.cs;   // +y 面（正面宽面）屏幕宽度
+			const sideX = CELL_H * s * cam.sn;   // +x 面（右侧窄面）屏幕宽度
 			let f = 0;
-			if (tall > 0.6 && sideY > 1.5) f |= 1;
-			if (tall > 0.6 && sideX > 1.5) f |= 2;
+			if (tall > 0.6 && sideY > 0.5) f |= 1;
+			if (tall > 0.6 && sideX > 0.5) f |= 2;
 			this.faces[i] = f;
 
 			const [r, g, b] = colors[c.level] ?? colors[0]!;
@@ -374,7 +402,7 @@ export class HeatmapSkyline {
 		}
 
 		ctx.globalAlpha = 1;   // 渐隐可能停在中间值，标签必须按正常不透明度绘制
-		this.drawLabels(ctx, opts, cells, weeks, e, focusLeft, focusRight, zk, px, py, gutter);
+		this.drawLabels(ctx, opts, cells, weeks, e, focusLeft, focusRight, zk, px, py, gutter, pxPitch, pyPitch);
 	}
 
 	/** 把三面顶点写入缓存；同时从中心外扩 EPS，消除相邻盒体之间因抗锯齿产生的细缝 */
@@ -411,8 +439,9 @@ export class HeatmapSkyline {
 		ctx.closePath();
 	}
 
-	/** 场景包围盒：按当前相机与各格实际柱高投影（每格取顶面四角 + 底面四角）。[fromWeek, toWeek) 用于聚焦取景。 */
-	private extent(cam: Cam, cells: DayCell[], heights: Float32Array, fromWeek = 0, toWeek = Infinity): { minx: number; maxx: number; miny: number; maxy: number } {
+	/** 场景包围盒（已是「相机投影后、未乘 s」的量）：按当前相机与各格实际柱高投影，
+	 *  每格取顶面四角 + 底面四角。pitch 可变（间距自适应）。[fromWeek, toWeek) 用于聚焦取景。 */
+	private extent(cam: Cam, cells: DayCell[], heights: Float32Array, fromWeek: number, toWeek: number, pxPitch: number, pyPitch: number): { minx: number; maxx: number; miny: number; maxy: number } {
 		let minx = Infinity;
 		let maxx = -Infinity;
 		let miny = Infinity;
@@ -427,10 +456,10 @@ export class HeatmapSkyline {
 		for (let i = 0; i < cells.length; i++) {
 			const c = cells[i]!;
 			if (c.week < fromWeek || c.week >= toWeek) continue;
-			const x0 = c.week;
-			const y0 = c.day;
-			const x1 = x0 + 1;
-			const y1 = y0 + 1;
+			const x0 = c.week * pxPitch + MIN_GAP_COL / 2;
+			const y0 = c.day * pyPitch + MIN_GAP_ROW / 2;
+			const x1 = x0 + CELL_W;
+			const y1 = y0 + CELL_H;
 			const z = heights[i]!;
 			add(x0, y0, z); add(x1, y0, z); add(x0, y1, z); add(x1, y1, z);
 			add(x0, y0, 0); add(x1, y0, 0); add(x0, y1, 0); add(x1, y1, 0);
@@ -454,6 +483,8 @@ export class HeatmapSkyline {
 		px: (x: number, y: number) => number,
 		py: (x: number, y: number, z: number) => number,
 		gutter: number,
+		pxPitch: number,
+		pyPitch: number,
 	): void {
 		ctx.font = '10px ' + (getComputedStyle(this.host).fontFamily || 'sans-serif');
 		const a2 = Math.max(0, 1 - e * 2.5);        // 平面态标签（快速淡出）
@@ -461,7 +492,7 @@ export class HeatmapSkyline {
 		const months = weekMonths(cells, weeks);
 		const maxX = this.host.clientWidth - 2;
 
-		// 月份：平面态在上方，等距态在前缘
+			// 月份：平面态在上方，等距态在前缘
 		if (a2 > 0.01) {
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'bottom';
@@ -474,11 +505,12 @@ export class HeatmapSkyline {
 				// 与格子共用同一渐隐函数：月份必须跟着所属周一起淡出，否则会残留
 				const fa = this.fadeAt(w, focusLeft, focusRight, zk);
 				if (fa < 0.02) continue;
-				const x = px(w + 0.5, -0.6);
+				const cx = w * pxPitch + pxPitch / 2;
+				const x = px(cx, -0.6);
 				const tw = ctx.measureText(label).width;
 				if (x < edge || x + tw > maxX) continue;
 				ctx.fillStyle = this.alpha(this.muted, a2 * fa);
-				ctx.fillText(label, x, py(w + 0.5, -0.6, 0));
+				ctx.fillText(label, x, py(cx, -0.6, 0));
 				edge = x + tw + 8;
 			}
 		}
@@ -486,6 +518,8 @@ export class HeatmapSkyline {
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'top';
 			let edge = -Infinity;
+			// 前缘 y = 末行底边 + 0.35 的标签留白
+			const frontY = 6 * pyPitch + MIN_GAP_ROW / 2 + CELL_H + 0.35;
 			for (let w = 0; w < months.length; w++) {
 				const m = months[w]!;
 				if (w > 0 && m === months[w - 1]) continue;
@@ -493,11 +527,12 @@ export class HeatmapSkyline {
 				if (!label) continue;
 				const fa = this.fadeAt(w, focusLeft, focusRight, zk);
 				if (fa < 0.02) continue;
-				const x = px(w + 0.5, 7.35);
+				const cx = w * pxPitch + pxPitch / 2;
+				const x = px(cx, frontY);
 				const tw = ctx.measureText(label).width;
 				if (x < edge || x + tw > maxX) continue;
 				ctx.fillStyle = this.alpha(this.muted, a3 * fa);
-				ctx.fillText(label, x, py(w + 0.5, 7.35, 0) + 3);
+				ctx.fillText(label, x, py(cx, frontY, 0) + 3);
 				edge = x + tw + 8;
 			}
 		}
@@ -510,9 +545,10 @@ export class HeatmapSkyline {
 		for (let d = 0; d < 7; d++) {
 			const label = opts.weekdayLabels[d] ?? '';
 			if (!label) continue;
-			ctx.fillText(label, px(-0.35, d + 0.5) - 4, py(-0.35, d + 0.5, 0));
+			const cy = d * pyPitch + MIN_GAP_ROW / 2 + CELL_H / 2;
+			ctx.fillText(label, px(-0.35, cy) - 4, py(-0.35, cy, 0));
 		}
-	}
+}
 
 	/** 把 `rgba(r,g,b,a)` 形式的颜色按比例调透明度（muted 已是 rgba） */
 	private alpha(rgba: string, k: number): string {

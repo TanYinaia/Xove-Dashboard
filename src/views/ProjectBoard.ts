@@ -12,6 +12,7 @@ import { t, tArr } from '../i18n';
 import { ICON_gantt, ICON_list, ICON_calendar, ICON_kanban, ICON_deps, ICON_files, ICON_stats, injectSvg } from '../icons';
 import { DepGraphPanel, FilesPanel, StatsPanel } from './ProjectPanels';
 import type { DashboardPage } from './PomoStats';
+import { PO_VIEW_KEYS } from '../settings';
 
 /** 宿主接口：ProjectBoard 渲染器所需的宿主依赖。 */
 export interface ProjectHost {
@@ -20,6 +21,7 @@ export interface ProjectHost {
 		settings: {
 			projectsFolder: string;
 			currentPoView: string;
+			poEnabledViews?: string[];
 			poProjectOrder: string[];
 			poTaskOrder: string[];
 			npdpStages: string[];
@@ -146,6 +148,8 @@ export class ProjectBoard {
 			this.selectedProject = null;
 			this.currentView = this.plugin.settings.currentPoView || 'gantt';
 		}
+		// 记忆视图（或首页跳入指定的甘特视图）若已在设置中关闭，回退到第一个启用视图
+		this.currentView = this.effectiveView(this.currentView);
 
 		// Container with sidebar + main
 		const container = this.boardEl.createDiv({ cls: 'po-container' });
@@ -161,6 +165,20 @@ export class ProjectBoard {
 
 
 
+	/** 当前启用的右侧视图（过滤掉非法 key；缺省/为空/全关时视为全部启用，保证至少一个） */
+	private enabledViews(): string[] {
+		const all = PO_VIEW_KEYS as readonly string[];
+		const saved = this.plugin.settings.poEnabledViews;
+		const list = saved && saved.length ? saved.filter((k) => all.includes(k)) : [];
+		return list.length ? list : [...all];
+	}
+
+	/** 把期望视图收敛到「已启用」集合；该视图被关闭时回退到第一个启用视图 */
+	private effectiveView(wanted: string): string {
+		const enabled = this.enabledViews();
+		return enabled.includes(wanted) ? wanted : enabled[0]!;
+	}
+
 	/** Re-render only the main content panels (tabs + panels) */
 	private renderPanels(): void {
 		if (!this.poMainEl) return;
@@ -173,6 +191,9 @@ export class ProjectBoard {
 
 		// Tabs
 		const tabs = this.poMainEl.createDiv({ cls: 'po-tabs' });
+		// 仅构建设置中启用的视图：关闭的版块不创建 tab、不创建面板容器、
+		// 也不会触发 renderPanel（面板本就懒渲染），因此零渲染与零计算开销。
+		const enabled = this.enabledViews();
 		const tabDefs = [
 			{ key: 'gantt', label: UI_TEXT.poGantt, icon: ICON_gantt },
 			{ key: 'list', label: UI_TEXT.poList, icon: ICON_list },
@@ -181,7 +202,7 @@ export class ProjectBoard {
 			{ key: 'deps', label: UI_TEXT.poDeps, icon: ICON_deps },
 			{ key: 'files', label: UI_TEXT.poFiles, icon: ICON_files },
 			{ key: 'stats', label: UI_TEXT.poStats, icon: ICON_stats },
-		];
+		].filter((td) => enabled.includes(td.key));
 		const content = this.poMainEl.createDiv({ cls: 'po-content' });
 		const panels: Record<string, HTMLElement> = {};
 		for (const td of tabDefs) {

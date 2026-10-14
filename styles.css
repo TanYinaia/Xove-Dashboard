@@ -878,7 +878,9 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-proj__name { font-weight: 500; font-size: 13px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ad-meta { display: block; font-family: var(--ad-font); font-size: 11px; color: var(--ad-text-dim); margin-top: 2px; }
 .ad-proj__track { position: relative; padding: 6px 0; }
-.ad-proj__stages { position: relative; display: flex; align-items: center; gap: 2px; overflow-x: auto; padding: 4px 0; } /* padding gives the current-stage halo room; overflow-x:auto clips overflow-y, so without this the halo gets cut (both themes) */
+/* 顶部对齐（勿用 center）：阶段标签折行的格子更高，center 会把矮格子垂直居中，
+   圆点行因此不在同一水平线、连接线错位（=「阶段文字过多时进度条偏移」）。 */
+.ad-proj__stages { position: relative; display: flex; align-items: flex-start; gap: 2px; overflow-x: auto; padding: 4px 0; } /* padding gives the current-stage halo room; overflow-x:auto clips overflow-y, so without this the halo gets cut (both themes) */
 .ad-proj__stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: var(--pip-w, 40px); flex: 0 0 auto; font-family: var(--ad-font); font-size: 11px; letter-spacing: 0.03em; color: var(--ad-text-dim); }
 .ad-pip { width: 8px; height: 8px; border-radius: 50%; background: var(--ad-s3); border: 1px solid var(--ad-line-s); z-index: 1; }
 .ad-proj__stage.is-done .ad-pip { background: var(--ad-accent); border-color: var(--ad-accent); }
@@ -1171,7 +1173,15 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 	   因为 .ad-cd 的直接子节点只有 .ad-cd__item 一个，grid 行无法作用到内层元素 */
 	display: flex; flex-direction: column;
 }
-.ad-cd__sub { font-size: 13px; color: var(--ad-text-mute); letter-spacing: 0.02em; }
+.ad-cd__sub { font-size: 13px; color: var(--ad-text-mute); letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 周期/重复倒计时徽标：副标题右侧的小胶囊 */
+.ad-cd__cycle {
+  font-size: 10px; line-height: 1; letter-spacing: 0.04em;
+  color: var(--ad-accent);
+  background: color-mix(in srgb, var(--ad-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ad-accent) 30%, transparent);
+  border-radius: 999px; padding: 2px 7px; white-space: nowrap;
+}
 /* 三行布局：副标题在顶部、巨大数字在中间（垂直居中）、剩余周数 + 进度条贴底。
    grid 必须作用在此处（三个真实子节点所在层），页脚才会真正落到卡片靠下区域，
    数字像 hero 一样占据中心，与页脚形成清晰视觉层次。 */
@@ -1208,13 +1218,26 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-cd__empty { color: var(--ad-text-dim); font-size: 12px; padding: 8px 2px; }
 
 /* 倒计时管理弹窗 */
-.ad-cd-list { display: flex; flex-direction: column; gap: 10px; }
-.ad-cd-row { display: flex; align-items: center; gap: 8px; }
-.ad-cd-row .ad-modal-input { flex: 1; min-width: 0; }
-.ad-cd-date { flex: 0 0 auto; width: auto; }
+.ad-cd-list { display: flex; flex-direction: column; gap: 12px; }
+.ad-cd-row { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+/* 第一行：名称 + 粒度 + 日期 + 删除（原 ad-cd-row 的横向布局） */
+.ad-cd-fields { display: flex; align-items: center; gap: 8px; }
+.ad-cd-fields .ad-modal-input { flex: 1; min-width: 0; }
+/* 目标值控件（按年日期 / 按月日下拉 / 按日时刻）：固定宽度不参与 name 输入框的弹性伸展 */
+.ad-cd-date, .ad-cd-day, .ad-cd-time { flex: 0 0 auto; width: auto; }
+.ad-cd-day { padding: 4px 8px; }
 /* 倒计时粒度下拉：固定宽度不参与 name 输入框的弹性伸展 */
 .ad-cd-mode { flex: 0 0 auto; width: auto; min-width: 0; padding: 4px 8px; }
-.ad-cd-mode:disabled + .ad-cd-date, .ad-cd-date:disabled { opacity: 0.45; }
+.ad-cd-date:disabled, .ad-cd-day:disabled, .ad-cd-time:disabled { opacity: 0.45; }
+/* 第二行：重复选项 */
+.ad-cd-repeat { display: flex; align-items: center; }
+.ad-cd-repeat__label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ad-text-mute); cursor: pointer; user-select: none;
+}
+.ad-cd-repeat__label input { margin: 0; cursor: pointer; accent-color: var(--ad-accent); }
+.ad-cd-repeat__label.is-locked { color: var(--ad-text-dim); cursor: help; }
+.ad-cd-repeat__label.is-locked input { cursor: default; }
 /* 卡片右上角的粒度快捷下拉：融入 ad-card__hint 风格，去边框底色、保留原生箭头示意可点 */
 .ad-cd-mode-inline {
 	background: transparent; border: none; box-shadow: none; padding: 0 2px;
@@ -1272,25 +1295,6 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 
 /* 状态栏番茄钟：右下角 🍅/☕ + 剩余时间 */
 .ad-pomo-status { cursor: default; user-select: none; margin-left: 8px; font-variant-numeric: tabular-nums; }
-
-/* 标题旁时长提示：可点击 → 卡片内直接调整时长。
-   刻意做成「弱化的可编辑文本」（带下划线）而非按钮，避免在卡片标题行里显得突兀。
-   ⚠️ 用 .ad-card__head 提升特异性，覆盖 Obsidian 原生 button 的底色/边框（项目约定：不用 !important）。 */
-.ad-card__head .ad-pomo__dur {
-  background: none; background-color: transparent; box-shadow: none;
-  border: none; padding: 0; margin: 0;
-  cursor: pointer; font-family: var(--ad-font-mono); color: var(--ad-text-dim);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--ad-text-dim) 55%, transparent);
-  text-underline-offset: 3px;
-  transition: color .12s, text-decoration-color .12s;
-}
-.ad-card__head .ad-pomo__dur:hover,
-.ad-card__head .ad-pomo__dur:focus {
-  background: none; background-color: transparent; box-shadow: none;
-  color: var(--ad-accent);
-  text-decoration-color: var(--ad-accent);
-}
 
 /* 底部当日统计行：今日专注时长 + 5 个番茄点（计时区 flex:1 撑开，统计行自然贴底） */
 .ad-pomo__sep { width: 100%; height: 1px; background: var(--ad-line); flex: 0 0 auto; margin-top: 10px; }
@@ -2763,37 +2767,69 @@ body.theme-dark .ad-popover.ad-addmenu-backdrop[data-theme="light"] {
 }
 .ps-hours__lbl--now { color: var(--ad-accent); font-weight: 700; }
 
-/* ── 年度热力图 ── */
-.ps-year__heat { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+/* ── 年度热力图（视觉对齐主页「笔记统计」2D 热力图：12px 紧凑格 / 2px 圆角 / 今天强调光晕 / hover 提亮） ── */
+.ps-year__heat { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
 .ps-year__months {
-  display: flex; padding-left: 17px; margin-bottom: 4px;
+  display: flex; padding-left: 16px; margin-bottom: 4px;
   font-size: 10px; color: var(--ad-text-dim);
 }
 .ps-year__months span { white-space: nowrap; overflow: hidden; }
-.ps-year__dow { display: grid; grid-template-rows: repeat(7, 13px); gap: 3px; flex: 0 0 auto; }
-.ps-year__dow span { width: 13px; font-size: 9px; line-height: 13px; color: var(--ad-text-dim); text-align: center; }
+.ps-year__dow { display: grid; grid-template-rows: repeat(7, 12px); gap: 3px; flex: 0 0 auto; }
+.ps-year__dow span { width: 12px; font-size: 9px; line-height: 12px; color: var(--ad-text-dim); text-align: center; }
 .ps-year__grid {
   display: grid; grid-auto-flow: column;
-  grid-template-rows: repeat(7, 13px); grid-auto-columns: 13px; gap: 3px;
+  grid-template-rows: repeat(7, 12px); grid-auto-columns: 12px; gap: 3px;
   flex: 0 0 auto;
 }
-.ps-year__cell { width: 13px; height: 13px; border-radius: 3px; background: var(--ad-hm-0); }
+.ps-year__cell {
+  width: 12px; height: 12px; border-radius: 2px;
+  background: var(--ad-hm-0); outline: 1px solid rgba(255,255,255,0.04);
+  transition: transform .08s ease, filter .12s ease, box-shadow .12s ease;
+}
 .ps-year__cell.l1 { background: var(--ad-hm-1); }
 .ps-year__cell.l2 { background: var(--ad-hm-2); }
 .ps-year__cell.l3 { background: var(--ad-hm-3); }
 .ps-year__cell.l4 { background: var(--ad-hm-4); }
-.ps-year__cell.is-future { opacity: 0.35; }
-.ps-year__cell.is-today { outline: 1px solid var(--ad-accent); outline-offset: -1px; }
+/* 未来日：仅留极淡底格，不参与 hover 强调 */
+.ps-year__cell.is-future { opacity: 0.28; }
+/* 今天：强调色圆环 + 外发光（与主页热力图的强调语言一致，比细 outline 醒目） */
+.ps-year__cell.is-today {
+  box-shadow: 0 0 0 1.5px var(--ad-accent), 0 0 6px color-mix(in srgb, var(--ad-accent) 55%, transparent);
+}
+.ps-year__cell:not(.is-future):not(.ps-year__cell--void):hover {
+  filter: brightness(1.28); transform: scale(1.18);
+  box-shadow: 0 0 0 1px var(--ad-line-s);
+}
+.ps-year__cell.is-today:hover {
+  box-shadow: 0 0 0 1.5px var(--ad-accent), 0 0 8px color-mix(in srgb, var(--ad-accent) 70%, transparent);
+}
 .ps-year__cell--void { visibility: hidden; }
-.ps-year__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.ps-year__window { font-size: 11px; color: var(--ad-text-dim); }
-.ps-year__legend { display: inline-flex; align-items: center; gap: 4px; }
-.ps-year__sw { width: 11px; height: 11px; border-radius: 3px; background: var(--ad-hm-0); }
+/* 底部：与主页 .ad-ns__foot 同一排版（左时间窗 / 右图例） */
+.ps-year__foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
+.ps-year__window { font-size: 11px; color: var(--ad-text-dim); margin-right: auto; }
+.ps-year__legend { display: inline-flex; align-items: center; gap: 5px; }
+.ps-year__sw {
+  width: 11px; height: 11px; border-radius: 2px;
+  background: var(--ad-hm-0); outline: 1px solid rgba(255,255,255,0.04);
+}
 .ps-year__sw.l1 { background: var(--ad-hm-1); }
 .ps-year__sw.l2 { background: var(--ad-hm-2); }
 .ps-year__sw.l3 { background: var(--ad-hm-3); }
 .ps-year__sw.l4 { background: var(--ad-hm-4); }
-.ps-year__lbl { font-size: 10px; color: var(--ad-text-dim); margin: 0 2px; }
+.ps-year__lbl { font-size: 11px; color: var(--ad-text-dim); margin: 0 2px; }
+
+/* ── 年度 3D 柱阵（复用首页 HeatmapSkyline；统计页是普通滚动卡，需给舞台一个固定高度） ── */
+.ps-year__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ps-card--year { padding-bottom: 12px; }
+.ps-year__stage {
+  position: relative;
+  height: 220px;
+  min-height: 190px;
+  border-radius: var(--ad-r2);
+  overflow: hidden;
+}
+.ps-year__stage .ad-ns__canvas { position: absolute; inset: 0; display: block; }
+.ps-year__view { flex: none; }
 
 /* ── 空状态 ── */
 .ps-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 60px 0 40px; }
@@ -2892,3 +2928,26 @@ body.theme-dark .ad-popover.ad-addmenu-backdrop[data-theme="light"] {
 .ad-dep-chip { background: var(--ad-s2); border: 1px solid var(--ad-line); border-radius: 20px; color: var(--ad-text-mute); font-size: 11px; padding: 3px 10px; cursor: pointer; transition: all 0.12s ease; }
 .ad-dep-chip:hover { border-color: var(--ad-accent); color: var(--ad-text); }
 .ad-dep-chip.is-active { background: var(--ad-accent-dim); border-color: var(--ad-accent); color: var(--ad-accent); font-weight: 500; }
+
+/* ============================================================ plugin settings：项目页视图开关
+   注意：设置页不在 .dashboard-plugin 作用域内，--ad-* 令牌未定义，必须用 Obsidian 原生变量，
+   否则勾选态会退化成同色的紫底紫字。 */
+.dashboard-po-views { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 4px 0 14px; }
+.dashboard-po-view {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px; line-height: 1.4; cursor: pointer; user-select: none;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.dashboard-po-view:hover { border-color: var(--interactive-accent); color: var(--text-normal); }
+.dashboard-po-view input { margin: 0; cursor: pointer; accent-color: var(--interactive-accent); }
+.dashboard-po-view:has(input:checked) {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent); font-weight: 500;
+}
+.dashboard-po-view:has(input:checked):hover { color: var(--text-on-accent); }
+.dashboard-po-view:has(input:checked) input { accent-color: var(--text-on-accent); }

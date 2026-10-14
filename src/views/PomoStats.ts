@@ -6,6 +6,8 @@ import {
 	type PomoBar, type PomoRecord,
 } from '../data/pomoStats';
 import { fmtDate } from '../data/taskLogic';
+import { HeatmapSkyline } from './HeatmapSkyline';
+import { ICON_heatGrid, ICON_heatCube, injectSvg } from '../icons';
 
 /** 顶部页面标识（与 'home' / 'project' / 'opportunity' 并列） */
 export type DashboardPage = 'home' | 'project' | 'opportunity' | 'pomodoro';
@@ -23,11 +25,8 @@ export interface PomoStatsHost {
 /** 统计页的 5 个视图 */
 type StatsView = 'overview' | 'trend' | 'timeline' | 'hours' | 'year';
 
-/** 年度热力图格子尺寸（px，固定；超宽横向滚动，与首页笔记统计同策略） */
-const YH_CELL = 13;
-const YH_GAP = 3;
-/** 日专注时长色阶阈值（分钟）：1/2/4/6 个默认番茄 → l1..l4 */
-const YH_LEVEL_MIN = [25, 50, 100, 150];
+/** 年度 3D 柱阵最多画多少周（与首页笔记统计一致 = 一整年） */
+const YEAR_MAX_WEEKS = 53;
 
 /** SVG 命名空间元素创建（趋势图手绘用） */
 function svgEl<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] {
@@ -81,9 +80,35 @@ export class PomoStatsBoard {
 	private contentEl: HTMLElement | null = null;
 	/** 年度热力图当前渲染的年份 */
 	private year = new Date().getFullYear();
+	/** 年度 3D 柱阵绘制器（与首页笔记统计同款；离开本视图/重渲染前须 dispose） */
+	private skyline: HeatmapSkyline | null = null;
+	/** 年度柱阵最近一次绘制参数（主题切换后用新色阶非动画重绘） */
+	private skylineOpts: Parameters<HeatmapSkyline['render']>[0] | null = null;
+	private skylineObs?: ResizeObserver;
+	/** 年度柱阵当前视图：3d 立体柱阵（默认，与首页一致）/ 2d 平面热力 */
+	private skylineView: '2d' | '3d' = '3d';
 
 	constructor(host: PomoStatsHost) {
 		this.host = host;
+	}
+
+	/** 离开统计页 / 组件销毁时释放 Canvas 与 ResizeObserver（避免泄漏） */
+	dispose(): void {
+		this.teardownSkyline();
+	}
+
+	private teardownSkyline(): void {
+		this.skylineObs?.disconnect();
+		this.skylineObs = undefined;
+		this.skyline?.dispose();
+		this.skyline = null;
+		this.skylineOpts = null;
+	}
+
+	/** 主题切换后由宿主调用：统计页可见时按缓存参数用新色阶重绘年度柱阵（不播形变动画） */
+	redrawSkylineIfVisible(): void {
+		if (this.host.currentPage !== 'pomodoro' || !this.skyline || !this.skylineOpts) return;
+		this.skyline.render(this.skylineOpts);
 	}
 
 	/** 番茄完成落盘后由视图调用：统计页正打开时整体重渲染 */
@@ -164,6 +189,8 @@ export class PomoStatsBoard {
 
 	private renderContent(records: PomoRecord[]): void {
 		if (!this.contentEl) return;
+		// 每次重建内容区前先拆掉上一视图的 3D 柱阵（切 tab / 刷新都不能残留旧 Canvas）
+		this.teardownSkyline();
 		this.contentEl.empty();
 		if (records.length === 0) {
 			this.renderEmpty(this.contentEl);
@@ -420,79 +447,74 @@ export class PomoStatsBoard {
 	}
 
 	/* ============================================================
-	   年度热力图：53 周 × 7 天格子，5 级色阶 + 月份标签 + 图例
+	   年度专注：复用首页「笔记统计」的 3D 柱阵（HeatmapSkyline）。
+	   数据由每日专注毫秒折算成「番茄段数（25min/段）」喂给同一绘制器，
+	   视觉/相机/聚焦/2D⇄3D 形变与首页完全一致。
 	   ============================================================ */
 
 	private renderYear(root: HTMLElement, records: PomoRecord[]): void {
 		this.year = new Date().getFullYear();
-		const card = root.createDiv({ cls: 'ps-card' });
-		card.createDiv({ cls: 'ps-card__title', text: t('stats.yearTitle', { year: this.year }) });
-
 		const totals = pomoDayTotals(records, this.year);
-		const todayKey = fmtDate(new Date());
 
-		// 周列：从「1 月 1 日所在周的周一」开始，逐列铺满整年
-		const start = new Date(this.year, 0, 1);
-		start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-		const cellsWrap = card.createDiv({ cls: 'ps-year__heat' });
-		const monthsRow = card.createDiv({ cls: 'ps-year__months' });
-		// 星期列在最左（一/三/五 有字，与首页热力图一致的 heatDow 排布）
-		const dow = cellsWrap.createDiv({ cls: 'ps-year__dow' });
-		const dowNames = tArr('home.heatDow');
-		for (let r = 0; r < 7; r++) {
-			dow.createSpan({ text: dowNames[r] ?? '' });
-		}
-		const grid = cellsWrap.createDiv({ cls: 'ps-year__grid' });
-
-		const months = tArr('status.months');
-		const weekMonths: number[] = [];
-		const cursor = new Date(start);
-		let guard = 0;
-		while (cursor.getFullYear() <= this.year && guard++ < 60) {
-			let colMonth = -1;
-			for (let r = 0; r < 7; r++) {
-				const inYear = cursor.getFullYear() === this.year;
-				const cell = grid.createDiv({ cls: 'ps-year__cell' });
-				if (inYear) {
-					if (colMonth === -1) colMonth = cursor.getMonth();
-					const key = fmtDate(cursor);
-					if (key > todayKey) {
-						cell.addClass('is-future');
-					} else {
-						const ms = totals.get(key) ?? 0;
-						let lvl = 0;
-						const min = ms / 60000;
-						for (let li = YH_LEVEL_MIN.length - 1; li >= 0; li--) {
-							if (min >= YH_LEVEL_MIN[li]!) { lvl = li + 1; break; }
-						}
-						if (lvl > 0) cell.addClass('l' + lvl);
-						if (key === todayKey) cell.addClass('is-today');
-						cell.setAttribute('title', `${fmtDayLabel(cursor)} · ${ms > 0 ? fmtPomoDuration(ms) : t('stats.noFocus')}`);
-					}
-				} else {
-					cell.addClass('ps-year__cell--void');
-				}
-				cursor.setDate(cursor.getDate() + 1);
-			}
-			weekMonths.push(colMonth);
+		// 每日专注毫秒 → 折算番茄段数（每 25 分钟一段，向上取整，至少 1）。
+		// HeatmapSkyline 用 count 决定柱高与色阶，这里的「count」语义即当天专注了几段。
+		const counts = new Map<string, number>();
+		for (const [key, ms] of totals) {
+			if (ms > 0) counts.set(key, Math.max(1, Math.round(ms / (25 * 60 * 1000))));
 		}
 
-		// 月份标签：按周列归属月份合并成段，宽度 = 周数 × (格子 + 间距)，与格子列左对齐
-		const unit = YH_CELL + YH_GAP;
-		let curM = weekMonths[0] ?? -1;
-		let curS = 0;
-		const flush = (m: number, span: number): void => {
-			const label = monthsRow.createSpan({ text: m >= 0 ? (months[m] ?? '') : '' });
-			label.style.minWidth = Math.max(0, span * unit - YH_GAP) + 'px';
+		const card = root.createDiv({ cls: 'ps-card ps-card--year' });
+		const titleRow = card.createDiv({ cls: 'ps-year__head' });
+		titleRow.createDiv({ cls: 'ps-card__title', text: t('stats.yearTitle', { year: this.year }) });
+		// 2D / 3D 切换（与首页笔记统计同款 SVG 图标按钮，同一套标题文案）
+		const toggle = titleRow.createEl('button', { cls: 'ad-ns__view ps-year__view' });
+		const syncToggle = (): void => {
+			const is3d = this.skylineView === '3d';
+			toggle.title = is3d ? t('home.heatmapTo2d') : t('home.heatmapTo3d');
+			toggle.setAttribute('aria-label', toggle.title);
+			toggle.empty();
+			injectSvg(toggle, is3d ? ICON_heatGrid : ICON_heatCube);
 		};
-		for (const m of weekMonths) {
-			if (m === curM) { curS++; continue; }
-			flush(curM, curS);
-			curM = m; curS = 1;
-		}
-		flush(curM, curS);
+		syncToggle();
 
-		// 图例
+		const stage = card.createDiv({ cls: 'ad-ns__stage ps-year__stage' });
+		this.skyline = new HeatmapSkyline(stage);
+		const opts: Parameters<HeatmapSkyline['render']>[0] = {
+			counts,
+			// 完整自然年：锚定 12/31，画满 53 周（与首页「完整自然年」口径一致）
+			endDate: new Date(this.year, 11, 31),
+			maxWeeks: YEAR_MAX_WEEKS,
+			weeksMode: 'full',
+			weekdayLabels: tArr('home.heatDow'),
+			monthNames: tArr('status.months'),
+			cellTitle: (key: string, count: number) => {
+				const d = new Date(key + 'T00:00:00');
+				const ms = totals.get(key) ?? 0;
+				return `${fmtDayLabel(d)} · ${ms > 0 ? fmtPomoDuration(ms) : t('stats.noFocus')}`;
+			},
+			view: this.skylineView,
+			// 年度页不做「聚焦近 16 周」推镜：保持展示完整一年
+			focus: false,
+		};
+		this.skylineOpts = opts;
+		this.skyline.render(opts);
+		toggle.addEventListener('click', (ev) => {
+			ev.stopPropagation();
+			this.skylineView = this.skylineView === '3d' ? '2d' : '3d';
+			syncToggle();
+			opts.view = this.skylineView;
+			opts.animate = true;
+			this.skyline?.render(opts);
+			opts.animate = false;
+		});
+
+		// 容器尺寸变化时按同一参数重绘（侧栏折叠/窗格缩放后柱阵重新取景）
+		this.skylineObs = new ResizeObserver(() => {
+			this.skyline?.render(opts);
+		});
+		this.skylineObs.observe(stage);
+
+		// 图例（与首页同一套色阶）
 		const foot = card.createDiv({ cls: 'ps-year__foot' });
 		foot.createDiv({ cls: 'ps-year__window', text: t('home.heatmapAllYear', { year: this.year }) });
 		const legend = foot.createDiv({ cls: 'ps-year__legend' });

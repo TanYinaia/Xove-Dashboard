@@ -42,13 +42,16 @@ test('easeInOutCubic：端点固定且单调', () => {
 	assert.ok(easeInOutCubic(0.3) < easeInOutCubic(0.7));
 });
 
-test('fitWeeks：容器越宽周数越多，且被夹在上下限内', () => {
-	const narrow = fitWeeks(1.9, 7.6);
-	const wide = fitWeeks(4.2, 7.6);
+test('fitWeeks：格子像素固定，按最密排列（每周 11px）估算周数，夹在上下限内', () => {
+	const narrow = fitWeeks(220, 11);   // ≈ 20 周
+	const wide = fitWeeks(550, 11);     // ≈ 50 周
 	assert.ok(wide > narrow, '宽卡应分配更多周');
 	assert.ok(narrow >= 10 && wide <= 53, '结果需夹在 [10, 53]');
-	assert.equal(fitWeeks(100, 7.6), 53, '极端宽比 → 封顶');
-	assert.equal(fitWeeks(0.2, 7.6), 10, '极端窄比 → 保底 10 周（保证柱体宽度）');
+	assert.equal(fitWeeks(100000, 11), 53, '极端宽 → 封顶 53 周');
+	assert.equal(fitWeeks(20, 11), 10, '极端窄 → 保底 10 周');
+	assert.equal(fitWeeks(110, 11), 10, '110px / 11px ≈ 10 周（保底）');
+	assert.equal(fitWeeks(582, 11), 53, '582px / 11px + 半缝修正 ≈ 53 周');
+	assert.equal(fitWeeks(400, 20), 20, '每周像素变大 → 同样宽度容纳更少周');
 });
 
 test('project：+x 向右、+y 向上偏左、+z 屏幕上移', () => {

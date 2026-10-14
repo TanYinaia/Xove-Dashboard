@@ -36,6 +36,23 @@ export const ELEV_3D = (34 * Math.PI) / 180;
 /** 聚焦模式放大的周数（最近 16 周） */
 export const FOCUS_WEEKS = 16;
 
+/* ── 格子几何（世界单位 = 相对「格高」的倍数）──
+ * 格子本身尺寸固定（CELL_PX 像素/世界单位）：格宽 1.0 → 10px、格高 1.0 → 10px。
+ * 列缝/行缝只有「最小值」，实际间距由渲染器按卡片大小在最小 pitch 之上拉伸，
+ * 从而在不改变格子大小的前提下让整张网格尽量铺满卡片。 */
+export const CELL_W = 1.0;
+export const CELL_H = 1.0;
+/** 最小列缝（世界单位 / 像素）：最密排列时周列之间至少留 1px */
+export const MIN_GAP_COL = 0.1;
+/** 最小行缝：星期行之间至少留 4px */
+export const MIN_GAP_ROW = 0.4;
+/** 最密排列时的横/纵步进（pitch 只会 ≥ 此值，多出的空间全部进间距） */
+export const MIN_PITCH_X = CELL_W + MIN_GAP_COL;
+export const MIN_PITCH_Y = CELL_H + MIN_GAP_ROW;
+
+/** 固定绘制精度：1 个世界单位 = CELL_PX 像素（格高恒 10px、格宽恒 10px） */
+export const CELL_PX = 10;
+
 /** 3D 视角相机 */
 export function skylineCamera(): Cam {
 	return { cs: Math.cos(YAW_3D), sn: Math.sin(YAW_3D), se: Math.sin(ELEV_3D), ce: Math.cos(ELEV_3D) };
@@ -78,17 +95,15 @@ export function riseAt(t: number, week: number, weeks: number, day: number): num
 }
 
 /**
- * 按容器宽高比反推「需要多少周」才能填满画面：
- * 令投影包围盒的宽高比 ≈ 容器宽高比，解出周数 W（结果夹在 [minW, maxW]）。
- * 容器越宽 → 周数越多；窄卡自动减少，保证柱体始终有足够宽度。
+ * 按「可用内容宽度（px）」与固定像素精度反推能完整容纳多少周。
+ * 一周在 x 方向约占 1 个世界单位 = pxPerUnit 像素；格子本身不缩放，
+ * 容器越宽 → 显示周数越多，两侧剩余空间由渲染器居中均摊。
  */
-export function fitWeeks(aspect: number, maxZ: number, days = 7, minW = 10, maxW = 53): number {
-	const { cs, sn, se, ce } = skylineCamera();
-	const denom = cs - aspect * sn * se;
-	if (denom <= 1e-6) return maxW;
-	const w = (aspect * (cs * days * se + maxZ * ce) - sn * days) / denom;
-	if (!Number.isFinite(w)) return maxW;
-	return Math.max(minW, Math.min(maxW, Math.round(w)));
+export function fitWeeks(availW: number, pxPerUnit: number = CELL_PX, minW = 10, maxW = 53): number {
+	if (!(pxPerUnit > 0) || !Number.isFinite(availW)) return minW;
+	// +0.1：格宽包围盒为 weeks−0.1（首列左半缝、末列右半缝），补回这两个半缝
+	const w = Math.round(availW / pxPerUnit + 0.1);
+	return Math.max(minW, Math.min(maxW, w));
 }
 
 /**

@@ -880,7 +880,9 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-proj__track { position: relative; padding: 6px 0; }
 /* 顶部对齐（勿用 center）：阶段标签折行的格子更高，center 会把矮格子垂直居中，
    圆点行因此不在同一水平线、连接线错位（=「阶段文字过多时进度条偏移」）。 */
-.ad-proj__stages { position: relative; display: flex; align-items: flex-start; gap: 2px; overflow-x: auto; padding: 4px 0; } /* padding gives the current-stage halo room; overflow-x:auto clips overflow-y, so without this the halo gets cut (both themes) */
+.ad-proj__stages { position: relative; display: flex; align-items: flex-start; gap: var(--pip-gap, 2px); overflow-x: auto; padding: 4px 0; } /* padding gives the current-stage halo room; overflow-x:auto clips overflow-y, so without this the halo gets cut (both themes) */
+/* 紧凑模式（≥7 阶段）：宽度由 flex:1 均布，固定 8px 间距供连接线宽度计算 */
+.ad-proj__stages--compact { --pip-gap: 8px; }
 .ad-proj__stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: var(--pip-w, 40px); flex: 0 0 auto; font-family: var(--ad-font); font-size: 11px; letter-spacing: 0.03em; color: var(--ad-text-dim); }
 .ad-pip { width: 8px; height: 8px; border-radius: 50%; background: var(--ad-s3); border: 1px solid var(--ad-line-s); z-index: 1; }
 .ad-proj__stage.is-done .ad-pip { background: var(--ad-accent); border-color: var(--ad-accent); }
@@ -1210,6 +1212,8 @@ body.theme-dark .dashboard-plugin:not([data-theme="light"]) { --ad-icon-accent: 
 .ad-cd__row strong { color: var(--ad-text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .ad-cd__bar { position: relative; height: 5px; background: var(--ad-s3); border-radius: 3px; overflow: hidden; }
 .ad-cd__bar .ad-fill { position: absolute; top: 0; bottom: 0; left: 0; background: linear-gradient(90deg, var(--ad-accent), var(--ad-accent-2)); border-radius: 3px; }
+/* 到达态：进度条直接满格（原为 JS 内联 width:100%，合规改为类声明） */
+.ad-cd__bar--full { background: linear-gradient(90deg, var(--ad-accent), var(--ad-accent-2)); border-radius: 3px; }
 .ad-cd__arrived { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: clamp(22px, 12cqi, 34px); font-weight: 700; color: var(--ad-text); letter-spacing: 0.04em; line-height: 1.15; word-break: keep-all; }
 
 /* 多倒计时 = 每事件一张独立卡片（settings.countdown 数组驱动），
@@ -1871,6 +1875,8 @@ input[type="date"].ad-modal-input { cursor: pointer; }
   pointer-events: none; display: none;
   box-shadow: 0 0 5px color-mix(in srgb, var(--ad-accent) 55%, transparent);
 }
+/* 拖拽插入指示线显示态（显隐原为 JS 内联 display，合规改为类切换） */
+.po-gantt__drop-line.po-gantt__drop-line--on { display: block; }
 /* 拖动悬停行中间：高亮表示将作为子任务挂到该任务下面 */
 .po-gantt__label-row.is-drop-target {
   box-shadow: inset 0 0 0 1.5px var(--ad-accent);
@@ -1975,6 +1981,8 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 .po-cal__seg-btn:hover { background: var(--ad-h1); color: var(--ad-text); }
 .po-cal__seg-btn.is-active { background: var(--ad-accent-dim); color: var(--ad-accent); font-weight: 600; }
 .po-cal__ttl { font-size: 14px; font-weight: 600; color: var(--ad-text); font-family: var(--ad-font); }
+/* 标题推到右上角，紧贴切换月份的 ‹ 今天 › 左边（原为 JS 内联 margin-left:auto） */
+.po-cal__ttl.po-cal__ttl--auto { margin-left: auto; }
 .po-cal__nav { display: flex; gap: 4px; margin-left: auto; }
 .po-cal__btn { background: transparent; border: 1px solid var(--ad-line); color: var(--ad-text-dim); padding: 4px 10px; border-radius: var(--ad-r1); cursor: pointer; font-size: 12px; font-family: var(--ad-font); transition: all 0.12s ease; }
 .po-cal__btn:hover { background: var(--ad-h1); color: var(--ad-text); }
@@ -2017,7 +2025,9 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 /* 任务整体已完成：整条变灰 + 删除线（每日节点 done 仍走 .po-cal__mbar-seg.is-done） */
 .po-cal__mbar.is-done { opacity: 0.6; filter: saturate(0.25); }
 .po-cal__mbar.is-done .po-cal__mbar-seg { text-decoration: line-through; color: var(--ad-text-dim); }
-.po-cal__day { border-radius: 0; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; font-size: 11px; color: var(--ad-text-mute); border-right: 1px solid var(--ad-line); border-bottom: 1px solid var(--ad-line); transition: all 0.12s ease; padding: 3px 4px; overflow: hidden; position: relative; background: transparent; }
+.po-cal__day { border-radius: 0; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; font-size: 11px; color: var(--ad-text-mute); border-right: 1px solid var(--ad-line); border-bottom: 1px solid var(--ad-line); transition: all 0.12s ease; padding: var(--date-off, 20px) 4px 3px; overflow: hidden; position: relative; background: transparent; }
+/* 有 +N 溢出角标时底部加高（原为 JS 内联 padding-bottom，合规改为类声明） */
+.po-cal__day.po-cal__day--more { padding-bottom: 18px; }   /* 给 +N (15px) + 底部 2px + 1px 间隙留出独立空间 */
 /* 日期号固定在格子左上角（不随 chip 区 padding 下移）；今日圆徽 */
 .po-cal__day-num { position: absolute; top: 3px; left: 4px; z-index: 1; font-size: 11px; font-weight: 500; color: var(--ad-text-mute); line-height: 1.4; font-family: var(--ad-font); }
 .po-cal__day-num.is-today { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; border-radius: 50%; background: var(--ad-accent); color: var(--ad-on-accent, #fff); font-weight: 600; }
@@ -2367,6 +2377,10 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 }
 /* 拖拽中被提起的卡片（脱离网格流、跟随指针） */
 .ad-card--dragging {
+  /* 拖拽提起三件套（原为 JS 内联静态样式，合规改为类声明） */
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
   box-shadow: 0 18px 44px rgba(0,0,0,0.5);
   rotate: 2deg;
   scale: 1.03;
@@ -2377,6 +2391,9 @@ input[type="date"].ad-modal-input { cursor: pointer; }
 }
 /* 悬停在删除区上方：卡片缩小示意「即将被丢弃」 */
 .ad-card--dragging.is-doomed { scale: 0.86; opacity: 0.7; }
+/* FLIP 挤开动画：prep = 无过渡拉回旧位置（--dx/--dy 为动态位移）；run = 恢复过渡并归零 */
+.ad-card.ad-flip-prep { transition: none; transform: translate(var(--dx, 0), var(--dy, 0)); }
+.ad-card.ad-flip-run { transition: transform 220ms cubic-bezier(0.2, 0, 0, 1); transform: none; }
 /* 缩放中：抑制抖动动画，避免比例反馈被视觉噪声淹没 */
 .ad-card--resizing { animation: none; outline: 2px solid var(--ad-accent); transition: outline-color .12s ease, box-shadow .12s ease; }
 /* 缩放触达上/下限：边框转红 + 抖动 + 红光脉冲，明确「到头了」。

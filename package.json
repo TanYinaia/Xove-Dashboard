@@ -1,6 +1,6 @@
 {
   "name": "xove-dashboard",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Turn your home tab into a customizable dashboard for capturing tasks, tracking projects, and reviewing your note activity.",
   "main": "main.js",
   "private": true,

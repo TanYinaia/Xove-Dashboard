@@ -2195,15 +2195,12 @@ export class DashboardView extends ItemView {
 		ph.style.gridRow = `span ${rows}`;
 		card.parentNode?.insertBefore(ph, card);
 
-		// 提起当前卡片：脱离网格流，跟随指针
+		// 提起当前卡片：脱离网格流，跟随指针（静态样式走 CSS 类 .ad-card--dragging）
 		card.classList.add('ad-card--dragging');
 		card.style.width = rect.width + 'px';
 		card.style.height = rect.height + 'px';
 		card.style.left = rect.left + 'px';
 		card.style.top = rect.top + 'px';
-		card.style.position = 'fixed';
-		card.style.zIndex = '9999';
-		card.style.pointerEvents = 'none';
 
 		this.adDrag = {
 			card,
@@ -2324,15 +2321,17 @@ export class DashboardView extends ItemView {
 			const dx = r0.left - r1.left;
 			const dy = r0.top - r1.top;
 			if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-			el.style.transition = 'none';
-			el.style.transform = `translate(${dx}px, ${dy}px)`;
-			// 强制回流，让上面的「倒带」立即生效，随后的过渡才有起点
+			// 先上"无过渡 + 拉回旧位置"类，强制回流后再切到"过渡中"类 → 视觉上是被挤开
+			el.style.setProperty('--dx', dx + 'px');
+			el.style.setProperty('--dy', dy + 'px');
+			el.classList.add('ad-flip-prep');
 			void el.offsetWidth;
-			el.style.transition = 'transform 220ms cubic-bezier(0.2, 0, 0, 1)';
-			el.style.transform = '';
+			el.classList.remove('ad-flip-prep');
+			el.classList.add('ad-flip-run');
 			window.setTimeout(() => {
-				el.style.removeProperty('transition');
-				el.style.removeProperty('transform');
+				el.classList.remove('ad-flip-run');
+				el.style.removeProperty('--dx');
+				el.style.removeProperty('--dy');
 			}, 240);
 		});
 	}
@@ -3306,17 +3305,12 @@ export class DashboardView extends ItemView {
 				+ (compact ? ' ad-proj__stages--compact' : '')
 				+ (showAllLabels ? ' ad-proj__stages--labels-all' : ' ad-proj__stages--labels-current');
 			const stageNodes = track.createDiv({ cls: stagesCls });
-			// Auto-size stage dots by count: more stages → smaller, fixed width for connector math
+			// 非紧凑模式按阶段数自适应格宽/间距（compact 的 --pip-gap:8px 由 CSS 类声明）
 			const stageMinW = Math.max(20, Math.min(36, Math.floor(160 / projStages.length)));
 			const stageGap = Math.max(1, Math.floor(4 / (projStages.length / 4)));
-			if (compact) {
-				// 紧凑模式宽度由 CSS flex:1 均布；--pip-gap 供连接线宽度计算
-				stageNodes.style.setProperty('--pip-gap', '8px');
-				stageNodes.style.gap = '8px';
-			} else {
+			if (!compact) {
 				stageNodes.style.setProperty('--pip-w', stageMinW + 'px');
 				stageNodes.style.setProperty('--pip-gap', stageGap + 'px');
-				stageNodes.style.gap = stageGap + 'px';
 			}
 			projStages.forEach((label, i) => {
 				const isDone = i < projStage;
@@ -3894,9 +3888,7 @@ export class DashboardView extends ItemView {
 	private renderCountdownArrived(item: HTMLElement, text: string): void {
 		item.createDiv({ cls: 'ad-cd__arrived', text });
 		const bottom = item.createDiv({ cls: 'ad-cd__bottom' });
-		const barWrap = bottom.createDiv({ cls: 'ad-cd__bar' });
-		const fill = barWrap.createDiv({ cls: 'ad-fill' });
-		fill.style.width = '100%';
+		bottom.createDiv({ cls: 'ad-cd__bar ad-cd__bar--full' });
 	}
 
 	/** 行内小圆点分隔符（倒计时底部小字行共用） */

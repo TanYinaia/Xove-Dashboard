@@ -865,7 +865,7 @@ export class ProjectBoard {
 		// 拖动指示线（插入位置）+ 清理函数（拖动结束/放下时复位所有拖动 UI）
 		const dropLine = leftBody.createDiv({ cls: 'po-gantt__drop-line' });
 		const clearDropUI = (): void => {
-			dropLine.style.display = 'none';
+			dropLine.removeClass('po-gantt__drop-line--on');
 			leftBody.querySelectorAll<HTMLElement>('.is-drop-target').forEach((el) => el.removeClass('is-drop-target'));
 			leftBody.querySelectorAll<HTMLElement>('.po-row--drag-over').forEach((el) => el.removeClass('po-row--drag-over'));
 			leftBody.querySelectorAll<HTMLElement>('.po-gantt__label-row').forEach((el) => delete el.dataset.dropZone);
@@ -1083,21 +1083,21 @@ export class ProjectBoard {
 					// 行中间：设为子任务 → 高亮目标行，隐藏插入线
 					lr.addClass('is-drop-target');
 					lr.removeClass('po-row--drag-over');
-					dropLine.style.display = 'none';
+					dropLine.removeClass('po-gantt__drop-line--on');
 				} else {
 					// 上/下边缘：插入排序 → 在对应边缘显示插入横线
 					lr.removeClass('is-drop-target');
 					lr.addClass('po-row--drag-over');
 					const lineTop = rect.top - bodyRect.top + (zone === 'top' ? -1 : rect.height - 1);
 					dropLine.style.top = Math.max(0, lineTop) + 'px';
-					dropLine.style.display = 'block';
+					dropLine.addClass('po-gantt__drop-line--on');
 				}
 			});
 			lr.addEventListener('dragleave', () => {
 				lr.removeClass('po-row--drag-over');
 				lr.removeClass('is-drop-target');
 				delete lr.dataset.dropZone;
-				dropLine.style.display = 'none';
+				dropLine.removeClass('po-gantt__drop-line--on');
 			});
 			lr.addEventListener('drop', async (e) => {
 				e.preventDefault();
@@ -1817,8 +1817,7 @@ export class ProjectBoard {
 				const b = seg.createEl('button', { cls: 'po-cal__seg-btn' + (this.calView === v.key ? ' is-active' : ''), text: v.label });
 				b.addEventListener('click', () => { this.calView = v.key; render(); });
 			});
-			const ttl = bar.createSpan({ cls: 'po-cal__ttl' });
-			ttl.style.marginLeft = 'auto';   // 月份/日期标题推到右上角，紧贴切换月份的 ‹ 今天 › 左边
+			const ttl = bar.createSpan({ cls: 'po-cal__ttl po-cal__ttl--auto' });
 			if (this.calView === 'month') {
 				const months = tArr('status.months');
 				ttl.setText(t('ui.calMonthFmt', { y: String(this.calYear), m: months[this.calMonth] ?? String(this.calMonth + 1) }));
@@ -2024,13 +2023,13 @@ export class ProjectBoard {
 				}
 
 				if (hidden > 0) {
-					dayEl.style.paddingBottom = '18px';   // 给 +N (15px) + 底部 2px + 1px 间隙留出独立空间
+					dayEl.addClass('po-cal__day--more');   // 给 +N (15px) + 底部 2px + 1px 间隙留出独立空间
 					const more = dayEl.createDiv({ cls: 'po-cal__day-more', text: '+' + hidden });
 					more.addEventListener('click', (ev) => { ev.stopPropagation(); openRowOverflow(r, ds); });
 				}
 
 				// 仅预留日期号区；横条带由 slot 撑开，空轨道被胶囊/空槽填满 → 不再有中段空位
-				dayEl.style.paddingTop = DATE_OFF + 'px';
+				dayEl.style.setProperty('--date-off', DATE_OFF + 'px');
 
 				dayEl.addEventListener('click', () => {
 					if (isOut) {

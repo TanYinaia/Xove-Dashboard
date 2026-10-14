@@ -9,6 +9,9 @@ on:
 
 permissions:
   contents: write
+  # 下面 attest-build-provenance 步骤需要：id-token 用于签名身份，attestations 用于写入证明
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -35,6 +38,15 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+      # 构建来源证明：让任何人可验证 main.js/styles.css 确由本仓库源码在此流水线构建（gh attestation verify）
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create GitHub Release
         env:

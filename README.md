@@ -1,153 +1,10 @@
 # Xove Dashboard
 
-[English](#english) · [中文](#中文)
-
-> Turn your Obsidian home tab into a **personal command center** — tasks, projects, inspiration, note stats, and countdowns, all on one screen.
-
-Xove Dashboard is more than another to-do list. It's a **home-tab-first personal work console** that turns your Obsidian home into a customizable dashboard, aggregating tasks, projects, an inspiration board, note activity, and important countdowns so you see the big picture the moment you open Obsidian.
-
----
-
-## English
-
-### ✨ Highlights
-
-- **Markdown at its core**: tasks, projects, and the board are stored as plain Markdown + YAML frontmatter. Your data stays yours — editable, portable, and backup-friendly.
-- **A real "home = command center"**: no pop-up dashboards. Greeting, TODO, weekly tasks, project progress, note heatmap, and countdowns all live on one canvas.
-- **Free home layout**: long-press a card to drag & reorder, resize width/height, add or remove modules, and reset the layout with one click — your home, your rules.
-- **Complete task model**: four-quadrant priorities, start/due dates, parent & child tasks, repeating tasks (auto-advance to the next reminder), a daily check-in axis, and overdue-on-top sorting.
-- **Four project views**: Gantt / list / calendar / kanban — the same project, four perspectives, cross-view linked highlights.
-- **Inspiration board**: a dedicated capture → evaluate → progress → archive workflow with star-marked importance and drag-to-change-stage.
-- **Multi-countdowns**: track up to 5 events at once (exam, launch, project milestone…) with live progress bars.
-- **Bilingual**: switch the interface between Chinese and English in one click.
-- **Dark / light themes**: follows Obsidian automatically, or force either mode with a finely tuned palette.
-- **Zero dependencies**: pure TypeScript + Obsidian API. No network calls, no telemetry, no data leaves your vault.
-
-### 📦 Feature Overview
-
-#### Home
-
-| Module | Description |
-| --- | --- |
-| **Top banner** | Upload a cover image and drag to adjust its vertical position |
-| **Vault Pulse** | Notes / pending / added-today / current streak, refreshed live |
-| **Quick capture** | Type and hit Enter to save a Markdown note instantly (template supported) |
-| **TODO** | Today's tasks, overdue pinned on top, sorted by priority |
-| **Progress** | Dual ring charts: today's completion + overall completion |
-| **This week & overdue** | This week's tasks plus a red overdue section, with colored urgency tags |
-| **Project pipeline** | Initiate → Plan → Develop → Test → Launch stage pipeline |
-| **Note stats** | GitHub-style 52-week activity heatmap |
-| **Countdown** | Up to 5 custom events with live progress bars |
-
-#### Project overview (click "All projects")
-
-- Draggable project sidebar (order persisted), right-click to edit/delete.
-- **Four views**: Gantt / list / calendar / kanban, with cross-view highlight linking.
-- **Gantt**: day / week / month / quarter zoom, drag bars to edit dates (edge or whole), parent-child indentation, today line, adjustable header-height divider.
-- **List**: column sorting, status filter, context menu.
-- **Calendar**: tasks rendered inside month-grid cells, drag to change date.
-- **Kanban**: To-do / In progress / Blocked / Done / Cancelled, cross-column drag updates status.
-
-#### Inspiration board (click "Inspirations")
-
-- A separate kanban workflow: **Inbox → Evaluating → In progress → Done / Dropped**.
-- Cross-column drag to change stage, star items as important, inline detail editing, and a list view.
-- All items live in a single Markdown file; a readable table projection is generated in the body.
-
-#### Task management
-
-- **Four-quadrant priority**: Urgent & important / Important, not urgent / Urgent, not important / Neither.
-- **Repeating tasks**: daily / workdays / weekly days / monthly date / custom interval; completion auto-advances to the next reminder.
-- **Parent & child tasks**: multi-level nesting with completion links.
-- **Daily check-in axis**: multi-day tasks show a per-day check-in axis in the detail modal, with a four-color status.
-- **Reminders**: on the day / 1 day / 3 days / 1 week before.
-- Tags, notes, postpone a day, mark done / postpone to today, and more.
-
-### 🚀 Installation
-
-#### First-time install
-
-1. Download `main.js`, `manifest.json`, `styles.css` from the latest Release.
-2. Create a folder `YourVault/.obsidian/plugins/xove-dashboard/` and put the three files inside:
-   ```
-   YourVault/.obsidian/plugins/xove-dashboard/
-       ├── main.js
-       ├── manifest.json
-       └── styles.css
-   ```
-3. Open Obsidian → **Settings → Community plugins**.
-4. Enable **Xove Dashboard**.
-
-> If it doesn't appear immediately, run **Reload app without saving** (`Ctrl+R`) from the command palette.
-
-#### Install & auto-update with BRAT
-
-1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from Obsidian's community plugins.
-2. Run **BRAT: Add a beta plugin for testing** from the command palette, enter `tingke/Xove-Dashboard`, then enable **Xove Dashboard**.
-3. From now on every new Release is picked up automatically — BRAT notifies you about updates (or run **BRAT: Update plugins** / enable its auto-update).
-
-#### Upgrade from an older version (v0.2.x → 0.3.0)
-
-> Since 0.3.0 the plugin was renamed from `dashboard` to `xove-dashboard` (both the plugin ID and the install folder changed).
-
-The old version used a folder named `dashboard` or `agent-dashboard`; the new version uses `xove-dashboard`. Because the ID changed, settings are not carried over automatically.
-
-1. **Back up** your old plugin folder (including its `data.json`).
-2. Put the new `xove-dashboard/` folder into `.obsidian/plugins/`.
-3. *(Optional)* To keep your settings, copy the old `data.json` into the new `xove-dashboard/data.json`.
-4. In **Settings → Community plugins**, disable and remove the old `Dashboard`, then delete its old folder.
-5. Enable **Xove Dashboard**.
-
-### 📖 Quick Start
-
-1. **Set up your task system** — click **＋ New project** to create a project (e.g. Work / Study), set color, dates, and description. Enter "All projects", select it, click **＋ New task** (project auto-filled), and fill in name, priority, dates, type, reminder, tags, notes.
-2. **Bring the home to life** — capture ideas in the **Quick capture** box; mark today's tasks done in TODO (repeating tasks auto-advance); track progress with the ring charts and this-week/overdue cards.
-3. **See the big picture** — in "All projects", use Gantt for timeline, Calendar for scheduling, and Kanban for status flow. Drag to edit — changes write back to Markdown in real time.
-4. **Capture inspiration** — open "Inspirations", drop ideas into the Inbox, then drag them through Evaluating → In progress → Done.
-5. **Customize** — **Settings → Xove Dashboard**: language, home layout (long-press a card to edit), custom title, board stages, project pipeline stages, storage paths, and theme.
-
-### 🛠 Quick Reference
-
-| I want to… | How |
-| --- | --- |
-| New task | Toolbar **＋ New task** |
-| New project | Toolbar **＋ New project** |
-| Diary / capture | Toolbar **＋ New note** / Quick capture box |
-| Mark a task done | Click the circle before the task |
-| Edit a task | Click the task text / right-click → Edit |
-| Postpone a day | Right-click → Postpone one day |
-| Advance a repeating task | Click the circle |
-| Rearrange home layout | Long-press a card to enter edit mode |
-| Toggle theme | Top **☾** button |
-| Change plugin title | Settings → Plugin title |
-
-### 💡 FAQ
-
-**Where is my data stored?**
-As Markdown files (frontmatter) in your vault. No database, nothing external.
-
-**Is mobile supported?**
-Not yet — this plugin is desktop-only.
-
-**Can I rename the "Inspirations" board?**
-Yes. Settings → Board → Board name — change it to anything (Opportunities / Pipeline / Ideas…).
-
-**How many countdowns can I track?**
-Up to 5.
-
-**Does it phone home / collect data?**
-No. Zero network calls, zero telemetry — everything stays local.
-
-### 📄 Notes
-
-- Desktop only; not available on mobile.
-- Plugin ID: `xove-dashboard` · Version: 0.3.0 · Min Obsidian version: 1.8.0.
+[中文](#中文) · [English](#english)
 
 ---
 
 ## 中文
-
-[English](#english) · [中文](#中文)
 
 > 把 Obsidian 首页变成你的「个人工作控制台」——任务、项目、灵感、笔记统计、倒计时，一屏尽览。
 
@@ -285,3 +142,144 @@ Xove Dashboard 不是又一个任务清单插件，而是一套**以首页为核
 
 - **桌面端专用**：移动端不可用。
 - 插件 ID：`xove-dashboard` · 版本：0.3.0 · 最低 Obsidian 版本：1.8.0。
+
+---
+
+## English
+
+> Turn your Obsidian home tab into a **personal command center** — tasks, projects, inspiration, note stats, and countdowns, all on one screen.
+
+Xove Dashboard is more than another to-do list. It's a **home-tab-first personal work console** that turns your Obsidian home into a customizable dashboard, aggregating tasks, projects, an inspiration board, note activity, and important countdowns so you see the big picture the moment you open Obsidian.
+
+### ✨ Highlights
+
+- **Markdown at its core**: tasks, projects, and the board are stored as plain Markdown + YAML frontmatter. Your data stays yours — editable, portable, and backup-friendly.
+- **A real "home = command center"**: no pop-up dashboards. Greeting, TODO, weekly tasks, project progress, note heatmap, and countdowns all live on one canvas.
+- **Free home layout**: long-press a card to drag & reorder, resize width/height, add or remove modules, and reset the layout with one click — your home, your rules.
+- **Complete task model**: four-quadrant priorities, start/due dates, parent & child tasks, repeating tasks (auto-advance to the next reminder), a daily check-in axis, and overdue-on-top sorting.
+- **Four project views**: Gantt / list / calendar / kanban — the same project, four perspectives, cross-view linked highlights.
+- **Inspiration board**: a dedicated capture → evaluate → progress → archive workflow with star-marked importance and drag-to-change-stage.
+- **Multi-countdowns**: track up to 5 events at once (exam, launch, project milestone…) with live progress bars.
+- **Bilingual**: switch the interface between Chinese and English in one click.
+- **Dark / light themes**: follows Obsidian automatically, or force either mode with a finely tuned palette.
+- **Zero dependencies**: pure TypeScript + Obsidian API. No network calls, no telemetry, no data leaves your vault.
+
+### 📦 Feature Overview
+
+#### Home
+
+| Module | Description |
+| --- | --- |
+| **Top banner** | Upload a cover image and drag to adjust its vertical position |
+| **Vault Pulse** | Notes / pending / added-today / current streak, refreshed live |
+| **Quick capture** | Type and hit Enter to save a Markdown note instantly (template supported) |
+| **TODO** | Today's tasks, overdue pinned on top, sorted by priority |
+| **Progress** | Dual ring charts: today's completion + overall completion |
+| **This week & overdue** | This week's tasks plus a red overdue section, with colored urgency tags |
+| **Project pipeline** | Initiate → Plan → Develop → Test → Launch stage pipeline |
+| **Note stats** | GitHub-style 52-week activity heatmap |
+| **Countdown** | Up to 5 custom events with live progress bars |
+
+#### Project overview (click "All projects")
+
+- Draggable project sidebar (order persisted), right-click to edit/delete.
+- **Four views**: Gantt / list / calendar / kanban, with cross-view highlight linking.
+- **Gantt**: day / week / month / quarter zoom, drag bars to edit dates (edge or whole), parent-child indentation, today line, adjustable header-height divider.
+- **List**: column sorting, status filter, context menu.
+- **Calendar**: tasks rendered inside month-grid cells, drag to change date.
+- **Kanban**: To-do / In progress / Blocked / Done / Cancelled, cross-column drag updates status.
+
+#### Inspiration board (click "Inspirations")
+
+- A separate kanban workflow: **Inbox → Evaluating → In progress → Done / Dropped**.
+- Cross-column drag to change stage, star items as important, inline detail editing, and a list view.
+- All items live in a single Markdown file; a readable table projection is generated in the body.
+
+#### Task management
+
+- **Four-quadrant priority**: Urgent & important / Important, not urgent / Urgent, not important / Neither.
+- **Repeating tasks**: daily / workdays / weekly days / monthly date / custom interval; completion auto-advances to the next reminder.
+- **Parent & child tasks**: multi-level nesting with completion links.
+- **Daily check-in axis**: multi-day tasks show a per-day check-in axis in the detail modal, with a four-color status.
+- **Reminders**: on the day / 1 day / 3 days / 1 week before.
+- Tags, notes, postpone a day, mark done / postpone to today, and more.
+
+### 🚀 Installation
+
+#### First-time install
+
+1. Download `main.js`, `manifest.json`, `styles.css` from the latest Release.
+2. Create a folder `YourVault/.obsidian/plugins/xove-dashboard/` and put the three files inside:
+   ```
+   YourVault/.obsidian/plugins/xove-dashboard/
+       ├── main.js
+       ├── manifest.json
+       └── styles.css
+   ```
+3. Open Obsidian → **Settings → Community plugins**.
+4. Enable **Xove Dashboard**.
+
+> If it doesn't appear immediately, run **Reload app without saving** (`Ctrl+R`) from the command palette.
+
+#### Install & auto-update with BRAT
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from Obsidian's community plugins.
+2. Run **BRAT: Add a beta plugin for testing** from the command palette, enter `tingke/Xove-Dashboard`, then enable **Xove Dashboard**.
+3. From now on every new Release is picked up automatically — BRAT notifies you about updates (or run **BRAT: Update plugins** / enable its auto-update).
+
+#### Upgrade from an older version (v0.2.x → 0.3.0)
+
+> Since 0.3.0 the plugin was renamed from `dashboard` to `xove-dashboard` (both the plugin ID and the install folder changed).
+
+The old version used a folder named `dashboard` or `agent-dashboard`; the new version uses `xove-dashboard`. Because the ID changed, settings are not carried over automatically.
+
+1. **Back up** your old plugin folder (including its `data.json`).
+2. Put the new `xove-dashboard/` folder into `.obsidian/plugins/`.
+3. *(Optional)* To keep your settings, copy the old `data.json` into the new `xove-dashboard/data.json`.
+4. In **Settings → Community plugins**, disable and remove the old `Dashboard`, then delete its old folder.
+5. Enable **Xove Dashboard**.
+
+### 📖 Quick Start
+
+1. **Set up your task system** — click **＋ New project** to create a project (e.g. Work / Study), set color, dates, and description. Enter "All projects", select it, click **＋ New task** (project auto-filled), and fill in name, priority, dates, type, reminder, tags, notes.
+2. **Bring the home to life** — capture ideas in the **Quick capture** box; mark today's tasks done in TODO (repeating tasks auto-advance); track progress with the ring charts and this-week/overdue cards.
+3. **See the big picture** — in "All projects", use Gantt for timeline, Calendar for scheduling, and Kanban for status flow. Drag to edit — changes write back to Markdown in real time.
+4. **Capture inspiration** — open "Inspirations", drop ideas into the Inbox, then drag them through Evaluating → In progress → Done.
+5. **Customize** — **Settings → Xove Dashboard**: language, home layout (long-press a card to edit), custom title, board stages, project pipeline stages, storage paths, and theme.
+
+### 🛠 Quick Reference
+
+| I want to… | How |
+| --- | --- |
+| New task | Toolbar **＋ New task** |
+| New project | Toolbar **＋ New project** |
+| Diary / capture | Toolbar **＋ New note** / Quick capture box |
+| Mark a task done | Click the circle before the task |
+| Edit a task | Click the task text / right-click → Edit |
+| Postpone a day | Right-click → Postpone one day |
+| Advance a repeating task | Click the circle |
+| Rearrange home layout | Long-press a card to enter edit mode |
+| Toggle theme | Top **☾** button |
+| Change plugin title | Settings → Plugin title |
+
+### 💡 FAQ
+
+**Where is my data stored?**
+As Markdown files (frontmatter) in your vault. No database, nothing external.
+
+**Is mobile supported?**
+Not yet — this plugin is desktop-only.
+
+**Can I rename the "Inspirations" board?**
+Yes. Settings → Board → Board name — change it to anything (Opportunities / Pipeline / Ideas…).
+
+**How many countdowns can I track?**
+Up to 5.
+
+**Does it phone home / collect data?**
+No. Zero network calls, zero telemetry — everything stays local.
+
+### 📄 Notes
+
+- Desktop only; not available on mobile.
+- Plugin ID: `xove-dashboard` · Version: 0.3.0 · Min Obsidian version: 1.8.0.
